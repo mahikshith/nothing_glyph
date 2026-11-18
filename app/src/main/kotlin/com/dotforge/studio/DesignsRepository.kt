@@ -42,7 +42,24 @@ data class Design(
     val drawing: String? = null,
     /** Who made it, kept from Glyph Museum files and carried on in exports. */
     val author: String? = null,
+    /** The editor's trace photo: a guide under the grid, never in [frames] or on the Glyph. */
+    val trace: TracePhoto? = null,
 )
+
+/**
+ * A photo shown faintly under the editor's grid to draw over. Only the editor shows it: it is never sent to the
+ * Glyph, never drawn into frames and never exported. [file] is in the designs' media folder.
+ */
+@Serializable
+data class TracePhoto(val file: String, val opacity: Int = DEFAULT_OPACITY, val visible: Boolean = true) {
+    fun clamped() = copy(opacity = opacity.coerceIn(MIN_OPACITY, MAX_OPACITY))
+
+    companion object {
+        const val MIN_OPACITY = 10
+        const val MAX_OPACITY = 60
+        const val DEFAULT_OPACITY = 30
+    }
+}
 
 /**
  * The user's designs, newest first, in one JSON file. The DF Player toy, Always-on, alerts and people play
@@ -101,7 +118,7 @@ class DesignsRepository(private val profile: DeviceProfile, private val file: Fi
 
     /** Deletes a design; [keepMedia] keeps its photo while an Undo can still bring it back. */
     fun delete(id: String, keepMedia: Boolean = false) {
-        if (!keepMedia) get(id)?.photoFile?.let { File(media, it).delete() }
+        if (!keepMedia) get(id)?.let { d -> listOfNotNull(d.photoFile, d.trace?.file).forEach { File(media, it).delete() } }
         save(_designs.value.filterNot { it.id == id })
     }
 
@@ -126,7 +143,11 @@ class DesignsRepository(private val profile: DeviceProfile, private val file: Fi
             val copyName = "${UUID.randomUUID()}.png"
             runCatching { File(media, name).copyTo(File(media, copyName)); copyName }.getOrNull()
         }
-        val copy = d.copy(id = UUID.randomUUID().toString(), name = copyName(d.name), photoFile = photo, updatedAt = System.currentTimeMillis())
+        val trace = d.trace?.let { t ->
+            val copyName = "${UUID.randomUUID()}-trace.png"
+            runCatching { File(media, t.file).copyTo(File(media, copyName)); t.copy(file = copyName) }.getOrNull()
+        }
+        val copy = d.copy(id = UUID.randomUUID().toString(), name = copyName(d.name), photoFile = photo, trace = trace, updatedAt = System.currentTimeMillis())
         val list = _designs.value.toMutableList()
         list.add(list.indexOfFirst { it.id == id } + 1, copy)
         save(list)

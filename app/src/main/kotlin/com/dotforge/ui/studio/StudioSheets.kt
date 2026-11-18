@@ -58,6 +58,20 @@ import java.io.File
 object Picked {
     const val CANT_READ = "DotForge can't read this file. It opens images, GIFs, videos, Glyph Museum or Dot Hub designs and Glyph ringtones."
 
+    /** What Photo to dots makes of picked media: several photos, one photo, a GIF or a video; null for anything else. */
+    fun media(ctx: Context, uris: List<Uri>): MediaSource? {
+        if (uris.isEmpty()) return null
+        val types = uris.map { ctx.contentResolver.getType(it).orEmpty() }
+        if (uris.size > 1) return if (types.all { it.startsWith("image/") && it != "image/gif" }) MediaSource.Images(uris) else null
+        val type = types[0]
+        return when {
+            type == "image/gif" -> MediaSource.GifFile(uris[0])
+            type.startsWith("image/") -> MediaSource.Images(uris)
+            type.startsWith("video/") -> MediaSource.Video(uris[0])
+            else -> null
+        }
+    }
+
     /** Opens the right screen for [uris], or returns the message to show. */
     fun route(ctx: Context, nav: Nav, uris: List<Uri>): String? {
         if (uris.isEmpty()) return null

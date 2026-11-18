@@ -20,6 +20,8 @@ import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
 import com.dotforge.studio.Design
 import com.dotforge.studio.DesignKind
+import com.dotforge.studio.TracePhoto
+import java.io.File
 import java.util.UUID
 
 /** New designs that aren't saved yet (an import, a library pick, photo frames), handed to the editor by key. In memory only. */
@@ -86,6 +88,32 @@ class EditorSession(
     /** "Saved" / "Saving…" under the name. */
     var saving by mutableStateOf(false)
     private var savedEdits = doc.edits
+
+    /** The trace photo under the grid (a guide only: [visible] and [design] frames never include it). */
+    var trace by mutableStateOf(existing?.trace)
+        private set
+    private var savedTrace = existing?.trace
+    /** Trace photos replaced or removed in this session, kept until close so Undo can bring them back. */
+    private val oldTraces = HashSet<String>()
+
+    /** Sets, changes or removes the trace photo; saved with the design but not on the undo stack. */
+    fun changeTrace(t: TracePhoto?) {
+        trace?.file?.takeIf { it != t?.file }?.let { oldTraces += it }
+        trace = t?.clamped()
+        tick++
+    }
+
+    /**
+     * Photo to dots "Add as frame": [a]'s frames go in after the current frame as one undo step, and the first
+     * is selected. A single photo takes the current frame's time. Returns how many went in (0 at 300 frames).
+     */
+    fun addFrames(a: Animation): Int {
+        val add = if (a.frames.size == 1) Animation.single(a.frames[0].frame, doc.durations[doc.cur]) else a
+        val before = doc.size
+        edit { insertAfter(add) }
+        if (doc.size > before) animatedView = true
+        return doc.size - before
+    }
     var everSaved = existing != null
         private set
 
@@ -156,7 +184,7 @@ class EditorSession(
     }
 
     val hasDots: Boolean get() = doc.frames.any { f -> f.any { it > 0 } } || doc.layers != null
-    val dirty: Boolean get() = doc.edits != savedEdits
+    val dirty: Boolean get() = doc.edits != savedEdits || trace != savedTrace
 
     /** The saved form of the document. */
     fun design(): Design {
@@ -177,6 +205,7 @@ class EditorSession(
             layers = doc.layers,
             drawing = if (doc.layers != null) drawn.toMuseumJson() else null,
             author = author,
+            trace = trace,
         )
     }
 
@@ -188,6 +217,7 @@ class EditorSession(
         return try {
             AppGraph.designs.update(design())
             savedEdits = doc.edits
+            savedTrace = trace
             everSaved = true
             true
         } catch (t: Exception) {
@@ -199,7 +229,11 @@ class EditorSession(
 
     /** Close: saves, and drops a new design that was left with no lit dots. */
     fun close() {
-        if (isNew && !hasDots) AppGraph.designs.delete(designId) else save()
+        val dropped = isNew && !hasDots
+        if (dropped) AppGraph.designs.delete(designId) else save()
+        // trace photos that were replaced or removed, and a dropped new design's own
+        val keep = if (dropped) null else trace?.file
+        (oldTraces + listOfNotNull(trace?.file)).filter { it != keep }.forEach { File(AppGraph.designs.media, it).delete() }
         AppGraph.designs.endEditing()
         AppGraph.arbiter.remove(PHONE_ID)
     }

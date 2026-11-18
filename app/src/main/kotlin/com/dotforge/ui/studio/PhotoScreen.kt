@@ -272,12 +272,21 @@ object PhotoLoader {
 }
 
 /**
+ * Photo to dots opened from the editor ("Add as frame"): the result goes into the open design after frame
+ * [after] (0-based, the current frame) instead of becoming a new design. [onAdd] gets the frames; [onClose] leaves.
+ */
+class PhotoTarget(val after: Int, val onAdd: (Animation) -> Unit, val onClose: () -> Unit)
+
+/**
  * Photo to dots (production-design): full screen, no scroll. A big preview with the round LED mask (pinch and
  * drag to crop), tabs Crop · Style · Adjust, and Cancel / Animate / Edit / Save. Undo, Redo and Preview on Glyph
  * sit in the top bar. Several photos, a GIF or a video become frames and use the same panel.
  */
 @Composable
-fun PhotoScreen(key: String?, designId: String?, nav: Nav, startTab: PhotoTab = PhotoTab.STYLE, startLoad: PhotoLoad? = null, startAnimate: Boolean = false) {
+fun PhotoScreen(
+    key: String?, designId: String?, nav: Nav, startTab: PhotoTab = PhotoTab.STYLE, startLoad: PhotoLoad? = null, startAnimate: Boolean = false,
+    target: PhotoTarget? = null,
+) {
     val ctx = LocalContext.current
     val state by produceState(startLoad ?: PhotoLoad.Loading("Reading the photo…")) {
         if (startLoad != null) return@produceState
@@ -297,7 +306,7 @@ fun PhotoScreen(key: String?, designId: String?, nav: Nav, startTab: PhotoTab = 
             PhotoLoad.Failed(Picked.CANT_READ)
         }
     }
-    fun leave() { MediaDrafts.drop(key); nav.pop() }
+    fun leave() { MediaDrafts.drop(key); if (target != null) target.onClose() else nav.pop() }
     BackHandler(onBack = ::leave)
     UndoSnackbarHost {
         Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -319,7 +328,7 @@ fun PhotoScreen(key: String?, designId: String?, nav: Nav, startTab: PhotoTab = 
                         SecondaryButton("Close", Modifier.padding(top = Tokens.Section), onClick = ::leave)
                     }
                 }
-                is PhotoLoad.Ready -> PhotoEditor(st.session, nav, startTab, startAnimate, onLeave = ::leave, onDone = { MediaDrafts.drop(key) })
+                is PhotoLoad.Ready -> PhotoEditor(st.session, nav, startTab, startAnimate, target, onLeave = ::leave, onDone = { MediaDrafts.drop(key) })
             }
         }
     }
@@ -350,7 +359,9 @@ private fun BarIcon(icon: ImageVector, label: String, enabled: Boolean, onClick:
     }
 
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(s: PhotoSession, nav: Nav, startTab: PhotoTab, startAnimate: Boolean, onLeave: () -> Unit, onDone: () -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(
+    s: PhotoSession, nav: Nav, startTab: PhotoTab, startAnimate: Boolean, target: PhotoTarget?, onLeave: () -> Unit, onDone: () -> Unit,
+) {
     var tab by remember { mutableStateOf(startTab) }
     var control by remember { mutableStateOf(PhotoControl.BRIGHTNESS) }
     var glyph by remember { mutableStateOf(true) }
@@ -382,6 +393,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(s: PhotoS
     }
     fun edit(a: Animation) {
         onDone()
+        if (target != null) { target.onAdd(a); return }
         nav.pop()
         nav.push(Page.Editor(null, a.frames.size > 1, Drafts.put(s.name, a)))
     }
@@ -408,7 +420,12 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(s: PhotoS
                 else DotMatrix(result.frames[0].frame.pixels, p, Modifier.fillMaxSize().semantics { contentDescription = "${s.name} as dots" })
             }
             Text(
-                if (s.frames) "${result.frames.size} frames · ${StudioText.seconds(result.totalMs)}" else if (cropping) "Pinch and drag to frame it" else s.settings.style.label,
+                when {
+                    cropping && !s.frames -> "Pinch and drag to frame it"
+                    target != null -> if (s.frames) "${result.frames.size} frames go in after frame ${target.after + 1}" else "Goes in after frame ${target.after + 1}"
+                    s.frames -> "${result.frames.size} frames · ${StudioText.seconds(result.totalMs)}"
+                    else -> s.settings.style.label
+                },
                 style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.height(24.dp).padding(top = 4.dp),
             )
         }
@@ -426,10 +443,13 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(s: PhotoS
     Row(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = Tokens.Small), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Tiny)) {
         BarButton("Cancel", false, onClick = onLeave)
         if (!s.frames) BarButton("Animate", false) { animate = true }
-        BarButton("Edit", false) { edit(result) }
-        BarButton("Save", true) { save() }
+        if (target != null) BarButton(if (s.frames) "Add ${result.frames.size} frames" else "Add as frame", true) { edit(result) }
+        else {
+            BarButton("Edit", false) { edit(result) }
+            BarButton("Save", true) { save() }
+        }
     }
-    if (animate) AnimateSheet(s, onDismiss = { animate = false }, onEdit = { a -> animate = false; edit(a) })
+    if (animate) AnimateSheet(s, onDismiss = { animate = false }, adding = target != null, onEdit = { a -> animate = false; edit(a) })
 }
 
 private const val PHONE_ID = "photo"
@@ -572,7 +592,7 @@ private fun AdjustPanel(s: PhotoSession, control: PhotoControl, onControl: (Phot
 /** Animate: the photo moving (zoom, pan, fade in, reveal, pulse, glitch) as frames. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AnimateSheet(s: PhotoSession, onDismiss: () -> Unit, onEdit: (Animation) -> Unit) {
+private fun AnimateSheet(s: PhotoSession, onDismiss: () -> Unit, adding: Boolean = false, onEdit: (Animation) -> Unit) {
     var motion by remember { mutableStateOf(PhotoMotion.ZOOM) }
     var count by remember { mutableFloatStateOf(16f) }
     var ms by remember { mutableFloatStateOf(90f) }
@@ -591,6 +611,6 @@ private fun AnimateSheet(s: PhotoSession, onDismiss: () -> Unit, onEdit: (Animat
         Text("Each frame: ${ms.roundToInt()} ms", style = MaterialTheme.typography.bodyLarge)
         DotSlider("Frame time", ms, 40f..300f, readout = "${ms.roundToInt()} milliseconds") { ms = (it / 10).roundToInt() * 10f }
         if (motion == PhotoMotion.GLITCH && ms < 80) Hint("Flashes quickly")
-        PrimaryButton("Open in editor", Modifier.fillMaxWidth().padding(top = Tokens.Gap), enabled = a != null) { a?.let(onEdit) }
+        PrimaryButton(if (adding) "Add ${count.roundToInt()} frames" else "Open in editor", Modifier.fillMaxWidth().padding(top = Tokens.Gap), enabled = a != null) { a?.let(onEdit) }
     }
 }

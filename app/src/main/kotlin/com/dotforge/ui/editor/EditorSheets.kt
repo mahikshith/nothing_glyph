@@ -63,6 +63,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dotforge.AppGraph
+import androidx.compose.ui.draw.clip
+import com.dotforge.studio.TracePhoto
 import com.dotforge.device.Animation
 import com.dotforge.device.BackgroundEffect
 import com.dotforge.device.BackgroundLayer
@@ -405,10 +407,18 @@ fun PickDesignSheet(
     }
 }
 
-/** ⋮ > Insert from library: a still goes on top of this frame, an animation's frames go in after it. */
+/**
+ * ⋮ > Insert: a photo (Photo to dots, added as frames after this one), or a library design or one of yours (a still
+ * goes on top of this frame, an animation's frames go in after it).
+ */
 @Composable
-fun InsertSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
-    PickDesignSheet("Insert", onDismiss, exclude = s.designId) { name, a ->
+fun InsertSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?, onPhoto: () -> Unit = {}) {
+    PickDesignSheet(
+        "Insert", onDismiss, exclude = s.designId,
+        top = {
+            OptionRow("A photo, GIF or video", "Turned into dots, added after frame ${s.doc.cur + 1}", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) { onPhoto() }
+        },
+    ) { name, a ->
         onDismiss()
         if (a.frames.size == 1) {
             s.edit { stamp(a.frames[0].frame) }
@@ -603,6 +613,48 @@ fun LayerPanel(s: EditorSession, onEditText: () -> Unit, onChangeBackground: () 
                 }
             }
             Text("$value%", color = Tokens.Secondary, style = MaterialTheme.typography.bodySmall.capped(), maxLines = 1, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
+        }
+    }
+}
+
+// ---------------------------------------------------------------- trace photo
+
+/**
+ * ⋮ > Trace photo: a photo faintly under the grid to draw over. Only the editor shows it (never the Glyph, the
+ * frames or an export); it stays with the design. Opacity 10-60%, show or hide, change or remove.
+ */
+@Composable
+fun TraceSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?, onPick: () -> Unit) {
+    @Suppress("UNUSED_EXPRESSION") s.tick
+    val t = s.trace
+    var opacity by remember(t?.file) { mutableFloatStateOf((t?.opacity ?: TracePhoto.DEFAULT_OPACITY).toFloat()) }
+    FullSheet(onDismiss, "Trace photo", subtitle = "Only you see it") {
+        Hint("A photo under the grid to draw over. It never goes to the Glyph or into your frames.")
+        if (t == null) {
+            PrimaryButton("Choose a photo", Modifier.fillMaxWidth().padding(top = Tokens.Section), onClick = onPick)
+            return@FullSheet
+        }
+        val img = rememberTraceImage(t.file)
+        Box(
+            Modifier.padding(top = Tokens.Gap).size(96.dp).background(Tokens.Raised, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (img != null) androidx.compose.foundation.Image(
+                img, contentDescription = "The trace photo", contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+            )
+        }
+        com.dotforge.ui.design.SwitchRow("Show under the grid", null, t.visible, inset = 0.dp) { s.changeTrace(t.copy(visible = it)) }
+        SectionLabel("Opacity · ${opacity.roundToInt()}%")
+        DotSlider("Opacity", opacity, TracePhoto.MIN_OPACITY.toFloat()..TracePhoto.MAX_OPACITY.toFloat(), steps = 9, readout = "${opacity.roundToInt()}%") {
+            opacity = it
+            s.changeTrace(t.copy(opacity = it.roundToInt()))
+        }
+        OptionRow("Change photo…", null, Modifier.padding(top = Tokens.Gap)) { onPick() }
+        OptionRow("Remove trace photo", null, destructive = true) {
+            s.changeTrace(null)
+            onDismiss()
+            snacks?.show("Removed the trace photo") { s.changeTrace(t) }
         }
     }
 }

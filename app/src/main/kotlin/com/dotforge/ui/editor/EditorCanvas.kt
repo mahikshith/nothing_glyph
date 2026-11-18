@@ -33,6 +33,17 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import com.dotforge.AppGraph
 import com.dotforge.device.Draw
 import com.dotforge.device.EditorDoc
@@ -61,10 +72,14 @@ fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPi
     val pixels = s.visible()
     val prev = if (s.onion && !s.playing && s.doc.size > 1 && s.layer == LayerKind.DRAWING && s.doc.cur > 0) s.doc.frames[s.doc.cur - 1] else null
     val lit = pixels.count { it > 0 }
+    // the trace photo: drawn under the dots here only, never part of the frames or what the Glyph shows
+    val trace = s.trace?.takeIf { it.visible }
+    val traceImage = rememberTraceImage(trace?.file)
     val label = buildString {
         append("Dot editor")
         if (s.doc.size > 1) append(", frame ${s.doc.cur + 1} of ${s.doc.size}")
         append(", $lit of ${p.ledCount} dots lit")
+        if (trace != null) append(", trace photo under the grid")
     }
     Box(modifier.size(side), contentAlignment = Alignment.Center) {
         Canvas(
@@ -133,10 +148,23 @@ fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPi
         ) {
             val cell = size.width / n
             val r = cell * 0.4f
+            val tracing = trace != null && traceImage != null
+            if (tracing) {
+                val img = traceImage!!
+                val side = minOf(img.width, img.height)
+                clipPath(Path().apply { addOval(Rect(Offset.Zero, size)) }) {
+                    drawImage(
+                        img, srcOffset = IntOffset((img.width - side) / 2, (img.height - side) / 2), srcSize = IntSize(side, side),
+                        dstSize = IntSize(size.width.toInt(), size.height.toInt()), alpha = trace!!.opacity / 100f,
+                    )
+                }
+            }
+            // off dots let the trace photo show through
+            val off = if (tracing) Tokens.DotOff.copy(alpha = 0.45f) else Tokens.DotOff
             for (i in p.ledCells) {
                 val v = pixels[i]
                 val c = Offset((i % n + 0.5f) * cell, (i / n + 0.5f) * cell)
-                drawCircle(if (v == 0) Tokens.DotOff else Color.White.copy(alpha = 0.25f + 0.75f * v / 255f), r, c)
+                drawCircle(if (v == 0) off else Color.White.copy(alpha = 0.25f + 0.75f * v / 255f), r, c)
                 if (prev != null && v == 0 && prev[i] > 0) drawCircle(Color.White.copy(alpha = 0.3f), r * 0.85f, c, style = Stroke(width = cell * 0.09f))
             }
             if (s.layer == LayerKind.DRAWING && s.brush.mirror != Mirror.OFF && (s.tool == Tool.DRAW || s.tool == Tool.ERASE || s.tool == Tool.SHAPES)) {
@@ -159,6 +187,17 @@ fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPi
             ) { Text("Fit", color = Color.White) }
         }
     }
+}
+
+/** The trace photo [file] from the designs' media folder, decoded off the main thread; null while loading or if missing. */
+@Composable
+fun rememberTraceImage(file: String?): ImageBitmap? {
+    val img by produceState<ImageBitmap?>(null, file) {
+        value = if (file == null) null else withContext(Dispatchers.IO) {
+            runCatching { android.graphics.BitmapFactory.decodeFile(File(AppGraph.designs.media, file).path)?.asImageBitmap() }.getOrNull()
+        }
+    }
+    return img
 }
 
 private fun clampPan(o: Offset, zoom: Float, w: Float): Offset {

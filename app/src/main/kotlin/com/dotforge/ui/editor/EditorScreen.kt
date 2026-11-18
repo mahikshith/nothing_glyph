@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
@@ -104,9 +105,24 @@ import com.dotforge.ui.studio.RenameDialog
 import com.dotforge.ui.studio.ShareSheet
 import com.dotforge.ui.studio.StudioText
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import com.dotforge.studio.TracePhoto
+import com.dotforge.ui.studio.MediaDrafts
+import com.dotforge.ui.studio.MediaLoader
+import com.dotforge.ui.studio.MediaSource
+import com.dotforge.ui.studio.Picked
+import com.dotforge.ui.studio.PhotoLoader
+import com.dotforge.ui.studio.PhotoScreen
+import com.dotforge.ui.studio.PhotoTarget
 
 /** Sheets and menus over the editor (also how screenshots open them). */
-enum class EditorPanel { NONE, CLEAR, FRAME, TIMING, EFFECTS, MORE, SHADE, RENAME, SHARE, GUIDE, LAYERS, LAYER_TEXT, LAYER_BG, INSERT }
+enum class EditorPanel { NONE, CLEAR, FRAME, TIMING, EFFECTS, MORE, SHADE, RENAME, SHARE, GUIDE, LAYERS, LAYER_TEXT, LAYER_BG, INSERT, ADD_MENU, TRACE }
 
 /** What a test or a link starts the editor with. */
 class EditorStart(
@@ -118,6 +134,8 @@ class EditorStart(
     val playing: Boolean = false,
     /** Show on phone's state: null = the real one. */
     val phone: PhoneState? = null,
+    /** Opens Photo to dots on this media in "Add as frame" mode, as if just picked. */
+    val photo: MediaSource? = null,
     val prepare: (EditorSession) -> Unit = {},
 )
 
@@ -135,6 +153,9 @@ enum class PhoneState(val text: String) {
 fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav, start: EditorStart? = null) {
     val s = remember { EditorSession.open(designId, animated, Drafts.take(draft)) }
     var panel by remember { mutableStateOf(start?.panel ?: EditorPanel.NONE) }
+    // Photo to dots over the editor ("Add as frame"): picked media by key. It is not a page, so the open
+    // editor (and its undo) stays as it is underneath.
+    var photoKey by remember { mutableStateOf(start?.photo?.let { MediaDrafts.put(it) }) }
     val ctx = LocalContext.current
     val haptics = rememberHaptics()
     remember {
@@ -208,7 +229,31 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
 
     UndoSnackbarHost(above = bottomRows) {
         val snacks = rememberSnacks()
-        Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        val scope = rememberCoroutineScope()
+        val pickFrames = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+            if (uris.isEmpty()) return@rememberLauncherForActivityResult
+            val m = Picked.media(ctx, uris)
+            if (m == null) snacks?.show("Pick photos, one GIF or one video") else photoKey = MediaDrafts.put(m)
+        }
+        fun addPhoto() = pickFrames.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        val pickTrace = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            scope.launch {
+                val r = withContext(Dispatchers.IO) {
+                    runCatching { PhotoLoader.keep(MediaLoader.picture(ctx, uri, 900), "${java.util.UUID.randomUUID()}-trace") }
+                }
+                r.onSuccess { file ->
+                    val had = s.trace != null
+                    s.changeTrace(TracePhoto(file, s.trace?.opacity ?: TracePhoto.DEFAULT_OPACITY, visible = true))
+                    snacks?.show(if (had) "Changed the trace photo" else "Trace photo added. Only you see it.")
+                }.onFailure { snacks?.show("This photo can't be read. Try another one.") }
+            }
+        }
+        Column(
+            Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)
+                // under Photo to dots, the editor is hidden from TalkBack too
+                .then(if (photoKey != null) Modifier.clearAndSetSemantics { } else Modifier),
+        ) {
             TopBar(s, onClose = ::close, onDone = ::done, onRename = { panel = EditorPanel.RENAME })
             if (s.doc.layers != null) LayerStrip(s)
             // the matrix takes what the pinned rows leave, kept square
@@ -272,6 +317,7 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
                     when (item) {
                         MoreItem.ONION -> s.onion = !s.onion
                         MoreItem.LAYERS -> panel = EditorPanel.LAYERS
+                        MoreItem.TRACE -> panel = EditorPanel.TRACE
                         MoreItem.INSERT -> panel = EditorPanel.INSERT
                         MoreItem.SHARE -> { s.save(); panel = EditorPanel.SHARE }
                         MoreItem.DUPLICATE -> { s.save(); AppGraph.designs.duplicate(s.designId)?.let { snacks?.show("Made ${it.name}") } }
@@ -290,7 +336,18 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
             )
             if (strip) {
                 PlaybackRow(s)
-                FrameStrip(s, onFrameMenu = { panel = EditorPanel.FRAME }, onAdd = { copy ->
+                FrameStrip(
+                    s, onFrameMenu = { panel = EditorPanel.FRAME }, addMenu = panel == EditorPanel.ADD_MENU,
+                    onAddMenu = { panel = EditorPanel.ADD_MENU }, onAddMenuDismiss = { panel = EditorPanel.NONE },
+                    onAddChoice = { item ->
+                        panel = EditorPanel.NONE
+                        when (item) {
+                            AddItem.BLANK -> if (s.doc.canAddFrame) { s.edit { addBlank() }; haptics.confirm(); announce = "Frame ${s.doc.cur + 1} added" } else snacks?.show("Up to ${com.dotforge.device.EditorDoc.MAX_FRAMES} frames")
+                            AddItem.PHOTO -> if (s.doc.canAddFrame) addPhoto() else snacks?.show("Up to ${com.dotforge.device.EditorDoc.MAX_FRAMES} frames")
+                            AddItem.LIBRARY -> panel = EditorPanel.INSERT
+                        }
+                    },
+                    onAdd = { copy ->
                     val ok = s.doc.canAddFrame
                     val from = s.doc.cur + 1
                     if (ok) {
@@ -327,8 +384,34 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
             )
             EditorPanel.LAYER_TEXT -> TextLayerSheet(s) { panel = EditorPanel.NONE }
             EditorPanel.LAYER_BG -> BackgroundPickSheet(s, onDismiss = { panel = EditorPanel.NONE }, snacks = snacks)
-            EditorPanel.INSERT -> InsertSheet(s, onDismiss = { panel = EditorPanel.NONE }, snacks = snacks)
+            EditorPanel.INSERT -> InsertSheet(s, onDismiss = { panel = EditorPanel.NONE }, snacks = snacks, onPhoto = { panel = EditorPanel.NONE; addPhoto() })
+            EditorPanel.TRACE -> TraceSheet(
+                s, onDismiss = { panel = EditorPanel.NONE }, snacks = snacks,
+                onPick = { pickTrace.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            )
             else -> Unit
+        }
+        photoKey?.let { key ->
+            // takes every touch, so nothing reaches the editor underneath
+            Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } }) {
+            PhotoScreen(
+                key, null, nav,
+                target = PhotoTarget(
+                    after = s.doc.cur,
+                    onAdd = { a ->
+                        photoKey = null
+                        val from = s.doc.cur + 1
+                        val n = s.addFrames(a)
+                        if (n == 0) snacks?.show("Up to ${com.dotforge.device.EditorDoc.MAX_FRAMES} frames")
+                        else {
+                            haptics.confirm()
+                            snacks?.show(if (n == 1) "Added the photo as frame ${s.doc.cur + 1}" else "Added $n frames after frame $from") { s.edit { undo() } }
+                        }
+                    },
+                    onClose = { photoKey = null },
+                ),
+            )
+            }
         }
     }
 }
@@ -587,9 +670,12 @@ private fun RowScope.LabelledButton(icon: ImageVector, label: String, compact: B
 }
 
 enum class MoreItem(val label: String) {
-    ONION("Onion skin"), LAYERS("Layers…"), INSERT("Insert from library"), SHARE("Share…"), DUPLICATE("Duplicate design"),
+    ONION("Onion skin"), LAYERS("Layers…"), TRACE("Trace photo…"), INSERT("Insert: a design or photo…"), SHARE("Share…"), DUPLICATE("Duplicate design"),
     GUIDE("How animation works"), FLATTEN("Flatten to frames"), DELETE("Delete design"),
 }
+
+/** The frame strip's "+ Add" menu (row 17): a blank frame, a photo as a frame, or frames from the library. */
+enum class AddItem(val label: String) { BLANK("Blank frame"), PHOTO("Photo as a frame…"), LIBRARY("Frames from the library…") }
 
 @Composable
 private fun ActionsRow(
@@ -682,7 +768,10 @@ private fun Modifier.seekOnTap(onSeek: (Float) -> Unit): Modifier = this.pointer
 }
 
 @Composable
-private fun FrameStrip(s: EditorSession, onFrameMenu: () -> Unit, onAdd: (Boolean) -> Unit) {
+private fun FrameStrip(
+    s: EditorSession, onFrameMenu: () -> Unit, addMenu: Boolean, onAddMenu: () -> Unit, onAddMenuDismiss: () -> Unit,
+    onAddChoice: (AddItem) -> Unit, onAdd: (Boolean) -> Unit,
+) {
     @Suppress("UNUSED_EXPRESSION") s.tick
     val list = rememberLazyListState()
     LaunchedEffect(s.doc.cur, s.doc.size) { if (!s.playing) list.animateScrollToItem(s.doc.cur.coerceAtLeast(0)) }
@@ -723,17 +812,25 @@ private fun FrameStrip(s: EditorSession, onFrameMenu: () -> Unit, onAdd: (Boolea
                 }
             }
         }
-        // + Copy and + Blank, pinned right (row 17)
+        // + Copy, and + Add (blank, a photo, the library), pinned right (row 17)
         AddTile("+ Copy", s.doc.canAddFrame) { onAdd(true) }
-        AddTile("+ Blank", s.doc.canAddFrame) { onAdd(false) }
+        Box {
+            AddTile("+ Add", s.doc.canAddFrame, description = "Add a frame: blank, a photo or from the library") { onAddMenu() }
+            DropdownMenu(expanded = addMenu, onDismissRequest = onAddMenuDismiss, containerColor = Tokens.Raised) {
+                AddItem.entries.forEach { item ->
+                    DropdownMenuItem(text = { Text(item.label) }, onClick = { onAddChoice(item) }, modifier = Modifier.heightIn(min = Tokens.Target))
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun AddTile(label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun AddTile(label: String, enabled: Boolean, description: String? = null, onClick: () -> Unit) {
     Box(
         Modifier.padding(start = 4.dp).size(width = 56.dp, height = 56.dp).background(Color.White.copy(alpha = if (enabled) 1f else DISABLED_ALPHA), RoundedCornerShape(10.dp))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Color.Black, style = MaterialTheme.typography.labelMedium.capped(), textAlign = TextAlign.Center, maxLines = 2) }
 }
