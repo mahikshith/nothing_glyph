@@ -16,6 +16,11 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
+import androidx.compose.foundation.layout.padding
+import com.dotforge.device.Picture
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import com.dotforge.AppGraph
@@ -80,6 +85,11 @@ import kotlin.math.sin
 /** Every screen and state of Studio: the grid, + New, the editor, Text, Photo to dots and the ringtone screen. */
 abstract class StudioScreens : ScreenshotTest() {
     private val f = "studio"
+
+    init {
+        // Text and Photo show their Glyph toggle live, as on a Phone (3)
+        com.dotforge.ui.editor.GlyphStateForTests.forced = PhoneState.ON
+    }
     private val p get() = AppGraph.profile
 
     /** [n] designs from the library, newest first; returns them. */
@@ -125,11 +135,39 @@ abstract class StudioScreens : ScreenshotTest() {
         rule.waitForIdle()
     }
 
-    private fun studio(nav: Nav = Nav(Tab.STUDIO), start: StudioSheet? = null, over: (@androidx.compose.runtime.Composable () -> Unit)? = null) = show {
+    /** Studio as the app shows it: the tab's list over the bottom bar. */
+    private fun studio(nav: Nav = Nav(Tab.STUDIO), start: StudioSheet? = null, playing: String? = null, over: (@androidx.compose.runtime.Composable () -> Unit)? = null) = show {
         UndoSnackbarHost(bottomBar = true) {
-            StudioScreen(nav, rememberLazyListState(), start)
+            androidx.compose.material3.Scaffold(containerColor = Tokens.Background, bottomBar = { com.dotforge.ui.BottomBar(Tab.STUDIO) {} }) { pad ->
+                androidx.compose.foundation.layout.Box(Modifier.padding(pad)) { StudioScreen(nav, rememberLazyListState(), start, playing) }
+            }
             over?.invoke()
         }
+    }
+
+    /** A real test photo (CC0 / public domain, see NOTICE) from core-device's test resources. */
+    private fun testPhoto(name: String): Picture {
+        val bmp = javaClass.getResourceAsStream("/photos/$name.jpg")!!.use { android.graphics.BitmapFactory.decodeStream(it) }
+        val argb = IntArray(bmp.width * bmp.height)
+        bmp.getPixels(argb, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+        return Picture(bmp.width, bmp.height, argb)
+    }
+
+    /** The saved-ringtones list without MediaStore: a fake library with three ringtones. */
+    private class FakeRingtones(ctx: android.content.Context, private val list: List<com.dotforge.ringtones.SavedRingtone>) : com.dotforge.ringtones.RingtoneLibrary(ctx) {
+        override fun refresh() { _items.value = list }
+    }
+
+    private fun seedRingtones(): List<com.dotforge.ringtones.SavedRingtone> {
+        val list = listOf("Sunflower" to 30_000L, "Morning run" to 18_500L, "Lo-fi bells" to 42_000L).mapIndexed { i, (t, ms) ->
+            com.dotforge.ringtones.SavedRingtone(android.net.Uri.parse("content://media/external/audio/media/${100 + i}"), t, ms)
+        }
+        AppGraph.ringtones = FakeRingtones(activity, list).also { it.refresh() }
+        return list
+    }
+
+    private fun stroke() = rule.onNode(androidx.compose.ui.test.hasContentDescription("Dot editor", substring = true)).performTouchInput {
+        swipe(androidx.compose.ui.geometry.Offset(width * 0.3f, height * 0.45f), androidx.compose.ui.geometry.Offset(width * 0.7f, height * 0.55f), durationMillis = 300)
     }
 
     private fun editor(d: Design?, start: EditorStart = EditorStart(phone = PhoneState.ON), animated: Boolean = false) =
@@ -178,7 +216,10 @@ abstract class StudioScreens : ScreenshotTest() {
 
     @Test fun studioUseFor() {
         val ds = seed(3)
-        studio(start = StudioSheet.UseFor(ds[0].id, fresh = true))
+        // WhatsApp already shows this design (ticked); Gmail doesn't
+        AppGraph.rules.upsert(SimpleRules.newApp("com.whatsapp", "WhatsApp", GlyphChoice(GlyphStyle.DESIGN, ds[0].id)).copy(id = "wa"))
+        AppGraph.rules.upsert(SimpleRules.newApp("com.google.android.gm", "Gmail").copy(id = "gm"))
+        studio(start = StudioSheet.UseFor(ds[0].id))
         capture(f, "08-studio-use-for")
     }
 
@@ -213,8 +254,25 @@ abstract class StudioScreens : ScreenshotTest() {
     }
 
     @Test fun studioRingtonesGetMore() {
-        studio(start = StudioSheet.GetMore)
-        capture(f, "15-get-more-ringtones")
+        val nav = Nav(Tab.STUDIO)
+        studio(over = { com.dotforge.ui.GetMoreSheet(nav, onDismiss = {}, load = { kotlinx.coroutines.awaitCancellation() }) })
+        capture(f, "15-get-more-loading")
+        studio(over = { com.dotforge.ui.GetMoreSheet(nav, onDismiss = {}, load = { throw java.io.IOException("offline") }) })
+        capture(f, "15b-get-more-error-retry")
+        val c = com.dotforge.ringtones.RingtoneCatalog.COLLECTIONS[0]
+        val files = listOf("Bounce", "Night drive", "Chime").mapIndexed { i, n -> com.dotforge.ringtones.CatalogFile("$n.ogg", "demo", 40_000L + i * 9_000, "") }
+        studio(over = { com.dotforge.ui.GetMoreSheet(nav, onDismiss = {}, load = { listOf(com.dotforge.ringtones.CatalogResult.Files(c, "MIT", files)) }) })
+        capture(f, "15c-get-more-list")
+    }
+
+    @Test fun studioRingtoneList() {
+        val list = seedRingtones()
+        seed(2)
+        studio(playing = list[0].uri.toString())
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Get more ringtones"))
+        capture(f, "16-studio-ringtones-playing")
+        studio(start = StudioSheet.SetAs(list[1].uri.toString(), list[1].title))
+        capture(f, "17-ringtone-set-as")
     }
 
     // ---------------------------------------------------------------- editor
@@ -284,7 +342,7 @@ abstract class StudioScreens : ScreenshotTest() {
 
     @Test fun editorPhoneStates() {
         val d = still()
-        listOf(PhoneState.OFF to "40", PhoneState.BUSY to "41", PhoneState.FACE_DOWN to "42", PhoneState.NOT_PHONE3 to "43").forEach { (ph, n) ->
+        listOf(PhoneState.OFF to "40", PhoneState.TORCH to "41", PhoneState.BUSY to "41b", PhoneState.FACE_DOWN to "42", PhoneState.NOT_PHONE3 to "43").forEach { (ph, n) ->
             editor(d, EditorStart(phone = ph, prepare = { s -> if (ph == PhoneState.OFF) s.showOnPhone = false }))
             capture(f, "$n-editor-phone-${ph.name.lowercase().replace('_', '-')}")
         }
@@ -315,11 +373,11 @@ abstract class StudioScreens : ScreenshotTest() {
         editor(d, EditorStart(EditorPanel.INSERT, phone = PhoneState.ON, prepare = { it.select(2) }))
         capture(f, "81-editor-insert-photo")
         var session: com.dotforge.ui.editor.EditorSession? = null
-        val beach = com.dotforge.ui.studio.MediaSource.Pictures(listOf(PhotoDots.samplePicture(200, 150)), "Beach")
+        val beach = com.dotforge.ui.studio.MediaSource.Pictures(listOf(testPhoto("landscape")), "Landscape")
         editor(d, EditorStart(phone = PhoneState.ON, photo = beach, prepare = { it.select(2); session = it }))
         settle()
         capture(f, "82-editor-photo-add-as-frame")
-        val trip = com.dotforge.ui.studio.MediaSource.Pictures(List(3) { PhotoDots.samplePicture(160 + it * 20, 120) }, "Trip")
+        val trip = com.dotforge.ui.studio.MediaSource.Pictures(listOf("face", "pet", "landscape").map(::testPhoto), "Trip")
         editor(d, EditorStart(phone = PhoneState.ON, photo = trip, prepare = { it.select(2) }))
         settle()
         capture(f, "83-editor-photos-add-frames")
@@ -336,7 +394,7 @@ abstract class StudioScreens : ScreenshotTest() {
         val d = still()
         editor(d, EditorStart(EditorPanel.TRACE, phone = PhoneState.ON))
         capture(f, "85-editor-trace-choose")
-        val file = com.dotforge.ui.studio.PhotoLoader.keep(PhotoDots.samplePicture(300, 300), "shot-trace")
+        val file = com.dotforge.ui.studio.PhotoLoader.keep(testPhoto("pet"), "shot-trace")
         val traced = d.copy(trace = com.dotforge.studio.TracePhoto(file, opacity = 45)).also { AppGraph.designs.update(it) }
         editor(traced)
         settle()
@@ -346,6 +404,44 @@ abstract class StudioScreens : ScreenshotTest() {
         capture(f, "87-editor-trace-sheet")
         editor(traced, EditorStart(EditorPanel.MORE, phone = PhoneState.ON))
         capture(f, "88-editor-more-trace")
+    }
+
+    // ---------------------------------------------------------------- Undo proof, zoom, brush
+
+    @Test fun editorUndoProof() {
+        val blank = Design(name = "Blank", animated = false, frames = Animation.single(Frame.blank(p), 1000).toMuseumJson()).also { AppGraph.designs.save(it) }
+        editor(blank)
+        stroke()
+        capture(f, "89-editor-undo-after-stroke")
+        rule.onNodeWithContentDescription("Undo").performClick()
+        capture(f, "90-editor-redo-after-undo")
+        val d = animation()
+        editor(d, EditorStart(phone = PhoneState.ON, prepare = { it.select(2) }))
+        rule.onNodeWithContentDescription("Clear", substring = true).performClick()
+        rule.onNodeWithText("Clear frame 3").performClick()
+        capture(f, "91-editor-cleared-frame-3")
+        stroke()
+        capture(f, "92-editor-drawing-after-clear")
+        editor(d, EditorStart(phone = PhoneState.ON, prepare = { it.select(2) }))
+        rule.onNodeWithContentDescription("Clear", substring = true).performClick()
+        rule.onNodeWithText("Clear all", substring = true).performClick()
+        capture(f, "93-editor-cleared-all-frames")
+    }
+
+    @Test fun editorZoomAndBrush() {
+        val d = still()
+        editor(d, EditorStart(phone = PhoneState.ON, prepare = { it.zoom = 2.5f; it.pan = androidx.compose.ui.geometry.Offset(-60f, -40f) }))
+        capture(f, "94-editor-zoomed")
+        editor(d, EditorStart(EditorPanel.BRUSH, phone = PhoneState.ON))
+        capture(f, "95-editor-brush-menu")
+        editor(d, EditorStart(phone = PhoneState.ON, brush = Brush(mode = com.dotforge.device.BrushMode.DIM)))
+        stroke()
+        capture(f, "96-editor-dim-in-use")
+        editor(d, EditorStart(phone = PhoneState.ON, brush = Brush(mode = com.dotforge.device.BrushMode.BRIGHTEN, value = 255)))
+        capture(f, "97-editor-brighten-chosen")
+        val a = animation()
+        editor(a, EditorStart(EditorPanel.EFFECTS, phone = PhoneState.ON, prepare = { it.select(2) }))
+        capture(f, "98-editor-effects-apply-to")
     }
 
     // ---------------------------------------------------------------- Text
@@ -386,41 +482,60 @@ abstract class StudioScreens : ScreenshotTest() {
         val spec = TextSpec("GN", band = TextBand.BOTTOM)
         val d = textDesign(spec, Layers(BackgroundLayer(bg.toMuseumJson(), "Moon", BackgroundEffect.PLAY), TextLayer(spec)))
         show { TextScreen(d.id, null, Nav(Tab.STUDIO)) }
-        textColumn().performScrollToNode(hasText("Behind the words"))
+        textColumn().performScrollToNode(hasText("Behind the text"))
         settle()
         capture(f, "54-text-background")
         show { TextScreen(d.id, null, Nav(Tab.STUDIO), TextPanel.MENU) }
         capture(f, "55-text-menu")
         show { TextScreen(d.id, null, Nav(Tab.STUDIO), TextPanel.TIMING) }
         capture(f, "56-text-timing")
+        show { TextScreen(d.id, null, Nav(Tab.STUDIO)) }
+        rule.onNode(hasSetTextAction()).performTextInput("!")
+        rule.mainClock.advanceTimeBy(1_000)
+        settle()
+        capture(f, "58-text-undo-after-typing")
         show { TextScreen(d.id, null, Nav(Tab.STUDIO), TextPanel.BACKGROUND) }
         capture(f, "57-text-background-picker")
     }
 
     // ---------------------------------------------------------------- Photo
 
-    private fun photo(n: Int = 1) = PhotoSession(p, if (n == 1) "Beach" else "Trip", List(n) { PhotoDots.samplePicture(160 + it * 20, 120) }, List(n) { if (n == 1) 1000 else 500 })
+    /** Real photos: a face (zoomed on it), a pet, a logo with text and a landscape. */
+    private fun photo(name: String, settings: com.dotforge.device.PhotoSettings = com.dotforge.device.PhotoSettings()) =
+        PhotoSession(p, name.replaceFirstChar { it.uppercase() }, listOf(testPhoto(name)), listOf(1000), settings)
+
+    private val onFace = com.dotforge.device.PhotoSettings(crop = com.dotforge.device.PhotoCrop(zoom = 1.8f, cx = 0.52f, cy = 0.33f))
+
+    private fun photos() = PhotoSession(p, "Trip", listOf("face", "pet", "landscape").map(::testPhoto), List(3) { 500 })
 
     @Test fun photoTabs() {
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo())) }
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("face", onFace))) }
         settle()
-        capture(f, "60-photo-style")
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.CROP, PhotoLoad.Ready(photo())) }
-        capture(f, "61-photo-crop")
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.ADJUST, PhotoLoad.Ready(photo())) }
-        capture(f, "62-photo-adjust")
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo()), startAnimate = true) }
+        capture(f, "60-photo-style-face")
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("logo", com.dotforge.device.PhotoSettings(style = com.dotforge.device.PhotoStyle.TONES2)))) }
+        settle()
+        capture(f, "60b-photo-style-logo")
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.CROP, PhotoLoad.Ready(photo("pet"))) }
+        settle()
+        capture(f, "61-photo-crop-pet")
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.ADJUST, PhotoLoad.Ready(photo("landscape"))) }
+        settle()
+        capture(f, "62-photo-adjust-landscape")
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("face", onFace)), startAnimate = true) }
         settle()
         capture(f, "63-photo-animate")
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo(3))) }
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photos())) }
         settle()
         capture(f, "64-photo-frames")
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.FRAMES, PhotoLoad.Ready(photos())) }
+        settle()
+        capture(f, "64b-photo-frames-list")
     }
 
     @Test fun photoLoading() {
         show { PhotoScreen(null, null, Nav(Tab.STUDIO), startLoad = PhotoLoad.Loading("Converting… 12 of 48 frames", 0.25f)) }
         capture(f, "65-photo-converting-gif")
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), startLoad = PhotoLoad.Failed("This GIF can't be read. Try another file.")) }
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), startLoad = PhotoLoad.Failed("This GIF can't be read.")) }
         capture(f, "66-photo-cant-read")
     }
 
@@ -444,11 +559,11 @@ abstract class StudioScreens : ScreenshotTest() {
     )
 
     private fun ready(ui: RingtoneUi, menu: Boolean = false, flip: Boolean = false) = ringtonePage {
-        RingtoneReady(ui, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, startMenu = menu, startFlip = flip)
+        RingtoneReady(ui, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, startMenu = menu, startFlip = flip, onEditLights = {})
     }
 
     @Test fun ringtoneStates() {
-        ringtonePage { RingtoneLoading {} }
+        ringtonePage { RingtoneLoading(0.4f) {} }
         capture(f, "70-ringtone-finding-the-beat")
         ringtonePage { RingtoneFailed({}, {}) }
         capture(f, "71-ringtone-cant-read")
@@ -460,6 +575,9 @@ abstract class StudioScreens : ScreenshotTest() {
         capture(f, "74-ringtone-save-and-set")
         ready(song(ImportKind.Phone3(emptyList())))
         capture(f, "75-ringtone-glyph-file")
+        ready(song())
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Edit lights"))
+        capture(f, "76-ringtone-sync-and-edit-lights")
     }
 }
 
