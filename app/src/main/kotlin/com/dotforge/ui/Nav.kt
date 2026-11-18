@@ -52,6 +52,12 @@ sealed interface Page {
     data object Profile : Page
     /** The editor; a new design starts from [draft] (a key into [com.dotforge.ui.editor.Drafts]) when given. */
     data class Editor(val designId: String?, val animated: Boolean, val draft: String? = null) : Page
+    /** The Text screen for a saved text design, or a new one (optionally with [text] to start from). */
+    data class TextDesign(val designId: String?, val text: String? = null) : Page
+    /** Photo to dots: picked media ([key] into [com.dotforge.ui.studio.MediaDrafts]) or a saved photo design. */
+    data class Photo(val key: String?, val designId: String? = null) : Page
+    /** The Glyph ringtone screen for a song or Glyph ringtone file. */
+    data class GlyphRingtone(val uri: String) : Page
     /** The animation library (Studio > New > From the library). */
     data object Library : Page
     /** Profile > Backup and restore. */
@@ -108,6 +114,10 @@ private fun Page.encode(): String = when (this) {
     is Page.OldTab -> "oldtab:$key"
     is Page.Feature -> "feature:$key"
     is Page.Editor -> "editor:$animated:${designId.orEmpty()}"
+    is Page.TextDesign -> "text:${designId.orEmpty()}"
+    // picked media lives in memory: after a restart the photo screen opens the saved design, or nothing
+    is Page.Photo -> "photo:${designId.orEmpty()}"
+    is Page.GlyphRingtone -> "glyphringtone:$uri"
     Page.Notifications -> "notifications"
     Page.Calls -> "calls"
     Page.Spam -> "spam"
@@ -141,6 +151,9 @@ private fun decode(s: String): Page? {
         "feature" -> parts.getOrNull(1)?.let(Page::Feature)
         // a draft lives in memory only: after a restart the editor opens the saved design, or a blank one
         "editor" -> Page.Editor(parts.getOrNull(2)?.ifEmpty { null }, parts.getOrNull(1) == "true")
+        "text" -> Page.TextDesign(s.removePrefix("text:").ifEmpty { null })
+        "photo" -> s.removePrefix("photo:").ifEmpty { null }?.let { Page.Photo(null, it) }
+        "glyphringtone" -> s.removePrefix("glyphringtone:").ifEmpty { null }?.let(Page::GlyphRingtone)
         "notifications" -> Page.Notifications
         "calls" -> Page.Calls
         "spam" -> Page.Spam
@@ -170,6 +183,9 @@ class Nav(tab: Tab = Tab.HOME, stacks: Map<Tab, List<Page>> = emptyMap()) {
      * other tabs (Home's spam line, Profile > Help) and consumed by the Alerts screen.
      */
     var alertsRequest by mutableStateOf<String?>(null)
+
+    /** A request for the Studio tab: "usefor:<design id>" after Done on a new design. */
+    var studioRequest by mutableStateOf<String?>(null)
 
     /** Alerts > History, optionally filtered ("blocked", "skipped"). */
     fun showHistory(filter: String? = null) {

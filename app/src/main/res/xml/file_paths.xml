@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Files DotForge hands to other apps: shared designs (GIF, PNG, JSON) and full-size camera photos. -->
+<paths>
+    <cache-path name="share" path="share/" />
+    <cache-path name="camera" path="camera/" />
+</paths>

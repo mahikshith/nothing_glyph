@@ -891,11 +891,11 @@ class Snacks(private val host: SnackbarHostState, private val scope: CoroutineSc
     /** True while a snackbar shows: lists add room under their last row ([Screen], [Page]). */
     val visible: Boolean get() = host.currentSnackbarData != null
 
-    fun show(message: String, undo: (() -> Unit)? = null) {
+    fun show(message: String, action: String = "Undo", undo: (() -> Unit)? = null) {
         scope.launch {
             host.currentSnackbarData?.dismiss()
             val job = launch {
-                val r = host.showSnackbar(message, actionLabel = if (undo != null) "Undo" else null, duration = SnackbarDuration.Indefinite)
+                val r = host.showSnackbar(message, actionLabel = if (undo != null) action else null, duration = SnackbarDuration.Indefinite)
                 if (r == SnackbarResult.ActionPerformed) undo?.invoke()
             }
             delay(timeoutMs)
@@ -922,7 +922,7 @@ val LocalSnacks = compositionLocalOf<Snacks?> { null }
  * bottom bar when [bottomBar] is showing.
  */
 @Composable
-fun UndoSnackbarHost(modifier: Modifier = Modifier, bottomBar: Boolean = false, fill: Boolean = true, content: @Composable () -> Unit) {
+fun UndoSnackbarHost(modifier: Modifier = Modifier, bottomBar: Boolean = false, fill: Boolean = true, above: Dp = 0.dp, content: @Composable () -> Unit) {
     val host = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -930,7 +930,7 @@ fun UndoSnackbarHost(modifier: Modifier = Modifier, bottomBar: Boolean = false, 
     CompositionLocalProvider(LocalSnacks provides snacks) {
         Box(if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
             content()
-            SnackbarHost(host, modifier.align(Alignment.BottomCenter).then(if (fill) Modifier.navigationBarsPadding() else Modifier).padding(bottom = (if (bottomBar) Tokens.BottomBar else 0.dp) + Tokens.Gutter)) { data ->
+            SnackbarHost(host, modifier.align(Alignment.BottomCenter).then(if (fill) Modifier.navigationBarsPadding() else Modifier).padding(bottom = (if (bottomBar) Tokens.BottomBar else 0.dp) + above + Tokens.Gutter)) { data ->
                 androidx.compose.material3.Snackbar(
                     data,
                     containerColor = Color.White,
