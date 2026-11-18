@@ -39,6 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -99,6 +100,7 @@ import com.dotforge.ui.design.PrimaryButton
 import com.dotforge.ui.design.SecondaryButton
 import com.dotforge.ui.design.Segmented
 import com.dotforge.ui.design.Tokens
+import com.dotforge.ui.design.capped
 import com.dotforge.ui.design.UndoSnackbarHost
 import com.dotforge.ui.editor.Drafts
 import com.dotforge.ui.editor.OptionChip
@@ -327,7 +329,7 @@ fun PhotoScreen(key: String?, designId: String?, nav: Nav, startTab: PhotoTab = 
 private fun PhotoTopBar(s: PhotoSession?, onClose: () -> Unit, glyph: Boolean = false, onGlyph: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = Color.White) }
-        Text(s?.name ?: "Photo", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Tokens.Tiny))
+        Text(s?.name ?: "Photo", style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Tokens.Tiny))
         if (s != null) {
             @Suppress("UNUSED_EXPRESSION") s.version
             BarIcon(DfIcons.Undo, "Undo", s.canUndo) { s.undo() }
@@ -407,7 +409,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(s: PhotoS
             }
             Text(
                 if (s.frames) "${result.frames.size} frames · ${StudioText.seconds(result.totalMs)}" else if (cropping) "Pinch and drag to frame it" else s.settings.style.label,
-                style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 1, modifier = Modifier.height(24.dp).padding(top = 4.dp),
+                style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.height(24.dp).padding(top = 4.dp),
             )
         }
     }
@@ -433,13 +435,13 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(s: PhotoS
 private const val PHONE_ID = "photo"
 private val PANEL = 132.dp
 
-/** A bottom-bar button: equal widths, its label capped at 1.3x font so all four fit at any size. */
+/** A bottom-bar button: widths follow the labels (so "Animate" fits at 360 dp), labels capped at 1.3x font. */
 @Composable
 private fun RowScope.BarButton(label: String, primary: Boolean, onClick: () -> Unit) {
     val fs = LocalDensity.current.fontScale
     val style = MaterialTheme.typography.labelLarge.let { it.copy(fontSize = it.fontSize * (minOf(fs, 1.3f) / fs)) }
     Button(
-        onClick = onClick, modifier = Modifier.weight(1f).heightIn(min = Tokens.Target),
+        onClick = onClick, modifier = Modifier.weight(label.length + 3f).heightIn(min = Tokens.Target),
         colors = ButtonDefaults.buttonColors(containerColor = if (primary) Tokens.Accent else if (label == "Cancel") Color.Transparent else Tokens.Raised, contentColor = Color.White),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
     ) { Text(label, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -458,9 +460,9 @@ private fun CropPanel(s: PhotoSession) {
             OptionChip("Fit", "Fit the whole photo", selected = c.fit) { crop(c.copy(fit = true)) }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = Tokens.Gutter, vertical = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
-            Text("Zoom ${"%.1f".format(c.zoom)}x", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(88.dp))
+            Text("Zoom ${"%.1f".format(c.zoom)}x", style = MaterialTheme.typography.bodyMedium.capped(), maxLines = 1, modifier = Modifier.width(96.dp))
             Box(Modifier.weight(1f)) { DotSlider("Zoom", c.zoom, 1f..8f, readout = "${"%.1f".format(c.zoom)}x") { s.set(s.settings.copy(crop = c.copy(zoom = it)), key = "zoom") } }
-            androidx.compose.material3.TextButton(onClick = { crop(PhotoCrop()) }, enabled = c != PhotoCrop()) { Text("Reset", color = if (c != PhotoCrop()) Color.White else Color.White.copy(alpha = DISABLED_ALPHA)) }
+            androidx.compose.material3.TextButton(onClick = { crop(PhotoCrop()) }, enabled = c != PhotoCrop()) { Text("Reset", style = LocalTextStyle.current.capped(), color = if (c != PhotoCrop()) Color.White else Color.White.copy(alpha = DISABLED_ALPHA)) }
         }
     }
 }
@@ -530,7 +532,7 @@ private fun AdjustPanel(s: PhotoSession, control: PhotoControl, onControl: (Phot
                         PhotoControl.THRESHOLD -> st.style in setOf(PhotoStyle.TONES2, PhotoStyle.SILHOUETTE, PhotoStyle.OUTLINE_FILL, PhotoStyle.POP)
                         else -> true
                     }
-                    Text(if (value > 0 && range.first < 0) "+$value" else "$value", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.width(48.dp))
+                    Text(if (value > 0 && range.first < 0) "+$value" else "$value", style = MaterialTheme.typography.bodyLarge.capped(), maxLines = 1, modifier = Modifier.width(48.dp))
                     Box(Modifier.weight(1f).then(if (usable) Modifier else Modifier.background(Color.Transparent))) {
                         DotSlider(control.label, value.toFloat(), range.first.toFloat()..range.last.toFloat(), readout = "$value", mark = if (range.first < 0) 0f else null) { v ->
                             val n = v.roundToInt()
@@ -553,7 +555,7 @@ private fun AdjustPanel(s: PhotoSession, control: PhotoControl, onControl: (Phot
                 PhotoControl.BACKGROUND -> st.copy(background = d.background); PhotoControl.INVERT -> st.copy(invert = d.invert)
             }
             androidx.compose.material3.TextButton(onClick = { s.set(reset) }, enabled = reset != st, modifier = Modifier.semantics { contentDescription = "Reset ${control.label.lowercase()}" }) {
-                Text("Reset", color = if (reset != st) Color.White else Color.White.copy(alpha = DISABLED_ALPHA))
+                Text("Reset", style = LocalTextStyle.current.capped(), color = if (reset != st) Color.White else Color.White.copy(alpha = DISABLED_ALPHA))
             }
         }
         val note = when (control) {

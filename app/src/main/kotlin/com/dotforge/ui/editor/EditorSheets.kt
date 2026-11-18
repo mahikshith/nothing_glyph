@@ -100,6 +100,7 @@ import com.dotforge.ui.design.SectionLabel
 import com.dotforge.ui.design.Segmented
 import com.dotforge.ui.design.Snacks
 import com.dotforge.ui.design.Tokens
+import com.dotforge.ui.design.capped
 import com.dotforge.ui.studio.MediaLoader
 import com.dotforge.ui.studio.StudioText
 import kotlinx.coroutines.Dispatchers
@@ -193,7 +194,8 @@ fun EffectsSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
 private fun ReplaceShade(s: EditorSession, all: Boolean) {
     val present = remember(s.tick) { s.doc.current.filter { it > 0 }.distinct().sortedDescending().take(12) }
     if (present.size < 1) return
-    var from by remember { mutableIntStateOf(present.first()) }
+    // the shade to replace starts as one that differs from the brush's, so the button does something
+    var from by remember { mutableIntStateOf(present.firstOrNull { it != s.brush.value } ?: present.first()) }
     if (from !in present) from = present.first()
     SectionLabel("Replace shade", Modifier.padding(top = Tokens.Section))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
@@ -201,7 +203,7 @@ private fun ReplaceShade(s: EditorSession, all: Boolean) {
     }
     val to = s.brush.value
     SecondaryButton(
-        "Make ${pct(from)}% dots ${pct(to)}%", Modifier.fillMaxWidth().padding(top = Tokens.Small), enabled = from != to,
+        if (from != to) "Make ${pct(from)}% dots ${pct(to)}%" else "Already ${pct(to)}%: pick another shade", Modifier.fillMaxWidth().padding(top = Tokens.Small), enabled = from != to,
     ) { s.edit { replaceShade(from, to, all) } }
     Hint("The new shade is the brush's. Change it with the shade button under the matrix.")
 }
@@ -209,7 +211,7 @@ private fun ReplaceShade(s: EditorSession, all: Boolean) {
 @Composable
 private fun ShadeSwatch(value: Int, selected: Boolean, onClick: () -> Unit) {
     Column(
-        Modifier.width(52.dp).clickable(role = Role.RadioButton, onClick = onClick)
+        Modifier.width(56.dp).clickable(role = Role.RadioButton, onClick = onClick)
             .semantics { contentDescription = "Shade ${pct(value)}%"; stateDescription = if (selected) "Selected" else "" }
             .padding(vertical = Tokens.Tiny),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -218,7 +220,7 @@ private fun ShadeSwatch(value: Int, selected: Boolean, onClick: () -> Unit) {
             Modifier.size(40.dp).border(2.dp, if (selected) Color.White else Color.Transparent, CircleShape).padding(5.dp)
                 .background(Color.White.copy(alpha = 0.25f + 0.75f * value / 255f), CircleShape),
         )
-        Text("${pct(value)}%", style = MaterialTheme.typography.labelSmall, color = if (selected) Color.White else Tokens.Secondary)
+        Text("${pct(value)}%", style = MaterialTheme.typography.labelSmall.capped(), maxLines = 1, color = if (selected) Color.White else Tokens.Secondary)
     }
 }
 
@@ -382,7 +384,7 @@ fun PickDesignSheet(
         } else designs.filter { it.id != exclude }.map { d -> d.id to { AppGraph.designs.animation(d)?.let { d.name to it } } }
         if (items.isEmpty()) Hint(if (tab == 0) "Nothing matches" else "Nothing saved yet. Designs you make show here.", Modifier.padding(top = Tokens.Gutter))
         LazyVerticalGrid(
-            GridCells.Fixed(4), Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small),
+            GridCells.Adaptive(84.dp), Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small),
             horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
         ) {
             items(items, key = { it.first }) { (id, load) ->
@@ -396,7 +398,7 @@ fun PickDesignSheet(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     DotMatrix(thumb?.pixels, AppGraph.profile, Modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = name })
-                    Text(name, style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                    Text(name, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                 }
             }
         }
@@ -600,7 +602,7 @@ fun LayerPanel(s: EditorSession, onEditText: () -> Unit, onChangeBackground: () 
                     }
                 }
             }
-            Text("$value%", color = Tokens.Secondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(40.dp), textAlign = TextAlign.End)
+            Text("$value%", color = Tokens.Secondary, style = MaterialTheme.typography.bodySmall.capped(), maxLines = 1, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
         }
     }
 }

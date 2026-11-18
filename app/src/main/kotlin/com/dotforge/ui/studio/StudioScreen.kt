@@ -330,25 +330,25 @@ object RingtonePlayer {
 fun RenameDialog(current: String, onDismiss: () -> Unit, onRename: (String) -> Unit) {
     var value by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(current, androidx.compose.ui.text.TextRange(0, current.length))) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Tokens.Raised,
-        title = { Text("Rename") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value, { value = it.copy(text = it.text.take(30)) }, Modifier.fillMaxWidth().focusRequester(focus), singleLine = true,
-                    supportingText = { Text("${value.text.length} / 30", color = Tokens.Secondary) },
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, cursorColor = Color.White),
-                )
-            }
+    com.dotforge.ui.design.ConfirmDialog(
+        "Rename", "", "Rename", onDismiss = onDismiss,
+        content = {
+            OutlinedTextField(
+                value, { value = it.copy(text = it.text.take(30)) }, Modifier.fillMaxWidth().focusRequester(focus), singleLine = true,
+                supportingText = { Text("${value.text.length} / 30", color = Tokens.Secondary) },
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, unfocusedBorderColor = Tokens.Hairline, cursorColor = Color.White),
+                shape = RoundedCornerShape(14.dp),
+            )
         },
-        confirmButton = {
-            // an empty name keeps the old one
-            TextButton(onClick = { onRename(value.text.trim().ifEmpty { current }) }, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Rename", color = Color.White) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Cancel", color = Color.White) } },
-    )
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    ) {
+        // an empty name keeps the old one
+        onRename(value.text.trim().ifEmpty { current })
+    }
+    LaunchedEffect(Unit) { if (RenameFocus.auto) runCatching { focus.requestFocus() } }
+}
+
+/** The rename field takes focus (and the keyboard) when the dialog opens; screenshots turn that off. */
+object RenameFocus {
+    var auto = true
 }
 

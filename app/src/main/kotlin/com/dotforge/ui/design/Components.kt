@@ -590,7 +590,12 @@ fun FullSheet(
  * (confirm on top) when they don't fit.
  */
 @Composable
-fun ConfirmDialog(title: String, text: String, confirm: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+fun ConfirmDialog(
+    title: String, text: String, confirm: String, onDismiss: () -> Unit,
+    /** Extra content under the text: a field, for Rename. */
+    content: (@Composable () -> Unit)? = null,
+    onConfirm: () -> Unit,
+) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         val view = androidx.compose.ui.platform.LocalView.current
         androidx.compose.runtime.SideEffect {
@@ -602,7 +607,8 @@ fun ConfirmDialog(title: String, text: String, confirm: String, onDismiss: () ->
             Surface(color = Tokens.Raised, shape = RoundedCornerShape(28.dp), modifier = Modifier.width(312.dp)) {
                 Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = Tokens.Gutter)) {
                     Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
-                    Text(text, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Gutter))
+                    if (text.isNotEmpty()) Text(text, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Gutter))
+                    content?.let { Box(Modifier.padding(top = Tokens.Gutter)) { it() } }
                     DialogButtons(
                         Modifier.fillMaxWidth().padding(top = Tokens.Section),
                         cancel = {
@@ -985,3 +991,15 @@ fun rememberHaptics(): Haptics {
 
 /** Status bar padding for tab screens drawn edge to edge. */
 fun Modifier.statusBarSpace() = statusBarsPadding()
+
+/**
+ * This style with its size capped at [max] times the normal size: text on screens that must never scroll (the
+ * editor's pinned rows, the Photo screen) grows with the font setting up to 1.3x, then stays.
+ */
+@Composable
+fun androidx.compose.ui.text.TextStyle.capped(max: Float = 1.3f): androidx.compose.ui.text.TextStyle {
+    val fs = LocalDensity.current.fontScale
+    if (fs <= max) return this
+    val k = max / fs
+    return copy(fontSize = fontSize * k, lineHeight = if (lineHeight.isSp) lineHeight * k else lineHeight)
+}

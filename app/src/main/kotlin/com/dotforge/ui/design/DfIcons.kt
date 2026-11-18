@@ -70,6 +70,7 @@ object DfIcons {
     val Music = icon("Music") { moveTo(9f, 18f); lineTo(9f, 5f); lineTo(20f, 3f); lineTo(20f, 16f); circle(6.5f, 18f, 2.5f); circle(17.5f, 16f, 2.5f) }
     val Film = icon("Animation") { rect(3f, 5f, 21f, 19f); moveTo(7f, 5f); lineTo(7f, 19f); moveTo(17f, 5f); lineTo(17f, 19f); moveTo(3f, 12f); lineTo(7f, 12f); moveTo(17f, 12f); lineTo(21f, 12f) }
     val Still = icon("Still design") { circle(12f, 12f, 8.5f); circle(12f, 12f, 1f); circle(8f, 12f, 1f); circle(16f, 12f, 1f); circle(12f, 8f, 1f); circle(12f, 16f, 1f) }
+    val Camera = icon("Camera") { moveTo(3f, 8f); lineTo(7f, 8f); lineTo(9f, 5f); lineTo(15f, 5f); lineTo(17f, 8f); lineTo(21f, 8f); lineTo(21f, 19f); lineTo(3f, 19f); close(); circle(12f, 13f, 3.5f) }
     val Crop = icon("Crop") { moveTo(6f, 2f); lineTo(6f, 18f); lineTo(22f, 18f); moveTo(2f, 6f); lineTo(18f, 6f); lineTo(18f, 22f) }
     val Rotate = icon("Turn") { moveTo(4f, 12f); arcTo(8f, 8f, 0f, true, true, 12f, 20f); moveTo(4f, 12f); lineTo(1.5f, 9f); moveTo(4f, 12f); lineTo(7f, 9.5f) }
     val Adjust = icon("Adjust") { moveTo(4f, 7f); lineTo(20f, 7f); moveTo(4f, 17f); lineTo(20f, 17f); circle(9f, 7f, 2.3f); circle(15f, 17f, 2.3f) }

@@ -123,7 +123,7 @@ fun NewSheet(nav: Nav, onDismiss: () -> Unit, startOnFiles: Boolean = false) {
             OptionRow("Choose photos or a file", "Several photos become frames", preview = { IconCircle(DfIcons.Photo) }) {
                 pick.launch(arrayOf("image/*", "video/*", "application/json", "text/plain", "application/octet-stream", "audio/*", "application/ogg"))
             }
-            OptionRow("Take a photo", "Full size, straight from the camera", preview = { IconCircle(DfIcons.Crop) }) {
+            OptionRow("Take a photo", "Full size, straight from the camera", preview = { IconCircle(DfIcons.Camera) }) {
                 runCatching { camera.launch(shot.fresh()) }.onFailure { snacks?.show("Couldn't open the camera.") }
             }
             TextButton(onClick = { files = false }, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Back", color = Color.White) }

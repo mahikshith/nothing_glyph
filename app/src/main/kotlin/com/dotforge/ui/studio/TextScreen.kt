@@ -83,6 +83,7 @@ import com.dotforge.studio.Design
 import com.dotforge.studio.DesignKind
 import com.dotforge.ui.Nav
 import com.dotforge.ui.Page
+import com.dotforge.ui.design.capped
 import com.dotforge.ui.design.Chip
 import com.dotforge.ui.design.DISABLED_ALPHA
 import com.dotforge.ui.design.DotMatrix
@@ -396,7 +397,7 @@ private fun StyleStrip(spec: TextSpec, onPick: (TextStyle) -> Unit) {
                     else DotMatrix(null, p, Modifier.fillMaxSize())
                 }
                 Text(
-                    st.label, style = MaterialTheme.typography.labelSmall, color = if (on) Color.White else Tokens.Secondary,
+                    st.label, style = MaterialTheme.typography.labelSmall.capped(1.15f), color = if (on) Color.White else Tokens.Secondary,
                     maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp),
                 )
             }

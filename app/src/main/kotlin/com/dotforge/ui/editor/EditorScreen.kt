@@ -95,6 +95,7 @@ import com.dotforge.ui.design.DotMatrix
 import com.dotforge.ui.design.TimingKind
 import com.dotforge.ui.design.TimingSheet
 import com.dotforge.ui.design.Tokens
+import com.dotforge.ui.design.capped
 import com.dotforge.ui.design.UndoSnackbarHost
 import com.dotforge.ui.design.rememberHaptics
 import com.dotforge.ui.design.rememberSnacks
@@ -216,7 +217,7 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     EditorCanvas(s, side, onPicked = { v -> s.brush = s.brush.copy(value = v, mode = BrushMode.PAINT); s.picking = false; s.edit { } })
                     Text(
-                        announce.ifEmpty { phoneLine(s, phone) }, style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        announce.ifEmpty { phoneLine(s, phone) }, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.height(STATUS_LINE).padding(top = 4.dp).semantics { liveRegion = LiveRegionMode.Polite },
                     )
                 }
@@ -304,7 +305,7 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
                     TextButton(
                         onClick = { s.animatedView = true; s.edit { addCopy() }; haptics.confirm() },
                         modifier = Modifier.fillMaxWidth().heightIn(min = Tokens.Target).background(Tokens.Raised, RoundedCornerShape(24.dp)),
-                    ) { Text("+ Add frame", color = Color.White, style = MaterialTheme.typography.labelLarge) }
+                    ) { Text("+ Add frame", color = Color.White, style = MaterialTheme.typography.labelLarge.capped()) }
                 }
             }
         }
@@ -332,7 +333,7 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
     }
 }
 
-private val STATUS_LINE = 22.dp
+private val STATUS_LINE = 26.dp
 private val PLAYBACK = 48.dp
 private val STRIP = 72.dp
 private val ADD_FRAME = 56.dp
@@ -355,9 +356,15 @@ private fun phoneLine(s: EditorSession, phone: PhoneState): String = when {
     s.picking -> "Tap a dot to pick its shade"
     s.layer == LayerKind.BACKGROUND -> "Background layer · change it below"
     s.layer == LayerKind.TEXT -> "Text layer · change it below"
-    phone == PhoneState.ON -> "Showing on the Glyph"
-    phone == PhoneState.OFF -> "Not showing on the Glyph"
+    // the Timing status (row 26) rides on the status line: "On the Glyph · 1x · 2.4 s · 100%"
+    phone == PhoneState.ON -> "On the Glyph · ${timingChip(s)}"
+    phone == PhoneState.OFF -> "Not on the Glyph · ${timingChip(s)}"
     else -> phone.text
+}
+
+private fun timingChip(s: EditorSession): String {
+    val t = s.doc.timing
+    return "${speedText(t.speed)} · ${StudioText.seconds(s.doc.totalMs)} · ${t.brightness}%"
 }
 
 // ---------------------------------------------------------------- top bar
@@ -365,24 +372,24 @@ private fun phoneLine(s: EditorSession, phone: PhoneState): String = when {
 @Composable
 private fun TopBar(s: EditorSession, onClose: () -> Unit, onDone: () -> Unit, onRename: () -> Unit) {
     @Suppress("UNUSED_EXPRESSION") s.tick
-    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
         Column(
             Modifier.weight(1f).clickable(onClickLabel = "Rename", onClick = onRename).padding(horizontal = Tokens.Tiny),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(s.doc.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text(s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 Icon(DfIcons.Pencil, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
             }
             Text(
                 if (s.saving) "Saving…" else if (s.everSaved && !s.dirty) "Saved" else if (s.isNew && !s.hasDots) "Not saved yet" else "Saving…",
-                style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 1,
+                style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
         BarIcon(DfIcons.Undo, "Undo", s.doc.canUndo) { s.edit { undo() } }
         BarIcon(DfIcons.Redo, "Redo", s.doc.canRedo) { s.edit { redo() } }
-        TextButton(onClick = onDone, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Done", color = Color.White, style = MaterialTheme.typography.labelLarge) }
+        TextButton(onClick = onDone, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Done", color = Color.White, style = MaterialTheme.typography.labelLarge.capped()) }
     }
 }
 
@@ -401,12 +408,22 @@ private fun BarIcon(icon: ImageVector, label: String, enabled: Boolean, onClick:
 @Composable
 private fun LayerStrip(s: EditorSession) {
     val l = s.doc.layers ?: return
-    Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = Tokens.Gutter), horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
-        val items = buildList {
-            if (l.background != null) add(LayerKind.BACKGROUND)
-            if (l.text != null) add(LayerKind.TEXT)
-            add(LayerKind.DRAWING)
-        }
+    // chips size to their names; only the selected layer carries the show/hide button, so all three names fit
+    // at 360 dp and large text. A hidden layer that isn't selected shows a small crossed-out eye.
+    val items = buildList {
+        if (l.background != null) add(LayerKind.BACKGROUND)
+        if (l.text != null) add(LayerKind.TEXT)
+        add(LayerKind.DRAWING)
+    }
+    // if the strip is wider than the screen, keep the selected chip (and its eye) in view
+    val scroll = rememberScrollState()
+    LaunchedEffect(s.layer, scroll.maxValue) {
+        when (s.layer) { items.last() -> scroll.scrollTo(scroll.maxValue); items.first() -> scroll.scrollTo(0); else -> Unit }
+    }
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).horizontalScroll(scroll).padding(horizontal = Tokens.Gutter),
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalAlignment = Alignment.CenterVertically,
+    ) {
         items.forEach { k ->
             val visible = when (k) {
                 LayerKind.BACKGROUND -> l.background?.visible == true
@@ -415,12 +432,14 @@ private fun LayerStrip(s: EditorSession) {
             }
             val on = s.layer == k
             Row(
-                Modifier.weight(1f).height(40.dp).background(if (on) Color.White else Tokens.Raised, RoundedCornerShape(20.dp))
-                    .clickable(role = Role.Tab) { s.layer = k; s.edit { } }.padding(start = 12.dp),
+                Modifier.height(40.dp).background(if (on) Color.White else Tokens.Raised, RoundedCornerShape(20.dp))
+                    .clickable(role = Role.Tab) { s.layer = k; s.edit { } }
+                    .semantics { if (!visible) stateDescription = "Hidden" }
+                    .padding(start = 16.dp, end = if (on) 0.dp else 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(k.label, color = if (on) Color.Black else Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                IconButton(onClick = {
+                Text(k.label, color = if (on) Color.Black else Color.White, style = MaterialTheme.typography.labelLarge.capped(1.15f), maxLines = 1)
+                if (on) IconButton(onClick = {
                     s.edit {
                         setLayers(when (k) {
                             LayerKind.BACKGROUND -> l.copy(background = l.background?.copy(visible = !visible))
@@ -429,8 +448,8 @@ private fun LayerStrip(s: EditorSession) {
                         })
                     }
                 }, modifier = Modifier.size(40.dp)) {
-                    Icon(if (visible) DfIcons.Eye else DfIcons.EyeOff, contentDescription = if (visible) "Hide ${k.label.lowercase()}" else "Show ${k.label.lowercase()}", tint = if (on) Color.Black else Color.White, modifier = Modifier.size(20.dp))
-                }
+                    Icon(if (visible) DfIcons.Eye else DfIcons.EyeOff, contentDescription = if (visible) "Hide ${k.label.lowercase()}" else "Show ${k.label.lowercase()}", tint = Color.Black, modifier = Modifier.size(20.dp))
+                } else if (!visible) Icon(DfIcons.EyeOff, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
             }
         }
     }
@@ -506,7 +525,7 @@ private fun ShadeChip(value: Int, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(18.dp).background(Color.White.copy(alpha = 0.25f + 0.75f * value / 255f), CircleShape))
-        Text("$pct%", color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 6.dp))
+        Text("$pct%", color = Color.White, style = MaterialTheme.typography.bodyMedium.capped(), modifier = Modifier.padding(start = 6.dp))
         Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(18.dp))
     }
 }
@@ -525,7 +544,7 @@ fun OptionChip(text: String?, label: String, icon: ImageVector? = null, selected
     ) {
         val tint = if (selected) Color.Black else Color.White
         icon?.let { Icon(it, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp)) }
-        if (text != null) Text(text, color = tint, style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.padding(start = if (icon != null) 4.dp else 0.dp))
+        if (text != null) Text(text, color = tint, style = MaterialTheme.typography.bodyMedium.capped(), maxLines = 1, modifier = Modifier.padding(start = if (icon != null) 4.dp else 0.dp))
     }
 }
 
@@ -562,7 +581,7 @@ private fun RowScope.LabelledButton(icon: ImageVector, label: String, compact: B
             // labels grow with the font up to 1.3x, then the row shows icons only (row 86)
             val fs = LocalDensity.current.fontScale
             val style = MaterialTheme.typography.labelMedium.let { it.copy(fontSize = it.fontSize * (minOf(fs, 1.3f) / fs)) }
-            Text(chip ?: label, style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp))
+            Text(label, style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp))
         }
     }
 }
@@ -591,7 +610,7 @@ private fun ActionsRow(
                 DropdownMenuItem(text = { Text("Clear all ${s.doc.size} frames") }, onClick = { onClearChoice(true) }, modifier = Modifier.heightIn(min = Tokens.Target))
             }
         }
-        LabelledButton(DfIcons.Timer, "Timing", compact, chip = if (compact) null else chip.substringBefore(" ·")) { onTiming() }
+        LabelledButton(DfIcons.Timer, "Timing", compact, chip = chip) { onTiming() }
         LabelledButton(DfIcons.Sparkle, "Effects", compact) { onEffects() }
         LabelledButton(DfIcons.OnPhone, "On phone", compact, selected = s.showOnPhone && phone == PhoneState.ON, enabled = phone != PhoneState.NOT_PHONE3) {
             s.showOnPhone = !s.showOnPhone
@@ -638,12 +657,12 @@ private fun PlaybackRow(s: EditorSession) {
         Column(Modifier.weight(1f).padding(horizontal = Tokens.Small)) {
             Text(
                 "Frame ${i + 1} of ${s.doc.size} · ${StudioText.seconds(at).removeSuffix(" s")} / ${StudioText.seconds(total)}",
-                style = MaterialTheme.typography.bodySmall, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall.capped(), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Scrubber(at.toFloat() / total.coerceAtLeast(1)) { f -> s.scrub((f * total).toInt()) }
         }
         TextButton(onClick = { s.cycleSpeed() }, modifier = Modifier.heightIn(min = Tokens.Target).semantics { contentDescription = "Preview speed ${s.speed.label}" }) {
-            Text(s.speed.label, color = Color.White)
+            Text(s.speed.label, color = Color.White, style = MaterialTheme.typography.labelLarge.capped())
         }
     }
 }
@@ -677,7 +696,7 @@ private fun FrameStrip(s: EditorSession, onFrameMenu: () -> Unit, onAdd: (Boolea
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
         ) {
             Icon(DfIcons.Frame, contentDescription = null, tint = Color.White)
-            Text("Frame ${s.doc.cur + 1}", style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1)
+            Text("Frame ${s.doc.cur + 1}", style = MaterialTheme.typography.labelSmall.capped(), color = Color.White, maxLines = 1)
         }
         LazyRow(Modifier.weight(1f).fillMaxHeight(), state = list, horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             itemsIndexed(s.doc.frames, key = { i, f -> System.identityHashCode(f) * 31 + i }) { i, f ->
@@ -698,7 +717,7 @@ private fun FrameStrip(s: EditorSession, onFrameMenu: () -> Unit, onAdd: (Boolea
                     DotMatrix(f, AppGraph.profile, Modifier.fillMaxSize())
                     Text(
                         StudioText.seconds(s.doc.durations[i]),
-                        style = MaterialTheme.typography.labelSmall, color = Color.White,
+                        style = MaterialTheme.typography.labelSmall.capped(1f), color = Color.White,
                         modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(6.dp)).padding(horizontal = 3.dp),
                     )
                 }
@@ -716,7 +735,7 @@ private fun AddTile(label: String, enabled: Boolean, onClick: () -> Unit) {
         Modifier.padding(start = 4.dp).size(width = 56.dp, height = 56.dp).background(Color.White.copy(alpha = if (enabled) 1f else DISABLED_ALPHA), RoundedCornerShape(10.dp))
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = Color.Black, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 2) }
+    ) { Text(label, color = Color.Black, style = MaterialTheme.typography.labelMedium.capped(), textAlign = TextAlign.Center, maxLines = 2) }
 }
 
 /** Long-press a thumbnail, then drag it to a new place. */

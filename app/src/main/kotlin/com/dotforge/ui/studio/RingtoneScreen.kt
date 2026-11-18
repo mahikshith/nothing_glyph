@@ -305,13 +305,11 @@ fun RingtoneReady(
                 }
                 is ImportKind.Phone3 -> Unit
             }
-            SectionLabel("Brightness")
+            SectionLabel("Brightness · ${(ui.brightness * 100).toInt()}%")
             DotSlider("Brightness", ui.brightness, 0.25f..2f, readout = "${(ui.brightness * 100).toInt()}%", mark = 1f, onChange = onBrightness)
-            Text("${(ui.brightness * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary)
             if (ui.kind == ImportKind.AudioOnly) {
-                SectionLabel("Speed")
+                SectionLabel("Speed · ${com.dotforge.ui.design.speedText(ui.speed)}")
                 DotSlider("Speed", ui.speed, 0.5f..2f, readout = "${"%.1f".format(ui.speed)}x", mark = 1f, onChange = onSpeed)
-                Text(com.dotforge.ui.design.speedText(ui.speed), style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary)
             }
             SectionLabel("Name")
             OutlinedTextField(
