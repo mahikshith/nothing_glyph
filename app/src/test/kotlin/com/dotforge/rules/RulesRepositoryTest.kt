@@ -45,7 +45,7 @@ class RulesRepositoryTest {
         val reloaded = RulesRepository(file).rules.value
         assertEquals(listOf("Boss", "Calls", "OTP codes", "Delivery"), reloaded.filter { it.action == Action.SHOW }.map { it.name })
         assertEquals(added.copy(enabled = false), reloaded.first())
-        assertTrue(file.readText().startsWith("""{"version":4,"""))
+        assertTrue(file.readText().startsWith("""{"version":5,"""))
     }
 
     @Test fun addPresetsRestoresOnlyMissingOnes() {
@@ -100,15 +100,32 @@ class RulesRepositoryTest {
             ],"lists":[{"name":"Allowed senders","entries":["Bank"]}]}""",
         )
         val rules = RulesRepository(file).rules.value
-        assertEquals(listOf("preset-calls", "mine", RuleEngine.PROGRESS_PRESET), rules.map { it.id })
+        assertEquals(listOf("preset-calls", "mine", RuleEngine.PROGRESS_PRESET) + RuleEngine.DEFAULT_PROTECTIONS.sorted(), rules.map { it.id }.take(3) + rules.drop(3).map { it.id }.sorted())
         assertFalse(rules[1].enabled) // the rest is kept as it was
-        assertTrue(rules.last().enabled && rules.last().action == Action.PROGRESS && rules.last().packages.isEmpty())
-        assertTrue(file.readText().startsWith("""{"version":4,"""))
+        val progress = rules.first { it.id == RuleEngine.PROGRESS_PRESET }
+        assertTrue(progress.enabled && progress.action == Action.PROGRESS && progress.packages.isEmpty())
+        assertTrue(file.readText().startsWith("""{"version":5,"""))
         // a deleted progress rule stays deleted
         val repo = RulesRepository(file)
         repo.delete(RuleEngine.PROGRESS_PRESET)
         assertTrue(RulesRepository(file).rules.value.none { it.id == RuleEngine.PROGRESS_PRESET })
         assertEquals(listOf("Bank"), RulesRepository(file).list(RuleEngine.ALLOWED)!!.entries)
+    }
+
+    @Test fun versionFourTurnsTheSpamProtectionsOn() {
+        val file = tmp.root.resolve("rules.json")
+        file.writeText(
+            """{"version":4,"rules":[
+              {"id":"spam-list","name":"Spam list","source":"EVERYTHING","action":"SPAM","enabled":false},
+              {"id":"spam-prefixes","name":"Spam prefixes","source":"EVERYTHING","action":"SPAM","enabled":false}
+            ],"lists":[]}""",
+        )
+        val rules = RulesRepository(file).rules.value.associateBy { it.id }
+        assertTrue(RuleEngine.DEFAULT_PROTECTIONS.all { rules.getValue(it).enabled })
+        assertFalse(rules.getValue("spam-prefixes").enabled) // the user's own rules stay as they were
+        assertTrue(RuleEngine.needsCallScreening(rules.values.toList()))
+        assertFalse(RuleEngine.needsCallScreening(listOf(RuleEngine.progressPreset(), Rule(name = "x"))))
+        assertTrue(file.readText().startsWith("""{"version":5,"""))
     }
 
     @Test fun unreadableFileFallsBackToPresets() {
@@ -139,7 +156,7 @@ class RulesRepositoryTest {
         assertTrue(migrated.none { it.id == "s" })
         assertTrue(migrated.any { it.id == "spam-list" }) // spam rules join
 
-        assertTrue(file.readText().startsWith("""{"version":4,"""))
+        assertTrue(file.readText().startsWith("""{"version":5,"""))
         assertEquals(migrated, RulesRepository(file).rules.value)
     }
 

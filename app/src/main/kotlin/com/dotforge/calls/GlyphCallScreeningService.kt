@@ -77,11 +77,11 @@ class GlyphCallScreeningService : CallScreeningService() {
         )
         main.post {
             when {
-                action == Action.SPAM -> FilterActions.spamAlert(this, who)
+                action == Action.SPAM -> FilterActions.spamAlert(this, who, key = "call:$nowMs", call = true)
                 calls.settings.value.screenedGlyph -> {
                     val p = AppGraph.profile
                     val (anim, verb) = if (action == Action.SILENCE) Effects.callSilenced(p) to "Silenced" else Effects.callBlocked(p) to "Blocked"
-                    AppGraph.alerts.offer(AlertQueue.Alert("call:$nowMs", "screened:$who", isCall = false, until = Until.TIMEOUT, item = AlertGlyph(anim, "$verb: $who")))
+                    AppGraph.alerts.offer(AlertQueue.Alert("call:$nowMs", "screened:$who", isCall = true, until = Until.UNLOCK, item = AlertGlyph(anim, "$verb: $who")))
                 }
             }
         }

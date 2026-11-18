@@ -314,6 +314,13 @@ object RuleEngine {
         NamedList(SPAM_PREFIXES),
     )
 
+    /** Spam protections that are on by default: the community spam list, contacts and repeat callers allowed. */
+    val DEFAULT_PROTECTIONS = setOf("spam-list", "spam-contacts", "spam-repeated")
+
+    /** Call or spam protection that only works with the call screening role: an enabled blocking rule for calls. */
+    fun needsCallScreening(rules: List<Rule>): Boolean =
+        rules.any { it.enabled && it.source != Source.APPS && it.action.blocks }
+
     /** A spam-filter rule: anything that allows or blocks rather than shows a glyph or progress. */
     fun isSpamRule(r: Rule) = r.action != Action.SHOW && r.action != Action.PROGRESS
 

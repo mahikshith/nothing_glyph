@@ -81,6 +81,17 @@ fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             subtitle = "People in rules and the spam filter",
             attention = needsContacts && !setup.contacts,
         ) { if (!setup.contacts) setup.needContacts() }
+        val needsScreening by rememberNeedsScreening()
+        ValueRow(
+            "Call screening",
+            when {
+                setup.screening -> "On"
+                needsScreening -> "Tap to turn on"
+                else -> "Not needed"
+            },
+            subtitle = "Spam and blocked calls, and their glyph",
+            attention = needsScreening && !setup.screening,
+        ) { setup.needCallScreening() }
         ValueRow("Torch in Quick Settings", "Add", subtitle = "Turn the torch on from the shade") { addTorchTile(ctx) }
 
         GroupTitle("NOTHING GLYPH")

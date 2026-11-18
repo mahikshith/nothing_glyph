@@ -37,12 +37,16 @@ object FilterActions {
     )
 
     /** The spam alert: the spam glyph (unless switched off) and the spam sound (when one is chosen). */
-    fun spamAlert(context: Context, who: String, key: String = "spam:$who:${System.currentTimeMillis()}") {
+    /**
+     * The spam glyph and sound. A spam call ([call]) is a call alert held until unlock: the ringtone lights cover
+     * app frames while it rings, so the glyph shows once ringing stops and stays until the phone is unlocked.
+     */
+    fun spamAlert(context: Context, who: String, key: String = "spam:$who:${System.currentTimeMillis()}", call: Boolean = false) {
         val s = AppGraph.filters.spam.value
         if (s.glyphOn && s.glyph != GlyphStyle.NONE) {
             val info = NotificationInfo(key, "", "Spam", who, "", 0, sender = who)
             val anim = RuleEngine.animation(s.glyph, s.designId, info, AppGraph.profile, AppGraph::designAnimation)
-            AppGraph.alerts.offer(AlertQueue.Alert(key, "spam:$who", isCall = false, until = Until.TIMEOUT, item = AlertGlyph(anim, "Spam: $who")))
+            AppGraph.alerts.offer(AlertQueue.Alert(key, "spam:$who", isCall = call, until = if (call) Until.UNLOCK else Until.TIMEOUT, item = AlertGlyph(anim, "Spam: $who")))
         }
         s.soundUri?.let { NotificationSound.play(context, it) }
     }

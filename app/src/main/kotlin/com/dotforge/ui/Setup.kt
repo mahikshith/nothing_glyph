@@ -104,6 +104,13 @@ class Setup(private val activity: ComponentActivity) {
 
     fun screeningNotNow() {
         screeningSheet = false
+        prefs.edit().putBoolean(KEY_SCREENING_ASKED, true).apply()
+    }
+
+    /** Setup: call or spam protection is on but DotForge doesn't screen calls; asked once, with Not now. */
+    fun askScreeningOnce() {
+        screening = hasScreening()
+        if (!screening && !prefs.getBoolean(KEY_SCREENING_ASKED, false)) screeningSheet = true
     }
 
     /** Android's own dialog to make DotForge the call screening app. */
@@ -272,6 +279,7 @@ class Setup(private val activity: ComponentActivity) {
         const val KEY_CONTACTS_ASKED = "contacts_asked"
         const val KEY_MIC_ASKED = "mic_asked"
         const val KEY_POST_ASKED = "post_asked"
+        const val KEY_SCREENING_ASKED = "screening_asked"
     }
 }
 
@@ -436,4 +444,11 @@ fun AccessBanner(setup: Setup, text: String) {
 fun rememberNeedsContacts(): State<Boolean> {
     val rules = AppGraph.rules.rules.collectAsStateWithLifecycle()
     return remember { derivedStateOf { rules.value.any { it.enabled && it.usesContacts && it.action != Action.ALLOW } } }
+}
+
+/** True while any enabled call or spam protection (a blocking rule that applies to calls) needs call screening. */
+@Composable
+fun rememberNeedsScreening(): State<Boolean> {
+    val rules = AppGraph.rules.rules.collectAsStateWithLifecycle()
+    return remember { derivedStateOf { com.dotforge.rules.RuleEngine.needsCallScreening(rules.value) } }
 }

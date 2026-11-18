@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Serializable
 private data class RulesFile(val version: Int = VERSION, val rules: List<Rule>, val lists: List<NamedList> = emptyList()) {
     companion object {
-        const val VERSION = 4
+        const val VERSION = 5
     }
 }
 
@@ -123,7 +123,8 @@ private data class LegacyRule(
  * - version 1 (a bare array) and version 2 (apps / people / keywords slots) rules become filter-engine rules;
  * - the old spam filter's settings ([legacySpam]: words, patterns, unknown senders, allowed senders) become
  *   the spam rules and the "Spam words" and "Allowed senders" lists;
- * - version 4 adds the "Progress bars" rule (Show progress, any app), so progress rings keep working.
+ * - version 4 adds the "Progress bars" rule (Show progress, any app), so progress rings keep working;
+ * - version 5 switches the default spam protections on (spam list, contacts and repeat callers allowed).
  * Safe to call from any thread.
  */
 class RulesRepository(private val file: File, private val legacySpam: SpamSettings? = null) {
@@ -164,6 +165,17 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
         if (f.rules.any { it.id == RuleEngine.PROGRESS_PRESET }) f.copy(version = RulesFile.VERSION)
         else f.copy(version = RulesFile.VERSION, rules = f.rules + RuleEngine.progressPreset())
 
+    /**
+     * Version 5 turns the default spam protections on (the community spam list, contacts and repeat callers
+     * allowed), adding any that were deleted; the user's own prefix and word rules are left as they are.
+     */
+    private fun withSpamOn(f: RulesFile): RulesFile {
+        val ids = RuleEngine.DEFAULT_PROTECTIONS
+        val presets = RuleEngine.spamPresets().filter { it.id in ids }
+        val kept = f.rules.map { r -> if (r.id in ids) r.copy(enabled = true) else r }
+        return f.copy(version = RulesFile.VERSION, rules = kept + presets.filter { p -> kept.none { it.id == p.id } })
+    }
+
     private fun load(): RulesFile {
         if (!file.exists()) return fresh()
         val loaded = runCatching {
@@ -178,7 +190,8 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
                         val old = element.jsonObject["rules"]?.let { json.decodeFromJsonElement(ListSerializer(RuleV2.serializer()), it) }.orEmpty()
                         withProgress(fromV2(old)).also(::write)
                     }
-                    version == 3 -> withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element)).also(::write)
+                    version == 3 -> withSpamOn(withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element))).also(::write)
+                    version == 4 -> withSpamOn(json.decodeFromJsonElement(RulesFile.serializer(), element)).also(::write)
                     else -> json.decodeFromJsonElement(RulesFile.serializer(), element)
                 }
             }

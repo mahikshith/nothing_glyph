@@ -121,7 +121,10 @@ private fun Tabs(nav: Nav, setup: Setup, scrolls: Map<Tab, ScrollState>) {
     val scope = rememberCoroutineScope()
     val saved = rememberSaveableStateHolder()
     val needsContacts by rememberNeedsContacts()
-    val needsSetup = !setup.notificationAccess || (needsContacts && !setup.contacts)
+    val needsScreening by rememberNeedsScreening()
+    val needsSetup = !setup.notificationAccess || (needsContacts && !setup.contacts) || (needsScreening && !setup.screening)
+    // spam protection for calls is on by default, so setup asks for call screening once, with Not now
+    LaunchedEffect(needsScreening, setup.resumes) { if (needsScreening) setup.askScreeningOnce() }
     BackHandler(enabled = nav.tab != Tab.GLYPH) { nav.tab = Tab.GLYPH }
     Scaffold(
         containerColor = Color.Black,
