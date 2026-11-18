@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">DotForge</string>
+    <string name="torch_tile">Glyph torch</string>
+
+    <string name="toy_clock_name">DF Clock</string>
+    <string name="toy_clock_summary">Big dot clock, works on AOD. Long press: date.</string>
+    <string name="toy_battery_name">DF Battery</string>
+    <string name="toy_battery_summary">Battery ring, animated while charging. Long press: percent.</string>
+    <string name="toy_dice_name">DF Dice</string>
+    <string name="toy_dice_summary">Press the Glyph Button or shake the phone to roll.</string>
+    <string name="toy_player_name">DF Player</string>
+    <string name="toy_player_summary">Loops your Studio animation. Long press: pause. Double press: restart.</string>
+</resources>

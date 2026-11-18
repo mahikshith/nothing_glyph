@@ -1,0 +1,9 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Simple 3x3 dot grid (original artwork). -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M6,6m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0M12,6m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0M18,6m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0M6,12m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0M18,12m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0M6,18m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0M12,18m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0M18,18m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+    <path android:fillColor="#FFD71921"
+        android:pathData="M12,12m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+</vector>

@@ -25,4 +25,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "DotForge"
-include(":core-device", ":composition", ":glyph-driver")
+include(":core-device", ":composition", ":glyph-driver", ":app")

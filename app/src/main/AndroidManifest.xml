@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Glyph SDK access (a normal permission on Nothing phones). -->
+    <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
+
+    <application
+        android:name=".DotForgeApp"
+        android:allowBackup="false"
+        android:icon="@drawable/ic_app"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.DotForge">
+
+        <!-- Development key accepted by the Glyph service for unpublished apps. -->
+        <meta-data
+            android:name="NothingKey"
+            android:value="test" />
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Notification rules: needs the user to grant Notification access. -->
+        <service
+            android:name=".notify.GlyphNotificationListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Quick Settings tile: glyph torch. -->
+        <service
+            android:name=".tile.TorchTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_toy"
+            android:label="@string/torch_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
+        <!-- Glyph Toys: added in Settings > Glyph Interface > Glyph Toys. -->
+        <service
+            android:name=".toys.ClockToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_clock_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_clock" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_clock_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+
+        <service
+            android:name=".toys.BatteryToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_battery_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_battery" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_battery_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+
+        <service
+            android:name=".toys.DiceToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_dice_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_dice" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_dice_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+        </service>
+
+        <service
+            android:name=".toys.PlayerToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_player_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_player" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_player_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+    </application>
+</manifest>
