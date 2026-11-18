@@ -1,5 +1,7 @@
 package com.dotforge.ui.design
 
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -72,6 +74,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -89,6 +92,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -673,6 +677,8 @@ fun OptionRow(
     preview: (@Composable () -> Unit)? = null,
     selected: Boolean? = null,
     destructive: Boolean = false,
+    /** False for a row that acts at once (Delete, Duplicate): the chevron means "opens something". */
+    chevron: Boolean = true,
     onClick: () -> Unit,
 ) {
     Row(
@@ -693,7 +699,7 @@ fun OptionRow(
         when (selected) {
             true -> Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Color.White)
             false -> Spacer(Modifier.width(24.dp))
-            null -> Chevron()
+            null -> if (chevron) Chevron()
         }
     }
 }
@@ -878,11 +884,14 @@ fun LoadingRows(count: Int = 4, modifier: Modifier = Modifier) =
 
 /** A dot illustration, one line, at most one button. */
 @Composable
-fun EmptyState(line: String, button: String? = null, glyph: String = "dot", modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
+fun EmptyState(line: String, button: String? = null, glyph: String = "dot", modifier: Modifier = Modifier, primary: Boolean = true, onClick: () -> Unit = {}) {
     Column(modifier.fillMaxWidth().padding(vertical = Tokens.Section), horizontalAlignment = Alignment.CenterHorizontally) {
         LibraryGlyph(glyph, size = PreviewSize.MEDIUM)
         Text(line, style = MaterialTheme.typography.bodyLarge, color = Tokens.Secondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Tokens.Gutter))
-        if (button != null) PrimaryButton(button, Modifier.padding(top = Tokens.Gutter), onClick = onClick)
+        if (button != null) {
+            if (primary) PrimaryButton(button, Modifier.padding(top = Tokens.Gutter), onClick = onClick)
+            else SecondaryButton(button, Modifier.padding(top = Tokens.Gutter), onClick = onClick)
+        }
     }
 }
 
@@ -1002,4 +1011,85 @@ fun androidx.compose.ui.text.TextStyle.capped(max: Float = 1.3f): androidx.compo
     if (fs <= max) return this
     val k = max / fs
     return copy(fontSize = fontSize * k, lineHeight = if (lineHeight.isSp) lineHeight * k else lineHeight)
+}
+
+/**
+ * Fades the left and/or right edge of a sideways-scrolling row to the background, so it reads as "more this way"
+ * instead of a word cut off at the screen edge.
+ */
+fun Modifier.edgeFade(left: Boolean, right: Boolean, width: Dp = 24.dp): Modifier =
+    if (!left && !right) this else this
+        .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val w = width.toPx().coerceAtMost(size.width / 3)
+            if (left) drawRect(
+                androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), startX = 0f, endX = w),
+                size = androidx.compose.ui.geometry.Size(w, size.height), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+            )
+            if (right) drawRect(
+                androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color.Black, Color.Transparent), startX = size.width - w, endX = size.width),
+                topLeft = androidx.compose.ui.geometry.Offset(size.width - w, 0f),
+                size = androidx.compose.ui.geometry.Size(w, size.height), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+            )
+        }
+
+/** [edgeFade] for a [ScrollState] row: each edge fades while there is more to scroll that way. */
+fun Modifier.edgeFade(scroll: androidx.compose.foundation.ScrollState): Modifier =
+    edgeFade(scroll.value > 0, scroll.value < scroll.maxValue)
+
+/** What the Studio's file screens open, for the shared error below. */
+object Supported {
+    const val PHOTOS = "DotForge opens photos (JPG, PNG, WebP, HEIC), GIFs and videos (MP4, WebM, 3GP)."
+    const val SONGS = "DotForge opens songs in MP3, M4A, AAC, OGG, FLAC and WAV."
+}
+
+/**
+ * The one error screen for a file that can't be opened (photo, GIF, video or song): what went wrong, the files
+ * DotForge opens, a button to choose another and Close.
+ */
+@Composable
+fun LoadFailed(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, supported: String, choose: String,
+    onChoose: (() -> Unit)?, onClose: () -> Unit, modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxSize().padding(Tokens.Gutter), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(48.dp))
+        Text(
+            text, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = Tokens.Gap).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+        )
+        Text(supported, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Tokens.Small))
+        if (onChoose != null) PrimaryButton(choose, Modifier.padding(top = Tokens.Section), onClick = onChoose)
+        TextButton(onClick = onClose, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Close", color = Color.White) }
+    }
+}
+
+/**
+ * The app's spinner: a ring of eight dots with a bright one going round. Every dot is always drawn, so a still
+ * frame reads as a loader, not a stray dot. [label] goes beside it and is read by TalkBack.
+ */
+@Composable
+fun DotSpinner(label: String?, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 28.dp) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "spinner")
+    val turn by t.animateFloat(
+        0f, 8f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(960, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "turn",
+    )
+    Row(modifier.semantics(mergeDescendants = true) { if (label != null) contentDescription = label }, verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.Canvas(Modifier.size(size)) {
+            val r = this.size.minDimension / 2
+            val dot = r * 0.16f
+            val head = turn.toInt() % 8
+            for (i in 0 until 8) {
+                val a = Math.toRadians(i * 45.0 - 90)
+                val behind = (head - i + 8) % 8
+                drawCircle(
+                    Color.White.copy(alpha = (1f - behind * 0.11f).coerceAtLeast(0.25f)), dot,
+                    androidx.compose.ui.geometry.Offset(center.x + (r - dot) * kotlin.math.cos(a).toFloat(), center.y + (r - dot) * kotlin.math.sin(a).toFloat()),
+                )
+            }
+        }
+        if (label != null) Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = Tokens.Gap))
+    }
 }

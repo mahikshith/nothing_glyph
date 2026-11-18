@@ -1,7 +1,9 @@
 package com.dotforge.ui.editor
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.dotforge.AppGraph
@@ -75,6 +77,10 @@ class EditorSession(
     var onion by mutableStateOf(true)
     var showOnPhone by mutableStateOf(true)
     var animatedView by mutableStateOf(startAnimated || doc.size > 1)
+
+    /** The matrix's pinch zoom (1x-3x) and two-finger pan; Fit sets them back. */
+    var zoom by mutableFloatStateOf(1f)
+    var pan by mutableStateOf(Offset.Zero)
 
     val playback = Playback(doc.durations)
     var playing by mutableStateOf(false)

@@ -103,6 +103,8 @@ import com.dotforge.ui.design.Segmented
 import com.dotforge.ui.design.Snacks
 import com.dotforge.ui.design.Tokens
 import com.dotforge.ui.design.capped
+import com.dotforge.ui.design.edgeFade
+import androidx.compose.ui.semantics.heading
 import com.dotforge.ui.studio.MediaLoader
 import com.dotforge.ui.studio.StudioText
 import kotlinx.coroutines.Dispatchers
@@ -190,39 +192,49 @@ fun EffectsSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
     }
 }
 
-/** Replace shade: every dot of one shade (picked from those in the frame) becomes the brush's shade. */
+/**
+ * Replace shade, all in this sheet: pick the shade to replace (from those in the frame, or in every frame with
+ * All frames), pick the new one, and apply to This frame or All frames (the scope above, shared with Change it).
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReplaceShade(s: EditorSession, all: Boolean) {
-    val present = remember(s.tick) { s.doc.current.filter { it > 0 }.distinct().sortedDescending().take(12) }
-    if (present.size < 1) return
-    // the shade to replace starts as one that differs from the brush's, so the button does something
+    val present = remember(s.tick, all) {
+        (if (all) s.doc.frames.flatMap { f -> f.filter { it > 0 } } else s.doc.current.filter { it > 0 }).distinct().sortedDescending().take(12)
+    }
+    if (present.isEmpty()) return
     var from by remember { mutableIntStateOf(present.firstOrNull { it != s.brush.value } ?: present.first()) }
     if (from !in present) from = present.first()
+    var to by remember { mutableIntStateOf(s.brush.value) }
     SectionLabel("Replace shade", Modifier.padding(top = Tokens.Section))
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
+    Text("Replace", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Tiny)) {
         present.forEach { v -> ShadeSwatch(v, from == v) { from = v } }
     }
-    val to = s.brush.value
+    Text("With", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Small))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Tiny)) {
+        (Brush.SHADES + 0).forEach { v -> ShadeSwatch(v, to == v, off = v == 0) { to = v } }
+    }
+    val where = if (all && s.doc.size > 1) "all frames" else "this frame"
     SecondaryButton(
-        if (from != to) "Make ${pct(from)}% dots ${pct(to)}%" else "Already ${pct(to)}%: pick another shade", Modifier.fillMaxWidth().padding(top = Tokens.Small), enabled = from != to,
+        if (from != to) "Replace ${pct(from)}% with ${if (to == 0) "off" else "${pct(to)}%"} · $where" else "Pick a different shade to replace it with",
+        Modifier.fillMaxWidth().padding(top = Tokens.Small), enabled = from != to,
     ) { s.edit { replaceShade(from, to, all) } }
-    Hint("The new shade is the brush's. Change it with the shade button under the matrix.")
 }
 
 @Composable
-private fun ShadeSwatch(value: Int, selected: Boolean, onClick: () -> Unit) {
+private fun ShadeSwatch(value: Int, selected: Boolean, off: Boolean = false, onClick: () -> Unit) {
     Column(
         Modifier.width(56.dp).clickable(role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = "Shade ${pct(value)}%"; stateDescription = if (selected) "Selected" else "" }
+            .semantics { contentDescription = if (off) "Off" else "Shade ${pct(value)}%"; stateDescription = if (selected) "Selected" else "" }
             .padding(vertical = Tokens.Tiny),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier.size(40.dp).border(2.dp, if (selected) Color.White else Color.Transparent, CircleShape).padding(5.dp)
-                .background(Color.White.copy(alpha = 0.25f + 0.75f * value / 255f), CircleShape),
+                .background(if (off) Tokens.DotOff else Color.White.copy(alpha = 0.25f + 0.75f * value / 255f), CircleShape),
         )
-        Text("${pct(value)}%", style = MaterialTheme.typography.labelSmall.capped(), maxLines = 1, color = if (selected) Color.White else Tokens.Secondary)
+        Text(if (off) "Off" else "${pct(value)}%", style = MaterialTheme.typography.labelSmall.capped(), maxLines = 1, color = if (selected) Color.White else Tokens.Secondary)
     }
 }
 
@@ -267,7 +279,7 @@ fun FrameMenuSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, unfocusedBorderColor = Tokens.Hairline, cursorColor = Color.White),
                 shape = RoundedCornerShape(14.dp),
             )
-            Text(StudioText.seconds(ms), color = Tokens.Secondary, modifier = Modifier.padding(start = Tokens.Gap))
+            if (ms >= 1000) Text(StudioText.seconds(ms), color = Tokens.Secondary, modifier = Modifier.padding(start = Tokens.Gap))
         }
         // a log slider: fine steps at short durations, 20 ms to 10 s
         val lo = ln(Animation.MIN_FRAME_MS.toFloat())
@@ -283,14 +295,14 @@ fun FrameMenuSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
             Text("Set all ${s.doc.size} frames to $ms ms", color = Color.White)
         }
         RowDivider()
-        OptionRow("Duplicate", if (s.doc.canAddFrame) "A copy goes after this frame" else "Up to ${com.dotforge.device.EditorDoc.MAX_FRAMES} frames") {
+        OptionRow("Duplicate", if (s.doc.canAddFrame) "A copy goes after this frame" else "Up to ${com.dotforge.device.EditorDoc.MAX_FRAMES} frames", chevron = false) {
             commit()
             if (s.doc.canAddFrame) { s.edit { addCopy() }; onDismiss() }
         }
         if (s.doc.size > 1) {
-            if (i > 0) OptionRow("Move left", "Becomes frame $i") { commit(); s.edit { moveFrame(i, i - 1) } }
-            if (i < s.doc.size - 1) OptionRow("Move right", "Becomes frame ${i + 2}") { commit(); s.edit { moveFrame(i, i + 1) } }
-            OptionRow("Delete frame", null, destructive = true) {
+            if (i > 0) OptionRow("Move left", "Becomes frame $i", chevron = false) { commit(); s.edit { moveFrame(i, i - 1) } }
+            if (i < s.doc.size - 1) OptionRow("Move right", "Becomes frame ${i + 2}", chevron = false) { commit(); s.edit { moveFrame(i, i + 1) } }
+            OptionRow("Delete frame", null, destructive = true, chevron = false) {
                 commit()
                 s.edit { deleteFrame() }
                 onDismiss()
@@ -447,7 +459,7 @@ fun LayersSheet(s: EditorSession, nav: Nav, onDismiss: () -> Unit, onPickBackgro
         else {
             OptionRow(bg.name, "${bg.effect.label} · change it from the Background tab") { s.layer = LayerKind.BACKGROUND; s.edit { }; onDismiss() }
             OptionRow("Change background…", null) { onPickBackground() }
-            OptionRow("Remove background", null, destructive = true) {
+            OptionRow("Remove background", null, destructive = true, chevron = false) {
                 s.edit { setLayers(l.copy(background = null).takeIf { it.text != null }) }
                 if (s.layer == LayerKind.BACKGROUND) s.layer = LayerKind.DRAWING
                 snacks?.show("Removed the background") { s.edit { undo() } }
@@ -461,7 +473,7 @@ fun LayersSheet(s: EditorSession, nav: Nav, onDismiss: () -> Unit, onPickBackgro
             onEditText()
         } else {
             OptionRow("“${tl.spec.text}”", "${tl.spec.style.label} · ${tl.spec.band.label}") { onEditText() }
-            OptionRow("Remove text", null, destructive = true) {
+            OptionRow("Remove text", null, destructive = true, chevron = false) {
                 s.edit { setLayers(l.copy(text = null).takeIf { it.background != null }) }
                 if (s.layer == LayerKind.TEXT) s.layer = LayerKind.DRAWING
                 snacks?.show("Removed the text") { s.edit { undo() } }
@@ -542,7 +554,7 @@ fun TextLayerSheet(s: EditorSession, onDismiss: () -> Unit) {
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, unfocusedBorderColor = Tokens.Hairline, cursorColor = Color.White),
             shape = RoundedCornerShape(14.dp),
         )
-        SectionLabel("Where")
+        SectionLabel("Text position")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
             TextBand.entries.forEach { b -> Chip(b.label, spec.band == b) { spec = spec.copy(band = b) } }
         }
@@ -562,38 +574,39 @@ fun TextLayerSheet(s: EditorSession, onDismiss: () -> Unit) {
 
 /**
  * Takes the place of the tool options and tools rows while the Background or Text layer is selected: those
- * layers are changed here, not drawn on. Two rows, 112 dp, like the rows it replaces.
+ * layers are changed here, not drawn on. Labelled rows: the background's Effect; the text's "Behind the text"
+ * and "Text position"; then Change…/Edit text… and the layer's brightness.
  */
 @Composable
 fun LayerPanel(s: EditorSession, onEditText: () -> Unit, onChangeBackground: () -> Unit) {
     @Suppress("UNUSED_EXPRESSION") s.tick
     val l = s.doc.layers ?: return
-    val scroll = rememberScrollState()
-    Column(Modifier.fillMaxWidth().height(112.dp)) {
-        Row(
-            Modifier.fillMaxWidth().height(48.dp).horizontalScroll(scroll).padding(horizontal = Tokens.Gap),
-            horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalAlignment = Alignment.CenterVertically,
-        ) {
-            when (s.layer) {
-                LayerKind.BACKGROUND -> l.background?.let { bg ->
+    Column(Modifier.fillMaxWidth()) {
+        when (s.layer) {
+            LayerKind.BACKGROUND -> l.background?.let { bg ->
+                LabelledChips("Effect") {
                     BackgroundEffect.entries.forEach { e ->
-                        OptionChip(e.label, "Background: ${e.label}", selected = bg.effect == e) { s.edit { setLayers(l.copy(background = bg.copy(effect = e))) } }
+                        OptionChip(e.label, "Effect: ${e.label}", selected = bg.effect == e) { s.edit { setLayers(l.copy(background = bg.copy(effect = e))) } }
                     }
                 }
-                LayerKind.TEXT -> {
+            }
+            LayerKind.TEXT -> {
+                LabelledChips("Behind the text") {
                     BehindText.entries.forEach { b ->
                         OptionChip(b.label, "Behind the text: ${b.label}", selected = l.behind == b) { s.edit { setLayers(l.copy(behind = b)) } }
                     }
-                    l.text?.let { t ->
+                }
+                l.text?.let { t ->
+                    LabelledChips("Text position") {
                         TextBand.entries.forEach { b ->
-                            OptionChip(b.label, "Text band: ${b.label}", selected = t.spec.band == b) { s.edit { setLayers(l.copy(text = t.copy(spec = t.spec.copy(band = b)))) } }
+                            OptionChip(b.label, "Text position: ${b.label}", selected = t.spec.band == b) { s.edit { setLayers(l.copy(text = t.copy(spec = t.spec.copy(band = b)))) } }
                         }
                     }
                 }
-                LayerKind.DRAWING -> Unit
             }
+            LayerKind.DRAWING -> Unit
         }
-        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = Tokens.Gutter), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Tokens.Gutter), verticalAlignment = Alignment.CenterVertically) {
             val (label, value) = when (s.layer) {
                 LayerKind.BACKGROUND -> "Change…" to (l.background?.brightness ?: 100)
                 else -> "Edit text…" to (l.text?.brightness ?: 100)
@@ -614,6 +627,19 @@ fun LayerPanel(s: EditorSession, onEditText: () -> Unit, onChangeBackground: () 
             }
             Text("$value%", color = Tokens.Secondary, style = MaterialTheme.typography.bodySmall.capped(), maxLines = 1, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
         }
+    }
+}
+
+/** One labelled row of option chips: the label first, then the chips, scrolling sideways with faded edges. */
+@Composable
+private fun LabelledChips(label: String, chips: @Composable () -> Unit) {
+    val scroll = rememberScrollState()
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).edgeFade(scroll).horizontalScroll(scroll).padding(horizontal = Tokens.Gutter),
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge.capped(), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.semantics { heading() })
+        chips()
     }
 }
 
@@ -651,7 +677,7 @@ fun TraceSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?, onPick:
             s.changeTrace(t.copy(opacity = it.roundToInt()))
         }
         OptionRow("Change photo…", null, Modifier.padding(top = Tokens.Gap)) { onPick() }
-        OptionRow("Remove trace photo", null, destructive = true) {
+        OptionRow("Remove trace photo", null, destructive = true, chevron = false) {
             s.changeTrace(null)
             onDismiss()
             snacks?.show("Removed the trace photo") { s.changeTrace(t) }

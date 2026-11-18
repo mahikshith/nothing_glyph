@@ -45,6 +45,9 @@ object StudioText {
         else -> "${a.frames.size} frames · ${seconds(a.totalMs)}"
     }
 
+    /** A frame's time: "170 ms" under a second, "1.2 s" from a second up. */
+    fun duration(ms: Int): String = if (ms < 1000) "$ms ms" else seconds(ms)
+
     /** 2400 → "2.4 s", 12000 → "12 s". */
     fun seconds(ms: Int): String {
         val tenths = (ms + 50) / 100
@@ -76,13 +79,13 @@ object StudioText {
     }
 }
 
-/** Who uses a design: alert rules and people that show it, the DF Player toy, the Gallery. */
+/** Who uses a design: alert rules and people that show it, the DotForge player toy, the Gallery. */
 object DesignUse {
     fun rules(id: String): List<Rule> = AppGraph.rules.rules.value.filter { it.glyph == GlyphStyle.DESIGN && it.designId == id }
 
     fun names(id: String): List<String> = buildList {
         rules(id).forEach { add(it.name) }
-        if (AppGraph.toys.playerDesignId == id) add("DF Player")
+        if (AppGraph.toys.playerDesignId == id) add("DotForge player")
         if (id in AppGraph.toys.galleryIds) add("Gallery")
     }
 

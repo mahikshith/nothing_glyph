@@ -112,9 +112,11 @@ fun TimingPanel(
                 Timing.REMIND_CHIPS.forEach { m -> Chip("Every $m min", t.remindMinutes == m) { onChange(t.copy(remindMinutes = m)) } }
             }
         } else {
-            // an exact time on any design: moving it switches to seconds
-            SliderLine("Exact time", if (t.showFor == ShowFor.SECONDS) "${t.seconds} s" else "Off")
-            DotSlider("Show for, seconds", t.seconds.toFloat(), 1f..60f, steps = 58, readout = "${t.seconds} seconds") {
+            // the slider shows the time it shows for now (the whole design's length too) and follows the chips;
+            // moving it picks an exact number of seconds
+            val shownMs = if (t.showFor == ShowFor.SECONDS) t.seconds * 1000 else (animationMs ?: 1000).coerceAtLeast(100)
+            SliderLine("Show for", secondsText(shownMs))
+            DotSlider("Show for, seconds", (shownMs / 1000f).coerceIn(1f, 60f), 1f..60f, steps = 58, readout = secondsText(shownMs)) {
                 onChange(t.copy(showFor = ShowFor.SECONDS, seconds = it.roundToInt()))
             }
         }

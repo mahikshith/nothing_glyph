@@ -8,7 +8,7 @@ import kotlin.math.sin
 /** What the background does under the dots behind the letters. */
 @Serializable
 enum class BehindText(val label: String, val hint: String) {
-    CLEAR("Clear", "Letters on top of the picture"),
+    CLEAR("None", "Letters straight on the picture"),
     DIM("Dim", "The picture dims behind the letters"),
     CUT_OUT("Cut-out", "The picture goes dark round each letter"),
 }

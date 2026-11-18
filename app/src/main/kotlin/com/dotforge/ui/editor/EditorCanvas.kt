@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -60,14 +61,12 @@ import kotlin.math.max
 /**
  * The matrix being edited: only the 489 real LEDs, as circles; off dots in 20% grey. The previous frame shows
  * as outlined rings (onion skin) so it can't be mistaken for dim dots. One finger draws; a second finger cancels
- * the stroke and pinches (1x-4x) or pans. While playing, a tap pauses and never draws.
+ * the stroke and pinches (1x-3x) or pans. While playing, a tap pauses and never draws.
  */
 @Composable
 fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPicked: (Int) -> Unit = {}) {
     val p = AppGraph.profile
     val n = p.size
-    var zoom by remember { mutableFloatStateOf(1f) }
-    var pan by remember { mutableStateOf(Offset.Zero) }
     @Suppress("UNUSED_EXPRESSION") s.tick
     val pixels = s.visible()
     val prev = if (s.onion && !s.playing && s.doc.size > 1 && s.layer == LayerKind.DRAWING && s.doc.cur > 0) s.doc.frames[s.doc.cur - 1] else null
@@ -81,10 +80,10 @@ fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPi
         append(", $lit of ${p.ledCount} dots lit")
         if (trace != null) append(", trace photo under the grid")
     }
-    Box(modifier.size(side), contentAlignment = Alignment.Center) {
+    Box(modifier.size(side).clipToBounds(), contentAlignment = Alignment.Center) {
         Canvas(
             Modifier.size(side)
-                .graphicsLayer { scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y }
+                .graphicsLayer { scaleX = s.zoom; scaleY = s.zoom; translationX = s.pan.x; translationY = s.pan.y }
                 .semantics {
                     contentDescription = label
                     customActions = listOf(
@@ -130,10 +129,10 @@ fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPi
                                 val b = pressed[1]
                                 val before = hypot((a.previousPosition - b.previousPosition).x, (a.previousPosition - b.previousPosition).y)
                                 val now = hypot((a.position - b.position).x, (a.position - b.position).y)
-                                if (before > 1f) zoom = (zoom * now / before).coerceIn(1f, 4f)
+                                if (before > 1f) s.zoom = (s.zoom * now / before).coerceIn(1f, MAX_ZOOM)
                                 val mid = (a.position + b.position) / 2f - (a.previousPosition + b.previousPosition) / 2f
-                                pan = clampPan(pan + mid * zoom, zoom, size.width.toFloat())
-                                if (zoom == 1f) pan = Offset.Zero
+                                s.pan = clampPan(s.pan + mid * s.zoom, s.zoom, size.width.toFloat())
+                                if (s.zoom == 1f) s.pan = Offset.Zero
                                 ev.changes.forEach(PointerInputChange::consume)
                                 continue
                             }
@@ -180,11 +179,12 @@ fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPi
                 )
             }
         }
-        if (zoom > 1f) {
+        if (s.zoom > 1f) {
             TextButton(
-                onClick = { zoom = 1f; pan = Offset.Zero },
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(18.dp)),
-            ) { Text("Fit", color = Color.White) }
+                onClick = { s.zoom = 1f; s.pan = Offset.Zero },
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(18.dp))
+                    .semantics { contentDescription = "Fit: zoomed ${"%.1f".format(s.zoom)}x" },
+            ) { Text("Fit · ${"%.1f".format(s.zoom).removeSuffix(".0")}x", color = Color.White) }
         }
     }
 }
@@ -200,7 +200,11 @@ fun rememberTraceImage(file: String?): ImageBitmap? {
     return img
 }
 
-private fun clampPan(o: Offset, zoom: Float, w: Float): Offset {
+/** Pinch zoom stops at 3x: a dot is then about 40 dp, easy to hit with a finger. */
+const val MAX_ZOOM = 3f
+
+/** Keeps the zoomed matrix covering its box. */
+fun clampPan(o: Offset, zoom: Float, w: Float): Offset {
     val m = (zoom - 1f) * w / 2f
     return Offset(o.x.coerceIn(-m, m), o.y.coerceIn(-m, m))
 }
