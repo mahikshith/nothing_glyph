@@ -12,9 +12,22 @@ Three tabs; detail pages open full screen with a back arrow.
 - **Glyph**: live matrix preview and brightness, then feature tiles. *Notifications*, *Calls* and *Spam filter*
   open their pages (below).
   *Live*: Progress rings, Torch and Music visualiser (switches; hold Music visualiser to pick Bars, Ring pulse
-  or Radial spectrum). *Toys*: All toys opens the Toys page (below); each DF toy: tap for how to add it in
+  or Radial spectrum), and Battery, volume and torch (below). *Toys*: All toys opens the Toys page (below); each DF toy: tap for how to add it in
   Glyph Toys, hold for its settings. *Customise*: Ringtones and App integrations (below); Essential Key is
-  marked Coming soon (no supported route yet, see *Essential Key and Glyph Button*); Import is Coming soon.
+  marked Coming soon (no supported route yet, see *Essential Key and Glyph Button*); Import opens the design
+  import (below).
+- **DF toys** (each declares its name, image and summary as resources; long press and always-on where noted):
+  DF Clock (Digital, Analog, Dot font or Binary; 12/24 h; AOD), DF Battery (AOD), DF Dice, DF Player (AOD),
+  DF Music, DF Always-on (one AOD toy with a face: clock with battery ring, gallery, moon or now playing;
+  long press, its settings or the *Always-on face* Quick Settings tile switches it), DF Gallery (design
+  carousel; one design a minute on AOD), DF Now Playing (press play/pause, long press next, double previous;
+  needs notification access), DF Timer (stopwatch or 1-25 min countdown), DF Compass (long press: spirit
+  level), DF Snake (press right, long press left), DF Breathe (box breathing), DF Moon (AOD; long press:
+  days to full moon) and DF Speed (download speed).
+- **Battery, volume and torch** page (all off until switched on): charging meter on plug-in, the level on a
+  shake while charging, full (100%) and low (15%) flashes, a volume ring when the media volume changes, and
+  shake twice for the torch (with a Firm shake option). They run in the app process, which notification
+  access keeps alive.
 - **Toys** page: *Installed* lists every Glyph Toy on the phone, from any app (services answering
   `com.nothing.glyph.TOY`), with its name, image and summary from its meta-data and its app; Open Nothing's toy
   settings opens Nothing's toy manager (`com.nothing.glyph.TOYS_MANAGER`, then its activity by name, then
@@ -118,10 +131,17 @@ Three tabs; detail pages open full screen with a back arrow.
   Android's Visualizer on the output mix; if that gives nothing while music plays it switches to the
   microphone and says so in its notification. The microphone permission is asked when it is first switched on,
   with Not now. The *DF Music* Glyph Toy draws the same styles (long press: next style).
-- **Create**: saved designs; + gives Static or Animated. The editor mirrors the drawing on the matrix while
-  open and plays it in a corner preview. Saved designs feed the DF Player toy and the "My design" effect.
+- **Create**: saved designs; + gives Static, Animated, From the library (12 animations drawn by our own code),
+  Import (a picture becomes dot art: Dither, Three levels or Shades, with Invert; a Dot Hub / Glyph Museum
+  JSON file opens as it is), Photo (camera, no camera permission) and Text. The editor mirrors the drawing on
+  the matrix while open and plays it in a corner preview. Tools: Pen, Fill, Line, Box, Circle (drag shapes),
+  Light / Erase, brightness; for animations, frames, onion skin and speed for this frame or all. *Effects*
+  (Rotate, Invert, Brighter, Dimmer, Contrast, Breathe, Faster, Slower, Shake, Flash) apply to the whole
+  design with Undo. Share sends the design as JSON. Saved designs feed DF Player, DF Gallery, DF Always-on
+  and the "My design" effect.
 - **Settings**: permission checklist (Notification access, Contacts), Nothing's Glyph switch and bedtime,
-  Glyph Toys, Advanced (Diagnostics, restore presets), About. A red dot on the tab means setup is incomplete.
+  Glyph Toys, Advanced (Diagnostics, restore presets), Skin (Nothing red, Mono, Signal green, Amber, Ice
+  blue accents on pure black), About. A red dot on the tab means setup is incomplete.
 
 Permissions are asked when a feature first needs them, always with "Not now". Notification access for a
 sideloaded app is blocked by Android 13+ restricted settings: if access is still missing after the settings
@@ -269,10 +289,18 @@ Install the APK and open DotForge.
    Nothing's per-app Glyph notification settings.
 6. **Live.** Progress rings during a download or a Live Update; the Torch tile and the Quick Settings tile
    (Settings > Torch in Quick Settings).
-7. **Toys.** Tap each toy, Open Glyph Toys, add it. Hold a toy for its settings (12/24-hour clock, charging
-   animation, shake to roll, which design DF Player plays). Check long press and double press.
-8. **Create.** Create > New design > Static: dots should appear on the matrix as you draw. Make an animated
-   design, save it and check DF Player plays it.
+7. **Toys.** Tap each toy, Open Glyph Toys, add it. Hold a toy for its settings (clock style and 12/24 hour,
+   charging animation, shake to roll, which design DF Player plays, gallery designs, always-on face, timer
+   mode). Check long press and double press on each, and that Nothing's toy manager shows every DF toy with
+   its image. Set DF Always-on, DF Clock and DF Moon as the always-on toy and check the minute tick; switch
+   the face from the Quick Settings tile. DF Now Playing with music in any app; DF Compass outdoors (long
+   press: level); a game of DF Snake.
+8. **Create.** Create > New design > Static: dots should appear on the matrix as you draw; try Fill and the
+   shapes. Make an animated design with onion skin, save it and check DF Player plays it. Try Effects and
+   Undo, From the library, Import of a photo (each dot-art look) and of a Dot Hub / Glyph Museum JSON, Photo,
+   Text, and Share. The Glyph tab's Import tile opens the same picker. Settings > Skin recolours the app.
+   Glyph > Battery, volume and torch: switch each on and plug in, shake while charging, change the volume,
+   shake twice for the torch.
 9. **Ringtones.** Glyph > Ringtones > + > Import a file: try a Phone (3) Composer ringtone (lights kept), a
    Phone (1) or (2) ringtone (try each layout card) and an MP3 (From a song; try each style, Intensity and
    Speed). Lights should follow the sound on screen and on the matrix while previewing and scrubbing. Save,
