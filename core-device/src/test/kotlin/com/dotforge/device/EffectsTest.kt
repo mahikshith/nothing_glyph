@@ -1,11 +1,11 @@
 package com.dotforge.device
 
+import kotlin.random.Random
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.random.Random
 
 private val Frame.litCount: Int get() = pixels.count { it > 0 }
 
@@ -127,5 +127,16 @@ class FrameAndAnimationTest {
     @Test fun scaledTextFitsWidth() {
         assertEquals(22, DotText.width("AB", 2))
         assertEquals(10, DotText.height(2))
+    }
+
+    @Test fun callGlyphsAreMaskedDistinctAndShort() {
+        val all = listOf(Effects.callBlocked(p), Effects.callSilenced(p), Effects.missedCall(p), Effects.spam(p))
+        for (a in all) {
+            assertTrue(a.totalMs in 1000..4000)
+            for (f in a.frames) assertTrue(f.frame.pixels.indices.all { f.frame.pixels[it] == 0 || p.mask[it] })
+            assertTrue(a.frames.first().frame.litCount > 20)
+        }
+        val firsts = all.map { it.frames.first().frame.pixels.toList() }
+        assertEquals(4, firsts.toSet().size)
     }
 }

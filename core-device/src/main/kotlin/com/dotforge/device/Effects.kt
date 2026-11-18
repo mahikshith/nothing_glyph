@@ -146,6 +146,69 @@ object Effects {
         return f
     }
 
+    /** A straight line, [width] cells thick to the right; cells without an LED are skipped. */
+    private fun line(f: Frame, x0: Int, y0: Int, x1: Int, y1: Int, width: Int = 2, value: Int = 255) {
+        val steps = maxOf(kotlin.math.abs(x1 - x0), kotlin.math.abs(y1 - y0)).coerceAtLeast(1)
+        for (i in 0..steps) {
+            val x = x0 + (x1 - x0) * i / steps
+            val y = y0 + (y1 - y0) * i / steps
+            for (w in 0 until width) f[x + w, y] = value
+        }
+    }
+
+    private fun withRing(profile: DeviceProfile, f: Frame, level: Int): Frame {
+        for (cell in profile.ring) f.pixels[cell] = maxOf(f.pixels[cell], level)
+        return f
+    }
+
+    /** A call DotForge rejected: an X inside a dim ring, blinking twice. */
+    fun callBlocked(profile: DeviceProfile): Animation {
+        val n = profile.size
+        val m = n / 4
+        val x = Frame.blank(profile)
+        line(x, m, m, n - 2 - m, n - 1 - m)
+        line(x, n - 2 - m, m, m, n - 1 - m)
+        val on = withRing(profile, x, 90)
+        val off = Frame.blank(profile)
+        return Animation(profile, listOf(AnimFrame(on, 450), AnimFrame(off, 200), AnimFrame(on, 450), AnimFrame(off, 700)))
+    }
+
+    /** A call DotForge silenced: a bar across a ring (muted), shown twice and fading. */
+    fun callSilenced(profile: DeviceProfile): Animation {
+        val n = profile.size
+        val c = (n - 1) / 2
+        val bar = Frame.blank(profile)
+        for (dy in -1..1) line(bar, n / 5, c + dy, n - 1 - n / 5, c + dy, width = 1)
+        val on = withRing(profile, bar, 255)
+        val fade = (5 downTo 0).map { AnimFrame(on.scaled(it / 5f), 90) }
+        return Animation(profile, listOf(AnimFrame(on, 400)) + fade + listOf(AnimFrame(on, 400)) + fade + AnimFrame(Frame.blank(profile), 500))
+    }
+
+    /** Spam: a "!" in a ring, three quick blinks. */
+    fun spam(profile: DeviceProfile): Animation {
+        val n = profile.size
+        val c = (n - 1) / 2
+        val f = Frame.blank(profile)
+        for (y in n / 4..c + 2) for (x in c - 1..c + 1) f[x, y] = 255
+        for (y in c + 5..c + 7) for (x in c - 1..c + 1) f[x, y] = 255
+        val on = withRing(profile, f, 160)
+        val off = Frame.blank(profile)
+        return Animation(profile, (0 until 3).flatMap { listOf(AnimFrame(on, 220), AnimFrame(off, 160)) } + AnimFrame(off, 500))
+    }
+
+    /** A missed call: the missed-call arrow (pointing down-left), blinking slowly. */
+    fun missedCall(profile: DeviceProfile): Animation {
+        val n = profile.size
+        val m = n / 4 + 1
+        val lo = n - 1 - m
+        val k = n / 4
+        val f = Frame.blank(profile)
+        line(f, lo - 1, m, m, lo - 1)
+        line(f, m, lo - 1, m + k, lo - 1)
+        line(f, m, lo - 1 - k, m, lo - 1)
+        return Animation(profile, listOf(AnimFrame(f, 800), AnimFrame(f.scaled(0.2f), 600)))
+    }
+
     fun sparkle(profile: DeviceProfile, frames: Int = 12, stepMs: Int = 60, random: Random = Random.Default): Animation =
         Animation(profile, (0 until frames).map {
             val f = Frame.blank(profile)
