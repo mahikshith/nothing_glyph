@@ -95,6 +95,16 @@ object NothingSettings {
             ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open Settings")
 
     /** True when the firmware lets us read the bedtime switch, so "Follow Nothing bedtime" can work. */
+    /**
+     * Whether Nothing's own lights for notifications ([NOTIFICATION_MODE]) or the ringtone ([RINGTONE_MODE]) are
+     * set to "Sound only", so they don't cover DotForge's frames. Null when the firmware doesn't let us read it.
+     * Assumption, to check on the phone: the value is "1" for Sound only.
+     */
+    fun soundOnly(cr: ContentResolver, key: String): Boolean? = global(cr, key)?.takeIf { it != NOT_READABLE }?.let { it.trim() == "1" }
+
+    const val NOTIFICATION_MODE = "led_notification_mode"
+    const val RINGTONE_MODE = "led_default_ringtone_sound_mode"
+
     fun bedtimeReadable(cr: ContentResolver): Boolean = global(cr, BEDTIME_ENABLE) != null
 
     /** The bedtime schedule when it is switched on and readable, null otherwise. */

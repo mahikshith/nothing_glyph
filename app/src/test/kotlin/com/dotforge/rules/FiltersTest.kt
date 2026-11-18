@@ -70,13 +70,15 @@ class FiltersTest {
 
     @Test fun filtersHoldBackAMatch() {
         fun reason(v: Verdict) = (v as? Verdict.Quiet)?.reason
-        assertEquals("quiet hours", reason(decide(FilterSettings(quiet = night), c = cond(h = 23))))
+        assertEquals("Quiet", reason(decide(FilterSettings(quiet = night), c = cond(h = 23))))
         assertEquals("Do Not Disturb", reason(decide(c = cond(dnd = true))))
         assertTrue(decide(FilterSettings(respectDnd = false), c = cond(dnd = true)) is Verdict.Show)
-        assertEquals("phone unlocked", reason(decide(FilterSettings(onlyLocked = true), c = cond(locked = false))))
-        assertEquals("not face down", reason(decide(FilterSettings(onlyFaceDown = true), c = cond(faceDown = false))))
-        assertTrue(decide(FilterSettings(onlyFaceDown = true), c = cond(faceDown = true)) is Verdict.Show)
-        assertTrue(decide(FilterSettings(onlyFaceDown = true), c = cond(faceDown = null)) is Verdict.Show) // no reading yet
+        assertEquals("phone in use", reason(decide(c = cond(locked = false))))
+        assertTrue(decide(FilterSettings(whileUsing = false), c = cond(locked = false)) is Verdict.Show)
+        // the firmware hides app lights face down: History says so
+        assertEquals("phone face down", reason(decide(c = cond(faceDown = true))))
+        assertTrue(decide(c = cond(faceDown = false)) is Verdict.Show)
+        assertTrue(decide(c = cond(faceDown = null)) is Verdict.Show) // no reading yet
     }
 
     @Test fun subjectCarriesTheNotificationsFields() {

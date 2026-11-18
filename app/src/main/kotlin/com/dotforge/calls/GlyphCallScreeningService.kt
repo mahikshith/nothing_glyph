@@ -17,7 +17,6 @@ import com.dotforge.filter.PhoneState
 import com.dotforge.filter.Subject
 import com.dotforge.rules.Action
 import com.dotforge.rules.RuleEngine
-import com.dotforge.rules.SpamCatch
 
 /**
  * Screens incoming calls with the rules for calls, the same engine and spam rules as notifications (DotForge
@@ -65,14 +64,21 @@ class GlyphCallScreeningService : CallScreeningService() {
         val action = gate?.rule?.action?.takeIf { it.blocks } ?: Action.ALLOW
         respondToCall(details, response(action))
         calls.noteCall(number, nowMs)
-        if (action == Action.ALLOW) return
+        if (action == Action.ALLOW) {
+            // the call rings: its name scrolls (a better name from the phone app may replace it live)
+            val formatted = if (hidden) null else runCatching { android.telephony.PhoneNumberUtils.formatNumber(raw, lookup.region() ?: "US") }.getOrNull() ?: raw
+            val contact = if (hidden) null else (caller ?: runCatching { lookup.caller(raw) }.getOrNull())?.name
+            main.post { com.dotforge.notify.AlertRuntime.call.ringing(formatted, contact) }
+            return
+        }
 
         val who = caller?.name ?: number ?: "Hidden number"
-        AppGraph.filters.record(
-            SpamCatch(
-                key = "call:$nowMs", appLabel = "Phone", title = who, text = "", at = nowMs, call = true,
-                sender = caller?.name ?: number.orEmpty(), number = number.orEmpty(), action = action,
-                rule = gate?.rule?.name, why = gate?.why.orEmpty(),
+        AppGraph.history.add(
+            com.dotforge.rules.HistoryEntry(
+                key = "call:$nowMs", at = nowMs, outcome = com.dotforge.rules.Outcome.BLOCKED,
+                detail = gate?.rule?.let(com.dotforge.rules.HistoryText::blockedDetail).orEmpty(),
+                appLabel = "Phone", title = who, sender = caller?.name.orEmpty(), number = number.orEmpty(), call = true,
+                ruleId = gate?.rule?.id, rule = gate?.rule?.name, action = action,
             ),
         )
         main.post {

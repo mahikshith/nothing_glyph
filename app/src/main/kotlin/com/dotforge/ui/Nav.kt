@@ -58,6 +58,12 @@ sealed interface Page {
     data object Backup : Page
     /** A Features page by key (ui/features/ owns the keys). */
     data class Feature(val key: String) : Page
+    /** Alerts > Add an app ("app"), Reminder apps ("reminders"), or Change app ("change:<rule id>"). */
+    data class AlertApps(val mode: String) : Page
+    /** Alerts > ⋮ > Alert settings, and its Quiet and Who wins pages. */
+    data object AlertSettings : Page
+    data object Quiet : Page
+    data object WhoWins : Page
     /** Third-party notices and font licences (Profile > About). */
     data object Licences : Page
     /** Temporary: the screens from before the redesign, until each is replaced. */
@@ -92,6 +98,10 @@ private fun Page.encode(): String = when (this) {
     Page.OldScreens -> "old"
     Page.Licences -> "licences"
     Page.Components -> "components"
+    is Page.AlertApps -> "alertapps:$mode"
+    Page.AlertSettings -> "alertsettings"
+    Page.Quiet -> "quiet"
+    Page.WhoWins -> "whowins"
     is Page.OldTab -> "oldtab:$key"
     is Page.Feature -> "feature:$key"
     is Page.Editor -> "editor:$animated:${designId.orEmpty()}"
@@ -119,6 +129,10 @@ private fun decode(s: String): Page? {
         "old" -> Page.OldScreens
         "licences" -> Page.Licences
         "components" -> Page.Components
+        "alertapps" -> Page.AlertApps(s.removePrefix("alertapps:"))
+        "alertsettings" -> Page.AlertSettings
+        "quiet" -> Page.Quiet
+        "whowins" -> Page.WhoWins
         "oldtab" -> parts.getOrNull(1)?.let(Page::OldTab)
         "feature" -> parts.getOrNull(1)?.let(Page::Feature)
         // a draft lives in memory only: after a restart the editor opens the saved design, or a blank one

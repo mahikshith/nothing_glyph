@@ -73,9 +73,12 @@ abstract class ScreenshotTest {
                 val at = IntArray(2).also(v::getLocationOnScreen)
                 // Robolectric leaves a centred dialog window at 0,0: centre it the way the window manager would
                 val lp = v.layoutParams as? android.view.WindowManager.LayoutParams
-                if (lp != null && v !== base && (lp.gravity and android.view.Gravity.VERTICAL_GRAVITY_MASK) != android.view.Gravity.BOTTOM &&
-                    v.height < base.height
-                ) {
+                val vertical = (lp?.gravity ?: 0) and android.view.Gravity.VERTICAL_GRAVITY_MASK
+                if (lp != null && v !== base && vertical == android.view.Gravity.TOP) {
+                    // a popup (a menu) placed by its offsets from the top left
+                    at[0] = origin[0] + lp.x
+                    at[1] = origin[1] + lp.y
+                } else if (lp != null && v !== base && vertical != android.view.Gravity.BOTTOM && v.height < base.height) {
                     at[0] = origin[0] + (base.width - v.width) / 2
                     at[1] = origin[1] + (base.height - v.height) / 2
                 }

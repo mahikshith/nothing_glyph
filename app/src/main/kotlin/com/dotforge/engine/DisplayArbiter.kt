@@ -11,17 +11,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** Who wins the matrix among DotForge's own sources. Higher wins. */
+/**
+ * Who wins the matrix among DotForge's own sources. Higher wins (row 50): an incoming call, then the torch,
+ * then alerts, then progress rings, then the visualiser. When one ends, what was showing before resumes.
+ */
 object Priority {
+    /** The Live music visualiser: under alerts and progress (it is switched on by hand, and comes back after them). */
+    const val LIVE = 25
     const val PROGRESS = 30
     const val NOTIFICATION = 50
-    /** The Live music visualiser: above notifications while music plays (it is switched on by hand). */
-    const val LIVE = 55
     const val STUDIO_PREVIEW = 60
     const val TORCH = 70
+    /** A ringing call: the caller's name and glyph. */
+    const val CALL = 80
 
-    /** Requests at or below this level are ambient: they obey Nothing's Glyph switch and bedtime. */
-    const val AMBIENT_MAX = NOTIFICATION
+    /** Ambient requests (alerts, progress) obey Nothing's Glyph switch and bedtime. */
+    fun ambient(priority: Int) = priority == PROGRESS || priority == NOTIFICATION
 }
 
 data class DisplayRequest(
@@ -34,7 +39,7 @@ data class DisplayRequest(
     val timeoutMs: Long? = null,
     val label: String = id,
 ) {
-    val isAmbient: Boolean get() = priority <= Priority.AMBIENT_MAX
+    val isAmbient: Boolean get() = Priority.ambient(priority)
 }
 
 /** Whether ambient requests (notifications, progress) may light up right now, e.g. Nothing's Glyph switch and bedtime. */

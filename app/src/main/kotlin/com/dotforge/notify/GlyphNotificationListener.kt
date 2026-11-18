@@ -25,7 +25,13 @@ import com.dotforge.rules.GlyphStyle
 import com.dotforge.rules.LogEntry
 import com.dotforge.rules.NotificationInfo
 import com.dotforge.rules.RuleEngine
-import com.dotforge.rules.SpamCatch
+import com.dotforge.rules.HistoryEntry
+import com.dotforge.rules.HistoryText
+import com.dotforge.rules.Outcome
+import com.dotforge.rules.QuietReason
+import com.dotforge.rules.SimpleRules
+import com.dotforge.rules.SoundMode
+import android.telecom.TelecomManager
 import com.dotforge.rules.Verdict
 
 /**
@@ -63,12 +69,21 @@ class GlyphNotificationListener : NotificationListenerService() {
         // Ongoing notifications (music, calls in progress, foreground services) are not alerts; only progress is shown.
         if (sbn.isOngoing && !ringing) {
             AppGraph.alerts.removed(sbn.key) // e.g. an incoming call that was answered
+            if (n.category == Notification.CATEGORY_CALL) AlertRuntime.call.ended()
             return
         }
 
         if (replay && ringing) return
+        val rules = AppGraph.rules.rules.value
+        // a ringing call: its name feeds the call display (the best source wins, live), unless Phone calls is off
+        if (ringing && rules.any { it.id == SimpleRules.PHONE_CALLS && it.enabled }) {
+            val dialer = runCatching { getSystemService(TelecomManager::class.java).defaultDialerPackage }.getOrNull() == sbn.packageName
+            AlertRuntime.call.notification(info.title, info.text, dialer)
+            return
+        }
+        val filters = AppGraph.filters.filters.value
         val verdict = Delivery.decide(
-            info, AppGraph.rules.rules.value, AppGraph.rules.lists.value, AppGraph.filters.filters.value,
+            info, rules, AppGraph.rules.lists.value, filters,
             conditions = { FilterActions.conditions(this) },
             sender = { contacts.lookup(info) },
             region = region,
@@ -81,13 +96,13 @@ class GlyphNotificationListener : NotificationListenerService() {
             // held glyphs end on unlock, so they come back only while the phone is locked
             val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
             if (!locked || rule.glyph == GlyphStyle.NONE || rule.until == Until.TIMEOUT) return
-            AppGraph.alerts.offer(RuleEngine.alert(rule, info, AppGraph.profile, AppGraph::designAnimation, AppGraph::designTiming, isCall = false))
+            AppGraph.alerts.offer(alertFor(rule, info, filters, dim = verdict.dim))
             return
         }
         val missed = missedCall(n) && (verdict is Verdict.Show || verdict == Verdict.NoRule)
         if (missed) {
             val glyph = AlertGlyph(Effects.missedCall(AppGraph.profile), "Missed call: ${info.title.ifBlank { info.appLabel }}")
-            AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, false, Until.UNLOCK, glyph))
+            AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, false, Until.UNLOCK, glyph, rank = AlertQueue.RANK_CALL))
             AppGraph.arbiter.refreshAfter(DotForgeApp.COVERED_MS)
         } else when (verdict) {
             is Verdict.Blocked -> block(sbn, info, verdict)
@@ -95,21 +110,60 @@ class GlyphNotificationListener : NotificationListenerService() {
                 val rule = verdict.match.rule
                 var queued = true
                 if (rule.glyph != GlyphStyle.NONE) {
-                    val offer = AppGraph.alerts.offer(RuleEngine.alert(rule, info, AppGraph.profile, AppGraph::designAnimation, AppGraph::designTiming))
+                    val offer = AppGraph.alerts.offer(alertFor(rule, info, filters, verdict.dim))
                     cooldown = offer == AlertQueue.Offer.COOLDOWN
                     queued = offer == AlertQueue.Offer.QUEUED
                     // Nothing's own notification glyph plays now and covers ours without telling us; show ours again after it.
                     AppGraph.arbiter.refreshAfter(DotForgeApp.COVERED_MS)
                 }
-                if (queued) {
-                    rule.soundUri?.let { NotificationSound.play(this, it) }
-                    if (rule.vibrate) FilterActions.vibrate(this)
-                }
+                sound(sbn, rule, queued)
+                if (!cooldown) history(info, Outcome.LIT, HistoryText.litDetail(glyphName(rule), rule), rule)
             }
-            Verdict.NoRule, is Verdict.Quiet -> Unit
+            is Verdict.Quiet -> {
+                val rule = verdict.match.rule
+                // made while the phone was in use: it shows briefly once the screen goes off
+                if (verdict.reason == QuietReason.IN_USE && rule.glyph != GlyphStyle.NONE) AlertRuntime.defer(alertFor(rule, info, filters, dim = false))
+                history(info, Outcome.SKIPPED, verdict.reason, rule)
+            }
+            Verdict.NoRule -> Unit
         }
         AppGraph.log(LogEntry(info, verdict, cooldown))
     }
+
+    private fun alertFor(rule: com.dotforge.rules.Rule, info: NotificationInfo, filters: com.dotforge.rules.FilterSettings, dim: Boolean) =
+        RuleEngine.alert(
+            rule, info, AppGraph.profile, AppGraph::designAnimation, AppGraph::designTiming, isCall = false,
+            rank = SimpleRules.rank(rule, filters.order), dim = dim, appIcon = AlertRuntime::appIcon,
+        )
+
+    /** The rule's sound: the app's own (nothing to do), none, or our tune instead of the app's (row 59 decision). */
+    private fun sound(sbn: StatusBarNotification, rule: com.dotforge.rules.Rule, queued: Boolean) {
+        when (rule.sound) {
+            SoundMode.APP -> Unit
+            SoundMode.NONE -> FilterActions.silence(this, sbn, ::cancelNotification, spam = false)
+            SoundMode.CUSTOM -> {
+                FilterActions.silence(this, sbn, ::cancelNotification, spam = false)
+                if (queued) rule.soundUri?.let { NotificationSound.play(this, it) }
+            }
+        }
+    }
+
+    private fun glyphName(rule: com.dotforge.rules.Rule): String = when (rule.glyph) {
+        GlyphStyle.ICON -> com.dotforge.device.GlyphLibrary.get(rule.designId)?.name?.let { "$it glyph" } ?: "Glyph"
+        GlyphStyle.APP_ICON -> "App icon"
+        GlyphStyle.NAME -> "Their name"
+        GlyphStyle.DESIGN -> AppGraph.designs.get(rule.designId)?.name ?: "My design"
+        else -> rule.glyph.label
+    }
+
+    private fun history(info: NotificationInfo, outcome: Outcome, detail: String, rule: com.dotforge.rules.Rule?) =
+        AppGraph.history.add(
+            HistoryEntry(
+                key = info.key + ":" + info.postedAt, at = info.postedAt, outcome = outcome, detail = detail,
+                appLabel = info.appLabel, packageName = info.packageName, title = info.title, text = info.text,
+                sender = info.sender, number = info.number.orEmpty(), ruleId = rule?.id, rule = rule?.name, action = rule?.action,
+            ),
+        )
 
     /**
      * A progress bar (classic or Android 16 ProgressStyle) on the outer ring, when progress rings are on and a
@@ -150,13 +204,7 @@ class GlyphNotificationListener : NotificationListenerService() {
             else -> FilterActions.silence(this, sbn, ::cancelNotification, spam = true)
         }
         val who = info.sender.ifBlank { info.title }.ifBlank { info.appLabel }
-        AppGraph.filters.record(
-            SpamCatch(
-                key = sbn.key, appLabel = info.appLabel, title = info.title, text = info.text, at = info.postedAt,
-                packageName = info.packageName, sender = info.sender.ifBlank { info.title }, number = info.number.orEmpty(),
-                action = action, rule = v.match.rule.name, why = v.match.why,
-            ),
-        )
+        history(info, Outcome.BLOCKED, HistoryText.blockedDetail(v.match.rule), v.match.rule)
         if (action == Action.SPAM) FilterActions.spamAlert(this, who)
     }
 
@@ -177,8 +225,14 @@ class GlyphNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        AppGraph.alerts.removed(sbn.key)
         AppGraph.arbiter.remove(progressId(sbn.key))
+        val n = sbn.notification
+        if (n.category == Notification.CATEGORY_CALL && n.fullScreenIntent != null) AlertRuntime.call.ended()
+        // our own removal (to silence it) is not "checked"; our quiet copy carries the original's key as its tag
+        if (AlertRuntime.wasOurs(sbn.key)) return
+        val key = if (sbn.packageName == packageName && n.channelId == FilterActions.SILENCED_CHANNEL) sbn.tag ?: return else sbn.key
+        AppGraph.alerts.removed(key)
+        AlertRuntime.dropDeferred(key)
     }
 
     private val region: String? get() = callerLookup.region()

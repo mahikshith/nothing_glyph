@@ -23,9 +23,9 @@ class SimpleRulesTest {
         assertEquals(Action.SHOW, r.action)
         assertEquals(Source.APPS, r.source)
         assertEquals(listOf("com.whatsapp"), r.packages)
-        assertEquals(GlyphStyle.ICON, r.glyph)
-        assertEquals("chat", r.designId)
-        assertFalse(SimpleRules.staysOn(r))
+        assertEquals(GlyphStyle.APP_ICON, r.glyph) // row 55: the app's icon in dots
+        assertEquals(null, r.designId)
+        assertTrue(SimpleRules.staysOn(r)) // until you check
         assertTrue(SimpleRules.isSimpleApp(r))
 
         r = SimpleRules.withStays(r, true)
@@ -83,7 +83,7 @@ class SimpleRulesTest {
         assertEquals(Source.EVERYTHING, r.source)
         assertTrue(r.packages.containsAll(SimpleRules.SMS_APPS))
         assertEquals(p, SimpleRules.pattern(r))
-        assertEquals("Start with “140”", r.name)
+        assertEquals("Starts with 140", r.name)
         assertTrue(RuleEngine.decide(call("1401234567"), listOf(r)).blocked)
         assertTrue(RuleEngine.decide(note("com.google.android.apps.messaging", "1409876", "1409876"), listOf(r)).blocked)
         assertFalse(RuleEngine.decide(note("com.whatsapp", "1409876", "1409876"), listOf(r)).blocked)

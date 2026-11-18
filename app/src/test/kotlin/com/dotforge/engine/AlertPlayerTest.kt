@@ -44,22 +44,26 @@ class AlertPlayerTest {
 
         now = 1_000
         advanceTimeBy(701)
+        assertEquals(10, device.level) // never cut in its first 2 s
+
+        now = 2_000
+        advanceTimeBy(1_000)
         assertEquals(20, device.level)
 
-        now = 3_100
+        now = 4_100
         advanceTimeBy(2_100)
         runCurrent()
         assertNull(device.level)
     }
 
-    @Test fun unlockClearsAHeldAlert() = runTest {
+    @Test fun unlockClearsAHeldAlertWhenItCountsAsChecking() = runTest {
         val device = FakeDevice()
         val arbiter = DisplayArbiter(backgroundScope, device)
         val player = AlertPlayer(backgroundScope, arbiter, AlertQueue(now = { 0L }))
         player.offer(alert("msg", 30, until = Until.READ))
         advanceTimeBy(5_000)
         assertEquals(30, device.level)
-        player.unlocked()
+        player.unlocked(counts = true)
         runCurrent()
         assertNull(device.level)
     }

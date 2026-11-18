@@ -80,6 +80,17 @@ object AppGraph {
         private set
     lateinit var system: SystemGlyphSettings
         private set
+    /** Alerts > History (it replaced the Spam log). */
+    lateinit var history: com.dotforge.rules.HistoryRepository
+        private set
+    lateinit var moments: com.dotforge.system.PhoneMoments
+        private set
+
+    /** Stop on Home: the Glyph goes dark and everything waiting counts as checked; notifications stay. */
+    fun stopAll() {
+        alerts.stopAll()
+        arbiter.remove(com.dotforge.notify.AlertRuntime.CALL_ID)
+    }
     private lateinit var prefs: SharedPreferences
 
     private const val KEY_BRIGHTNESS = "brightness"
@@ -161,6 +172,12 @@ object AppGraph {
         GlyphDriver.setBrightness(prefs.getInt(KEY_BRIGHTNESS, 255))
         _progressRings.value = prefs.getBoolean(KEY_PROGRESS, true)
         rules = RulesRepository(File(app.filesDir, "rules.json"), legacySpam = filters.spam.value)
+        com.dotforge.notify.AlertRuntime.init(app)
+        history = com.dotforge.rules.HistoryRepository(File(app.filesDir, "history.json"), legacy = filters.catches.value)
+        if (filters.catches.value.isNotEmpty()) filters.clearCatches()
+        // "Stop waiting after"
+        MainScope().launch { filters.filters.map { it.capMs }.distinctUntilChanged().collect(alerts::setCap) }
+        moments = com.dotforge.system.PhoneMoments(app).also { it.start() }
         faceDown = FaceDownSensor(app)
         media = MediaRingSettings(app.getSharedPreferences("media", Context.MODE_PRIVATE))
         // the sensor runs only while a filter or the media ring asks whether the phone is face down
@@ -194,7 +211,17 @@ class DotForgeApp : Application() {
      */
     private val wakeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == Intent.ACTION_USER_PRESENT) AppGraph.alerts.unlocked()
+            when (intent.action) {
+                Intent.ACTION_USER_PRESENT -> {
+                    AppGraph.alerts.unlocked(counts = AppGraph.filters.filters.value.unlockChecks)
+                    AppGraph.moments.fire(com.dotforge.rules.Moment.UNLOCK)
+                }
+                // alerts made while the phone was in use show briefly now
+                Intent.ACTION_SCREEN_OFF -> {
+                    com.dotforge.notify.AlertRuntime.screenOff()
+                    return
+                }
+            }
             AppGraph.arbiter.refresh()
             AppGraph.arbiter.refreshAfter(COVERED_MS)
         }
@@ -211,6 +238,7 @@ class DotForgeApp : Application() {
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_SCREEN_OFF)
         }
         registerReceiver(wakeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
     }

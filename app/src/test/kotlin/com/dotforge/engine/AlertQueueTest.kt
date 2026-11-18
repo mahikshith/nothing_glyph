@@ -34,14 +34,35 @@ class AlertQueueTest {
         assertEquals(Offer.QUEUED, q.offer(alert("b")))
         assertEquals("a", q.current?.key) // nothing cut: the player only advances at a cycle end
         t = 1_600
+        assertEquals(Step.Keep, q.advance()) // never cut in its first 2 s
+        t = 2_000
         assertEquals("b", shown(q.advance()))
     }
 
-    @Test fun callsJumpAheadOfMessagesButBehindEarlierCalls() {
+    @Test fun callsJumpAheadOfMessagesAndTheNewestShowsFirstWithinALevel() {
         q.offer(alert("m1"))
+        t = 10
         q.offer(alert("call1", call = true))
+        t = 20
         q.offer(alert("call2", call = true))
-        assertEquals(listOf("call1", "call2", "m1"), q.waiting.map { it.key })
+        assertEquals(listOf("call2", "call1", "m1"), q.waiting.map { it.key })
+    }
+
+    @Test fun peopleBeatAppsAndWhoWinsOrderDecidesWithinALevel() {
+        q.offer(AlertQueue.Alert("whatsapp", "w", false, Until.TIMEOUT, "w", rank = AlertQueue.RANK_APP + 1))
+        t = 10
+        q.offer(AlertQueue.Alert("gmail", "g", false, Until.TIMEOUT, "g", rank = AlertQueue.RANK_APP + 0))
+        t = 20
+        q.offer(AlertQueue.Alert("mom", "m", false, Until.TIMEOUT, "m", rank = AlertQueue.RANK_PERSON))
+        assertEquals(listOf("mom", "gmail", "whatsapp"), q.waiting.map { it.key })
+    }
+
+    @Test fun aCallCutsInAtOnce() {
+        q.offer(alert("a"))
+        q.advance()
+        t = 500
+        q.offer(alert("call", call = true))
+        assertEquals("call", shown(q.advance()))
     }
 
     @Test fun boundedQueueDropsTheOldestNonCallAndKeepsUnreadOnesHeld() {
@@ -98,11 +119,69 @@ class AlertQueueTest {
         q.offer(alert("a", until = Until.READ))
         q.offer(alert("b", until = Until.UNLOCK))
         q.advance()
+        t = 2_000
         q.advance()
         assertEquals(setOf("a", "b"), q.holding.map { it.key }.toSet())
-        assertTrue(q.unlocked())
+        assertTrue(q.unlocked(counts = true))
         assertTrue(q.holding.isEmpty())
         assertEquals(Step.Clear, q.advance())
+    }
+
+    @Test fun byDefaultUnlockingDoesNotCountAsChecking() {
+        q.offer(alert("a", until = Until.READ))
+        q.offer(alert("missed", until = Until.UNLOCK))
+        q.advance()
+        t = 2_000
+        q.advance()
+        q.unlocked()
+        assertEquals(listOf("a"), q.holding.map { it.key })
+    }
+
+    @Test fun severalWaitingAlertsTakeTurns() {
+        q.offer(alert("a", until = Until.READ))
+        q.advance()
+        t = 2_000
+        q.offer(alert("b", until = Until.READ))
+        assertEquals("b", shown(q.advance()))
+        t = 4_000
+        assertEquals(Step.Keep, q.advance()) // not yet 3 s
+        t = 5_000
+        assertEquals("a", shown(q.advance()))
+        t = 8_000
+        assertEquals("b", shown(q.advance()))
+    }
+
+    @Test fun waitingStopsAfterTheCap() {
+        q.capMs = 60 * 60_000L
+        q.offer(alert("a", until = Until.READ))
+        q.advance()
+        t = 59 * 60_000L
+        assertEquals(Step.Keep, q.advance())
+        t = 60 * 60_000L
+        assertEquals(Step.Clear, q.advance())
+        q.capMs = null
+        q.offer(alert("b", until = Until.READ, conversation = "b"))
+        q.advance()
+        t += 24 * 60 * 60_000L
+        assertEquals(Step.Keep, q.advance())
+    }
+
+    @Test fun stopAllClearsEverythingAsChecked() {
+        q.offer(alert("a", until = Until.READ))
+        q.offer(alert("b"))
+        q.advance()
+        assertTrue(q.stopAll())
+        assertTrue(q.holding.isEmpty() && q.waiting.isEmpty())
+        assertEquals(Step.Clear, q.advance())
+    }
+
+    @Test fun anAlertCanHaveItsOwnCooldown() {
+        q.offer(AlertQueue.Alert("k1", "chat", false, Until.TIMEOUT, "k1", cooldownMs = 60_000))
+        q.advance()
+        t = 30_000
+        assertEquals(Offer.COOLDOWN, q.offer(AlertQueue.Alert("k2", "chat", false, Until.TIMEOUT, "k2", cooldownMs = 60_000)))
+        t = 61_000
+        assertEquals(Offer.QUEUED, q.offer(AlertQueue.Alert("k3", "chat", false, Until.TIMEOUT, "k3", cooldownMs = 60_000)))
     }
 
     @Test fun holdUntilUnlockSurvivesRemoval() {
@@ -123,6 +202,7 @@ class AlertQueueTest {
         q.offer(alert("chat", until = Until.READ))
         q.advance()
         q.offer(alert("x"))
+        t = 2_000
         q.advance() // x showing, chat held
         assertEquals(Offer.COOLDOWN, q.offer(alert("chat", until = Until.READ)))
         t = 20_000

@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Serializable
 private data class RulesFile(val version: Int = VERSION, val rules: List<Rule>, val lists: List<NamedList> = emptyList()) {
     companion object {
-        const val VERSION = 5
+        const val VERSION = 6
     }
 }
 
@@ -124,7 +124,9 @@ private data class LegacyRule(
  * - the old spam filter's settings ([legacySpam]: words, patterns, unknown senders, allowed senders) become
  *   the spam rules and the "Spam words" and "Allowed senders" lists;
  * - version 4 adds the "Progress bars" rule (Show progress, any app), so progress rings keep working;
- * - version 5 switches the default spam protections on (spam list, contacts and repeat callers allowed).
+ * - version 5 switches the default spam protections on (spam list, contacts and repeat callers allowed);
+ * - version 6 (the Alerts redesign) adds Reminders & to-dos and the phone moments (all off), makes the old
+ *   "Calls" preset the Phone calls row, and turns a rule's extra sound into "Custom tune".
  * Safe to call from any thread.
  */
 class RulesRepository(private val file: File, private val legacySpam: SpamSettings? = null) {
@@ -176,22 +178,36 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
         return f.copy(version = RulesFile.VERSION, rules = kept + presets.filter { p -> kept.none { it.id == p.id } })
     }
 
+    /** Version 6: reminders, phone moments, the Phone calls row, sound modes. */
+    private fun withAlerts(f: RulesFile): RulesFile {
+        val have = f.rules.map { it.id }.toSet()
+        val rules = f.rules.map { r ->
+            var x = r
+            if (x.soundUri != null && x.sound == SoundMode.APP) x = x.copy(sound = SoundMode.CUSTOM)
+            if (x.id == SimpleRules.PHONE_CALLS) x = x.copy(name = "Phone calls")
+            x
+        }
+        val added = (listOf(SimpleRules.reminders()) + SimpleRules.moments()).filterNot { it.id in have }
+        return f.copy(version = RulesFile.VERSION, rules = rules + added)
+    }
+
     private fun load(): RulesFile {
         if (!file.exists()) return fresh()
         val loaded = runCatching {
             val element = json.parseToJsonElement(file.readText())
             if (element is JsonArray) {
-                withProgress(fromV2(json.decodeFromJsonElement(ListSerializer(LegacyRule.serializer()), element).filterNot { it.suppress }.map { it.migrate() }))
+                withAlerts(withProgress(fromV2(json.decodeFromJsonElement(ListSerializer(LegacyRule.serializer()), element).filterNot { it.suppress }.map { it.migrate() })))
                     .also(::write)
             } else {
                 val version = element.jsonObject["version"]?.jsonPrimitive?.int ?: RulesFile.VERSION
                 when {
                     version < 3 -> {
                         val old = element.jsonObject["rules"]?.let { json.decodeFromJsonElement(ListSerializer(RuleV2.serializer()), it) }.orEmpty()
-                        withProgress(fromV2(old)).also(::write)
+                        withAlerts(withProgress(fromV2(old))).also(::write)
                     }
-                    version == 3 -> withSpamOn(withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element))).also(::write)
-                    version == 4 -> withSpamOn(json.decodeFromJsonElement(RulesFile.serializer(), element)).also(::write)
+                    version == 3 -> withAlerts(withSpamOn(withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element)))).also(::write)
+                    version == 4 -> withAlerts(withSpamOn(json.decodeFromJsonElement(RulesFile.serializer(), element))).also(::write)
+                    version == 5 -> withAlerts(json.decodeFromJsonElement(RulesFile.serializer(), element)).also(::write)
                     else -> json.decodeFromJsonElement(RulesFile.serializer(), element)
                 }
             }

@@ -25,16 +25,22 @@ import java.time.LocalDateTime
 
 /** What rules do on the phone: the spam alert, silencing and hiding notifications, vibrating, the phone's state. */
 object FilterActions {
-    private const val SILENCED_CHANNEL = "silenced"
+    const val SILENCED_CHANNEL = "silenced"
+    const val SPAM_MS = 2_000L
 
     /** The phone's state for conditions and filters. */
-    fun conditions(context: Context) = Conditions(
-        now = LocalDateTime.now(),
-        dnd = context.getSystemService(NotificationManager::class.java).currentInterruptionFilter > NotificationManager.INTERRUPTION_FILTER_ALL,
-        locked = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked,
-        faceDown = AppGraph.faceDown.faceDown,
-        charging = context.getSystemService(BatteryManager::class.java)?.isCharging,
-    )
+    fun conditions(context: Context): Conditions {
+        val now = LocalDateTime.now()
+        return Conditions(
+            now = now,
+            dnd = context.getSystemService(NotificationManager::class.java).currentInterruptionFilter > NotificationManager.INTERRUPTION_FILTER_ALL,
+            locked = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked,
+            faceDown = AppGraph.faceDown.faceDown,
+            charging = context.getSystemService(BatteryManager::class.java)?.isCharging,
+            screenOn = context.getSystemService(android.os.PowerManager::class.java)?.isInteractive,
+            bedtime = runCatching { com.dotforge.system.NothingSettings.bedtime(context.contentResolver)?.isActive(now) }.getOrNull() == true,
+        )
+    }
 
     /** The spam alert: the spam glyph (unless switched off) and the spam sound (when one is chosen). */
     /**
@@ -46,7 +52,13 @@ object FilterActions {
         if (s.glyphOn && s.glyph != GlyphStyle.NONE) {
             val info = NotificationInfo(key, "", "Spam", who, "", 0, sender = who)
             val anim = RuleEngine.animation(s.glyph, s.designId, info, AppGraph.profile, AppGraph::designAnimation)
-            AppGraph.alerts.offer(AlertQueue.Alert(key, "spam:$who", isCall = call, until = if (call) Until.UNLOCK else Until.TIMEOUT, item = AlertGlyph(anim, "Spam: $who")))
+            AppGraph.alerts.offer(
+                AlertQueue.Alert(
+                    key, "spam:$who", isCall = call, until = if (call) Until.UNLOCK else Until.TIMEOUT, item = AlertGlyph(anim, "Spam: $who"),
+                    // row 66: a short Blocked glyph, 2 s, once
+                    showMs = SPAM_MS,
+                ),
+            )
         }
         s.soundUri?.let { NotificationSound.play(context, it) }
     }
@@ -62,6 +74,7 @@ object FilterActions {
      * Without the notifications permission the copy can't be posted, so it ends up hidden.
      */
     fun silence(context: Context, sbn: StatusBarNotification, cancel: (String) -> Unit, spam: Boolean) {
+        com.dotforge.notify.AlertRuntime.cancelling(sbn.key)
         cancel(sbn.key)
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return

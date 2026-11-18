@@ -38,16 +38,54 @@ data class QuietHours(
     }
 }
 
+/** "During Quiet": don't light, or light at 20%. */
+@Serializable
+enum class QuietMode(val label: String) { OFF("Don't light"), DIM("Dim to 20%") }
+
+/** "Light alerts": always, or only while the screen is off. (Never "only face down": the firmware hides app lights then.) */
+@Serializable
+enum class LightWhen(val label: String) { ALWAYS("Always"), SCREEN_OFF("Only when the screen is off") }
+
+/**
+ * Alerts > Alert settings: Quiet ([quiet] schedule, [respectDnd], bedtime, [whileUsing], [quietMode], who is let
+ * through), when alerts light, what counts as checking, how long waiting alerts wait, and the Who wins order.
+ */
 @Serializable
 data class FilterSettings(
     val quiet: QuietHours = QuietHours(),
     val respectDnd: Boolean = true,
     val onlyLocked: Boolean = false,
     val onlyFaceDown: Boolean = false,
-)
+    /** "While I'm using the phone": alerts made while the screen is on and unlocked show briefly once it locks. */
+    val whileUsing: Boolean = true,
+    val quietMode: QuietMode = QuietMode.OFF,
+    /** Let through during Quiet: starred contacts. */
+    val letFavourites: Boolean = true,
+    /** Let through during Quiet: the same number twice within 3 min. */
+    val letRepeat: Boolean = true,
+    val lightWhen: LightWhen = LightWhen.ALWAYS,
+    /** "Unlocking counts as checking" (off). */
+    val unlockChecks: Boolean = false,
+    /** "Stop waiting after": 1 or 4 hours, 0 = never. */
+    val waitCapHours: Int = 4,
+    /** Who wins: rule ids, people then apps, first wins. */
+    val order: List<String> = emptyList(),
+    /** Quiet switched on by hand (Home tile) until this time, epoch ms; 0 = not. */
+    val quietUntil: Long = 0,
+) {
+    /** The cap in ms for the alert queue, null = never. */
+    val capMs: Long? get() = waitCapHours.takeIf { it > 0 }?.let { it * 3_600_000L }
+}
 
 /** What the phone is doing when a notification arrives. Null fields are unknown. */
-data class Conditions(val now: LocalDateTime, val dnd: Boolean, val locked: Boolean, val faceDown: Boolean?, val charging: Boolean? = null)
+data class Conditions(
+    val now: LocalDateTime, val dnd: Boolean, val locked: Boolean, val faceDown: Boolean?, val charging: Boolean? = null,
+    /** The screen is on. */
+    val screenOn: Boolean? = null,
+    /** Nothing's Glyph bedtime is on now. */
+    val bedtime: Boolean = false,
+    val nowMs: Long = System.currentTimeMillis(),
+)
 
 /** What happened to one notification. */
 sealed interface Verdict {
@@ -56,7 +94,18 @@ sealed interface Verdict {
     data object NoRule : Verdict
     /** A rule matched but a filter held it back. */
     data class Quiet(val match: RuleMatch, val reason: String) : Verdict
-    data class Show(val match: RuleMatch) : Verdict
+    /** [dim]: Quiet is on with "Dim to 20%" (or the sender was let through dimmed). */
+    data class Show(val match: RuleMatch, val dim: Boolean = false) : Verdict
+}
+
+/** Why an alert waits or is skipped, as History says it ("Skipped · Quiet"). */
+object QuietReason {
+    const val QUIET = "Quiet"
+    const val DND = "Do Not Disturb"
+    const val BEDTIME = "Nothing's bedtime"
+    const val IN_USE = "phone in use"
+    const val SCREEN_ON = "screen on"
+    const val FACE_DOWN = "phone face down"
 }
 
 /** One line of the rule tester. [cooldown]: a rule matched but the conversation alerted moments ago. */
@@ -118,14 +167,38 @@ object Delivery {
         if (d.blocked) return Verdict.Blocked(d.gate!!)
         val match = d.show ?: return Verdict.NoRule
         val c = cond.value
-        val quiet = when {
-            filters.quiet.isActive(c.now) -> "quiet hours"
-            filters.respectDnd && c.dnd -> "Do Not Disturb"
-            filters.onlyLocked && !c.locked -> "phone unlocked"
-            filters.onlyFaceDown && c.faceDown == false -> "not face down"
-            else -> null
+        return gate(match, filters, c, starred = { sender()?.status == ContactStatus.STARRED }, repeated = false)
+    }
+
+    /**
+     * Quiet and the other filters for an alert a rule wants to show (row 7, row 54): Quiet (schedule, by hand,
+     * Do Not Disturb, Nothing's bedtime) lets favourites and repeat callers through, otherwise skips the alert
+     * or dims it to 20%; "Only when the screen is off"; "While I'm using the phone"; face down (the firmware
+     * hides app lights). [starred] is read only during Quiet.
+     */
+    fun gate(match: RuleMatch, filters: FilterSettings, c: Conditions, starred: () -> Boolean, repeated: Boolean): Verdict {
+        val quiet = quietReason(filters, c)
+        if (quiet != null) {
+            val through = (filters.letFavourites && starred()) || (filters.letRepeat && repeated)
+            if (!through) return if (filters.quietMode == QuietMode.DIM) Verdict.Show(match, dim = true) else Verdict.Quiet(match, quiet)
         }
-        return if (quiet == null) Verdict.Show(match) else Verdict.Quiet(match, quiet)
+        val screenOn = c.screenOn ?: !c.locked
+        return when {
+            filters.lightWhen == LightWhen.SCREEN_OFF && screenOn -> Verdict.Quiet(match, QuietReason.SCREEN_ON)
+            filters.whileUsing && screenOn && !c.locked -> Verdict.Quiet(match, QuietReason.IN_USE)
+            filters.onlyLocked && !c.locked -> Verdict.Quiet(match, QuietReason.IN_USE)
+            c.faceDown == true -> Verdict.Quiet(match, QuietReason.FACE_DOWN)
+            else -> Verdict.Show(match)
+        }
+    }
+
+    /** Why Quiet is on now, or null. */
+    fun quietReason(filters: FilterSettings, c: Conditions): String? = when {
+        filters.quietUntil > c.nowMs -> QuietReason.QUIET
+        filters.quiet.isActive(c.now) -> QuietReason.QUIET
+        filters.respectDnd && c.dnd -> QuietReason.DND
+        filters.quiet.followBedtime && c.bedtime -> QuietReason.BEDTIME
+        else -> null
     }
 }
 
@@ -194,5 +267,32 @@ class FiltersRepository(private val file: File, legacySpam: File? = null) {
 
     private companion object {
         const val MAX_CATCHES = 50
+    }
+}
+
+/** Quiet's status for the Home tile and Alert settings (row 7): "Off", "On until 07:00", "Scheduled 23:00". */
+object QuietText {
+    private fun hhmm(m: Int) = "%02d:%02d".format(m / 60 % 24, m % 60)
+
+    fun status(f: FilterSettings, c: Conditions): String {
+        val nowMin = c.now.hour * 60 + c.now.minute
+        return when {
+            f.quietUntil > c.nowMs -> {
+                val left = ((f.quietUntil - c.nowMs) / 60_000L).toInt()
+                "On until " + hhmm(nowMin + left)
+            }
+            f.quiet.isActive(c.now) -> "On until " + hhmm(f.quiet.end)
+            f.quiet.enabled -> "Scheduled " + hhmm(f.quiet.start)
+            else -> "Off"
+        }
+    }
+
+    /** Turning Quiet on by hand: until the schedule's next end when one is set, else for an hour. */
+    fun untilMs(f: FilterSettings, c: Conditions): Long {
+        if (!f.quiet.enabled) return c.nowMs + 3_600_000L
+        val nowMin = c.now.hour * 60 + c.now.minute
+        var wait = f.quiet.end - nowMin
+        if (wait <= 0) wait += 24 * 60
+        return c.nowMs + wait * 60_000L
     }
 }

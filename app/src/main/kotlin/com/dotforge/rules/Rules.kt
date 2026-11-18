@@ -33,7 +33,37 @@ enum class GlyphStyle(val label: String, val hint: String) {
     DESIGN("My design", "A design from Create"),
     /** A glyph from [com.dotforge.device.GlyphLibrary]; [Rule.designId] holds its id. */
     ICON("Glyph", "A glyph from the library"),
-    NONE("No glyph", "Only the sound or vibration"),
+    /** The sending app's icon in dots (the default for a new app). */
+    APP_ICON("App icon", "The app's own icon in dots"),
+    /** A bell that swings (Reminders & to-dos). */
+    BELL("Bell", "A bell swings while a dot runs round"),
+    NONE("No glyph", "Only the sound"),
+}
+
+/**
+ * What a rule does with the sound of what it lights for. The app's own sound is the default (we add nothing);
+ * the other two silence the notification (a quiet copy stays in the shade) so there is never a double sound.
+ */
+@Serializable
+enum class SoundMode(val label: String, val hint: String) {
+    APP("App's own sound", "We add nothing"),
+    NONE("No sound", "The notification is silenced; the glyph still shows"),
+    CUSTOM("Custom tune", "The app's sound is silenced and your tune plays"),
+}
+
+/** What a ringing call shows: the caller's name, the glyph, or the glyph then the name. */
+@Serializable
+enum class CallShow(val label: String) { NAME("Name"), GLYPH("Glyph"), BOTH("Both") }
+
+/** Moments on the phone itself that can light a design (Alerts > Apps > This phone). */
+@Serializable
+enum class Moment(val label: String, val sentence: String, val hint: String, val lasts: Boolean) {
+    UNLOCK("Unlock", "you unlock the phone", "Plays as the phone unlocks", lasts = false),
+    SHAKE("Shake", "you shake the phone", "Two quick shakes", lasts = false),
+    CAMERA("Camera", "the camera is open", "While any app uses the camera", lasts = true),
+    ALARM("Alarm or timer", "an alarm rings", "While an alarm or timer rings", lasts = true),
+    CALL("Call live", "a call is live", "While you're on a call", lasts = true),
+    HEADPHONES("Headphones", "headphones connect", "When wired or Bluetooth headphones connect", lasts = false),
 }
 
 /** What a rule applies to: notifications from apps (all, or [Rule.packages]), phone calls, or both. */
@@ -97,13 +127,27 @@ data class Rule(
     /** The sound's name, for the rule sentence. */
     val soundName: String? = null,
     val vibrate: Boolean = false,
-    /** This use's timing (show for, speed, repeat, brightness, show again); null = the design's own, else the default. */
     /** What this rule changes from the design's own timing (null fields follow the design). */
     val timing: com.dotforge.device.TimingOverride? = null,
+    /** The sound: the app's own (default), none, or [soundUri] instead of the app's. */
+    val sound: SoundMode = SoundMode.APP,
+    /** Phone calls: what a ringing call shows. */
+    val callShow: CallShow = CallShow.BOTH,
+    /** "Don't repeat for the same chat within 1 min". */
+    val noRepeat: Boolean = false,
+    /** A person: also light for their messages in group chats. */
+    val groupChats: Boolean = false,
+    /** A person: when they call, ring with this Glyph ringtone (its URI) instead of showing their glyph. */
+    val callRingtone: String? = null,
+    val callRingtoneName: String? = null,
+    /** Set for a phone moment (This phone); such a rule never matches a notification. */
+    val moment: Moment? = null,
+    /** Reminders: fill the ring this many minutes before the next event or alarm (0 = off). */
+    val approachMinutes: Int = 0,
 ) {
     val usesContacts: Boolean get() = match.allConditions.any { it.field == Field.CONTACT || it.field == Field.STARRED }
 
-    fun appliesTo(s: Subject): Boolean = when (source) {
+    fun appliesTo(s: Subject): Boolean = moment == null && !(id.startsWith(PERSON_ID) && !groupChats && s.groupChat) && when (source) {
         Source.CALLS -> s.isCall
         Source.APPS -> !s.isCall && appOk(s)
         Source.EVERYTHING -> s.isCall || appOk(s)
@@ -111,6 +155,8 @@ data class Rule(
 
     private fun appOk(s: Subject) = packages.isEmpty() || packages.any { it.equals(s.app, ignoreCase = true) }
 }
+
+private const val PERSON_ID = "person-"
 
 /** What Contacts knows about a notification's sender. */
 enum class ContactStatus { UNKNOWN, CONTACT, STARRED }
@@ -228,7 +274,10 @@ object RuleEngine {
     fun isValidPattern(p: String): Boolean = p.isNotBlank() && runCatching { Regex(p) }.isSuccess
 
     /** The animation [style] shows for [info]. [design] returns a saved design's animation (null id = newest). */
-    fun animation(style: GlyphStyle, designId: String?, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?): Animation =
+    fun animation(
+        style: GlyphStyle, designId: String?, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?,
+        appIcon: (String) -> Animation? = { null },
+    ): Animation =
         when (style) {
             GlyphStyle.PULSE, GlyphStyle.NONE -> Effects.pulse(profile)
             GlyphStyle.RING -> Effects.chase(profile)
@@ -236,14 +285,16 @@ object RuleEngine {
             GlyphStyle.SPARKLE -> Effects.sparkle(profile)
             GlyphStyle.COMET -> Effects.cometLaps(profile)
             GlyphStyle.LETTER -> Effects.blinkLetter(profile, info.appLabel.firstOrNull { it.isLetterOrDigit() } ?: '?')
-            GlyphStyle.NAME -> Effects.marquee(profile, info.sender.ifBlank { info.title }.trim().ifBlank { info.appLabel }.take(24))
+            GlyphStyle.NAME -> com.dotforge.device.AlertEffects.name(profile, info.sender.ifBlank { info.title }.trim().ifBlank { info.appLabel })
             GlyphStyle.SPAM -> Effects.spam(profile)
             GlyphStyle.DESIGN -> design(designId) ?: Effects.pulse(profile)
             GlyphStyle.ICON -> GlyphLibrary.alert(profile, designId)
+            GlyphStyle.APP_ICON -> appIcon(info.packageName) ?: GlyphLibrary.alert(profile, "chat")
+            GlyphStyle.BELL -> com.dotforge.device.AlertEffects.reminder(profile)
         }
 
-    fun animation(rule: Rule, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?): Animation =
-        animation(rule.glyph, rule.designId, info, profile, design)
+    fun animation(rule: Rule, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?, appIcon: (String) -> Animation? = { null }): Animation =
+        animation(rule.glyph, rule.designId, info, profile, design, appIcon)
 
     /**
      * The alert a showing rule posts: its glyph with the rule's timing (or, for a design, the design's own),
@@ -252,19 +303,33 @@ object RuleEngine {
     fun alert(
         rule: Rule, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?,
         designTiming: (String?) -> com.dotforge.device.Timing? = { null }, isCall: Boolean = info.isCall,
+        rank: Int = if (isCall) com.dotforge.engine.AlertQueue.RANK_CALL else com.dotforge.engine.AlertQueue.RANK_APP,
+        dim: Boolean = false,
+        appIcon: (String) -> Animation? = { null },
     ): com.dotforge.engine.AlertQueue.Alert<com.dotforge.engine.AlertGlyph> {
         val label = "${rule.name}: ${info.sender.ifBlank { info.title }.ifBlank { info.appLabel }}"
-        val anim = animation(rule, info, profile, design)
+        val anim = animation(rule, info, profile, design, appIcon)
+        val cooldown = if (rule.noRepeat) NO_REPEAT_MS else null
         val own = designTiming(rule.designId).takeIf { rule.glyph == GlyphStyle.DESIGN }
-        val timing = rule.timing?.over(own ?: com.dotforge.device.Timing()) ?: own
-            ?: return com.dotforge.engine.AlertQueue.Alert(info.key, info.conversation, isCall, rule.until, com.dotforge.engine.AlertGlyph(anim, label))
+        var timing = rule.timing?.over(own ?: com.dotforge.device.Timing()) ?: own
+        if (dim) timing = (timing ?: com.dotforge.device.Timing(showFor = if (rule.until == Until.TIMEOUT) com.dotforge.device.ShowFor.WHOLE else com.dotforge.device.ShowFor.UNTIL_CHECKED))
+            .let { it.copy(brightness = minOf(it.brightness, DIM_PERCENT)) }
+        if (timing == null) {
+            return com.dotforge.engine.AlertQueue.Alert(info.key, info.conversation, isCall, rule.until, com.dotforge.engine.AlertGlyph(anim, label), rank = rank, cooldownMs = cooldown)
+        }
         val plan = com.dotforge.device.Timings.plan(anim, timing)
-        val until = if (plan.untilChecked && rule.until == Until.TIMEOUT) Until.READ else rule.until
+        val until = if (plan.untilChecked && rule.until == Until.TIMEOUT) Until.READ else if (!plan.untilChecked && timing.showFor != com.dotforge.device.ShowFor.UNTIL_CHECKED && rule.timing?.showFor != null) Until.TIMEOUT else rule.until
         return com.dotforge.engine.AlertQueue.Alert(
             info.key, info.conversation, isCall, until, com.dotforge.engine.AlertGlyph(plan.animation, label),
-            showMs = plan.showMs, againMs = plan.againMs,
+            showMs = plan.showMs, againMs = plan.againMs, rank = rank, cooldownMs = cooldown,
         )
     }
+
+    /** "Don't repeat for the same chat within 1 min". */
+    const val NO_REPEAT_MS = 60_000L
+
+    /** "During Quiet: Dim to 20%". */
+    const val DIM_PERCENT = 20
 
     /** Phone apps that post incoming and missed call notifications. */
     val CALL_APPS = listOf("com.google.android.dialer", "com.android.dialer", "com.android.server.telecom")
@@ -292,7 +357,7 @@ object RuleEngine {
 
     /** Built-in rules. Fixed ids let them be added back after deletion. */
     fun presets() = listOf(
-        Rule(id = "preset-calls", name = "Calls", packages = CALL_APPS, glyph = GlyphStyle.RING, until = Until.READ),
+        SimpleRules.phoneCalls(),
         Rule(id = "preset-messages", name = "Messages", packages = MESSAGE_APPS, glyph = GlyphStyle.NAME, until = Until.READ),
         Rule(
             id = "preset-otp", name = "OTP codes", match = Match(conditions = listOf(Condition(Field.MESSAGE, Op.REGEX, listOf(OTP_PATTERN)))),
@@ -303,7 +368,8 @@ object RuleEngine {
             glyph = GlyphStyle.COMET, until = Until.TIMEOUT,
         ),
         progressPreset(),
-    ) + spamPresets()
+        SimpleRules.reminders(),
+    ) + SimpleRules.moments() + spamPresets()
 
     const val PROGRESS_PRESET = "preset-progress"
 

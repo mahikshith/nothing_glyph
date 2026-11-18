@@ -92,6 +92,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -270,6 +271,7 @@ fun SwitchRow(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     leading: (@Composable () -> Unit)? = null,
+    inset: Dp = Tokens.Gutter,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val haptic = rememberHaptics()
@@ -277,7 +279,7 @@ fun SwitchRow(
         modifier.fillMaxWidth()
             .heightIn(min = if (subtitle != null) Tokens.RowTall else Tokens.Row)
             .toggleable(checked, enabled = enabled, role = Role.Switch) { haptic.toggle(it); onCheckedChange(it) }
-            .padding(horizontal = Tokens.Gutter, vertical = Tokens.Small)
+            .padding(horizontal = inset, vertical = Tokens.Small)
             .then(if (enabled) Modifier else Modifier.alpha(0.38f)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
@@ -722,7 +724,11 @@ fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifie
                 contentColor = if (on) Color.Black else Tokens.Secondary,
                 modifier = Modifier.weight(1f).heightIn(min = Tokens.Target),
             ) {
-                Box(contentAlignment = Alignment.Center) { Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                // Four short labels share one row, so the text stops growing at 1.5x font size instead of truncating.
+                val style = MaterialTheme.typography.labelLarge
+                val scale = LocalDensity.current.fontScale
+                val size = if (scale > 1.5f) style.fontSize * (1.5f / scale) else style.fontSize
+                Box(contentAlignment = Alignment.Center) { Text(label, style = style.copy(fontSize = size), maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
     }

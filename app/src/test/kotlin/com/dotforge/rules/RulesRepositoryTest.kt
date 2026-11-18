@@ -17,11 +17,13 @@ import org.junit.rules.TemporaryFolder
 class RulesRepositoryTest {
     @get:JUnitRule val tmp = TemporaryFolder()
 
-    private val showPresets = listOf("Calls", "Messages", "OTP codes", "Delivery")
+    private val showPresets = listOf("Phone calls", "Messages", "OTP codes", "Delivery")
+
+    private fun shows(rules: List<Rule>) = rules.filter { it.action == Action.SHOW && it.moment == null && it.id != SimpleRules.REMINDERS }.map { it.name }
 
     @Test fun freshInstallGetsPresetsAndLists() {
         val repo = RulesRepository(tmp.root.resolve("rules.json"))
-        assertEquals(showPresets, repo.rules.value.filter { it.action == Action.SHOW }.map { it.name })
+        assertEquals(showPresets, shows(repo.rules.value))
         assertTrue(repo.rules.value.any { it.id == "spam-contacts" && it.enabled })
         assertTrue(repo.rules.value.any { it.id == "spam-repeated" && it.enabled })
         assertFalse(repo.rules.value.first { it.id == "spam-words" }.enabled)
@@ -43,9 +45,9 @@ class RulesRepositoryTest {
         repo.delete("preset-messages")
 
         val reloaded = RulesRepository(file).rules.value
-        assertEquals(listOf("Boss", "Calls", "OTP codes", "Delivery"), reloaded.filter { it.action == Action.SHOW }.map { it.name })
+        assertEquals(listOf("Boss", "Phone calls", "OTP codes", "Delivery"), shows(reloaded))
         assertEquals(added.copy(enabled = false), reloaded.first())
-        assertTrue(file.readText().startsWith("""{"version":5,"""))
+        assertTrue(file.readText().startsWith("""{"version":6,"""))
     }
 
     @Test fun addPresetsRestoresOnlyMissingOnes() {
@@ -100,11 +102,13 @@ class RulesRepositoryTest {
             ],"lists":[{"name":"Allowed senders","entries":["Bank"]}]}""",
         )
         val rules = RulesRepository(file).rules.value
-        assertEquals(listOf("preset-calls", "mine", RuleEngine.PROGRESS_PRESET) + RuleEngine.DEFAULT_PROTECTIONS.sorted(), rules.map { it.id }.take(3) + rules.drop(3).map { it.id }.sorted())
+        val added = RuleEngine.DEFAULT_PROTECTIONS + SimpleRules.REMINDERS + SimpleRules.moments().map { it.id }
+        assertEquals(listOf("preset-calls", "mine", RuleEngine.PROGRESS_PRESET) + added.sorted(), rules.map { it.id }.take(3) + rules.drop(3).map { it.id }.sorted())
+        assertEquals("Phone calls", rules[0].name)
         assertFalse(rules[1].enabled) // the rest is kept as it was
         val progress = rules.first { it.id == RuleEngine.PROGRESS_PRESET }
         assertTrue(progress.enabled && progress.action == Action.PROGRESS && progress.packages.isEmpty())
-        assertTrue(file.readText().startsWith("""{"version":5,"""))
+        assertTrue(file.readText().startsWith("""{"version":6,"""))
         // a deleted progress rule stays deleted
         val repo = RulesRepository(file)
         repo.delete(RuleEngine.PROGRESS_PRESET)
@@ -125,7 +129,7 @@ class RulesRepositoryTest {
         assertFalse(rules.getValue("spam-prefixes").enabled) // the user's own rules stay as they were
         assertTrue(RuleEngine.needsCallScreening(rules.values.toList()))
         assertFalse(RuleEngine.needsCallScreening(listOf(RuleEngine.progressPreset(), Rule(name = "x"))))
-        assertTrue(file.readText().startsWith("""{"version":5,"""))
+        assertTrue(file.readText().startsWith("""{"version":6,"""))
     }
 
     @Test fun unreadableFileFallsBackToPresets() {
@@ -156,7 +160,7 @@ class RulesRepositoryTest {
         assertTrue(migrated.none { it.id == "s" })
         assertTrue(migrated.any { it.id == "spam-list" }) // spam rules join
 
-        assertTrue(file.readText().startsWith("""{"version":5,"""))
+        assertTrue(file.readText().startsWith("""{"version":6,"""))
         assertEquals(migrated, RulesRepository(file).rules.value)
     }
 
@@ -221,7 +225,7 @@ class RulesRepositoryTest {
         val file = tmp.root.resolve("rules.json")
         val repo = RulesRepository(file, legacySpam = SpamSettings(enabled = true, keywords = listOf("casino")))
         assertTrue(repo.rules.value.first { it.id == "spam-words" }.enabled)
-        assertEquals(showPresets, repo.rules.value.filter { it.action == Action.SHOW }.map { it.name })
+        assertEquals(showPresets, shows(repo.rules.value))
         assertEquals(RuleEngine.presets().size, repo.rules.value.size)
         assertTrue(file.exists())
         // an untouched old spam filter changes nothing

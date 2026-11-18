@@ -383,8 +383,9 @@ fun SetupSheets(setup: Setup) {
         Sheet(
             onDismiss = setup::screeningNotNow,
             title = "Let DotForge screen calls",
-            body = "Call rules work when DotForge is the phone's call screening app. Android asks you once. Calls are " +
-                "checked on this phone; nothing about them leaves it.",
+            // row 65: say what changes before Android asks
+            body = "DotForge becomes your Caller ID and spam app. Your phone app still works, but its own spam filter may " +
+                "turn off. Calls are checked on this phone; nothing about them leaves it.",
             primary = "Allow" to { setup.allowScreening { screeningLauncher.launch(it) } },
             secondary = null,
         )
