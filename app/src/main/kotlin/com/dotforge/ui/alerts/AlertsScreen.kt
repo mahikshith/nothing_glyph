@@ -242,7 +242,7 @@ fun momentsText(moments: List<Rule>): String {
 @Composable
 private fun RuleRow(r: Rule, title: String, subtitle: String, open: (AlertSheet) -> Unit) {
     ListRow(
-        title, subtitle = subtitle, leading = { SourceIcon(r, title) }, subtitleLines = 3,
+        title, subtitle = subtitle, leading = { SourceIcon(r, title) }, subtitleLines = Int.MAX_VALUE,
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RulePoster(r, title)

@@ -298,7 +298,7 @@ fun PhoneMomentsPage(nav: Nav, setup: com.dotforge.ui.Setup, banners: AlertBanne
                 moments.forEachIndexed { i, r ->
                     if (i > 0) RowDivider(leading = true)
                     ListRow(
-                        r.name, subtitle = if (r.enabled) com.dotforge.rules.AlertSentence.summary(r) else r.moment!!.hint, subtitleLines = 3,
+                        r.name, subtitle = if (r.enabled) com.dotforge.rules.AlertSentence.summary(r) else r.moment!!.hint, subtitleLines = Int.MAX_VALUE,
                         leading = { RulePoster(r, r.name) },
                         trailing = { RowSwitch(r.enabled, r.name) { AppGraph.rules.upsert(r.copy(enabled = it)) } },
                     ) { open = r.id }
