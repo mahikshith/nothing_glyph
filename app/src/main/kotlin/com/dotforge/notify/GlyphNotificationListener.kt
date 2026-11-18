@@ -43,7 +43,14 @@ class GlyphNotificationListener : NotificationListenerService() {
 
     private val contacts by lazy { ContactLookup(this) }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification) {
+    override fun onNotificationPosted(sbn: StatusBarNotification) = handle(sbn, replay = false)
+
+    /**
+     * [replay]: a notification already in the shade when the listener (re)connects. Its progress ring returns,
+     * and while the phone is locked so does its glyph if its rule holds it (until read or unlock); no sound,
+     * vibration, blocking or tester line.
+     */
+    private fun handle(sbn: StatusBarNotification, replay: Boolean) {
         if (sbn.packageName == packageName) return
         val n = sbn.notification
         val ringing = n.category == Notification.CATEGORY_CALL && n.fullScreenIntent != null
@@ -59,6 +66,7 @@ class GlyphNotificationListener : NotificationListenerService() {
             return
         }
 
+        if (replay && ringing) return
         val verdict = Delivery.decide(
             info, AppGraph.rules.rules.value, AppGraph.rules.lists.value, AppGraph.filters.filters.value,
             conditions = { FilterActions.conditions(this) },
@@ -68,6 +76,15 @@ class GlyphNotificationListener : NotificationListenerService() {
         )
         var cooldown = false
         // the missed call glyph (Calls page option) repeats until the phone is unlocked, unless a filter holds it back
+        if (replay) {
+            val rule = (verdict as? Verdict.Show)?.match?.rule ?: return
+            // held glyphs end on unlock, so they come back only while the phone is locked
+            val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
+            if (!locked || rule.glyph == GlyphStyle.NONE || rule.until == Until.TIMEOUT) return
+            val glyph = AlertGlyph(RuleEngine.animation(rule, info, AppGraph.profile, AppGraph::designAnimation), "${rule.name}: ${info.sender.ifBlank { info.title }.ifBlank { info.appLabel }}")
+            AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, false, rule.until, glyph))
+            return
+        }
         val missed = missedCall(n) && (verdict is Verdict.Show || verdict == Verdict.NoRule)
         if (missed) {
             val glyph = AlertGlyph(Effects.missedCall(AppGraph.profile), "Missed call: ${info.title.ifBlank { info.appLabel }}")
@@ -149,6 +166,10 @@ class GlyphNotificationListener : NotificationListenerService() {
     private var mediaRing: MediaRing? = null
 
     override fun onListenerConnected() {
+        // replay what is already in the shade (after a reboot, an update or Android rebinding the listener)
+        runCatching { activeNotifications }.getOrNull().orEmpty().sortedBy { it.postTime }.forEach { sbn ->
+            runCatching { handle(sbn, replay = true) }
+        }
         mediaRing?.stop()
         mediaRing = MediaRing(this, ComponentName(this, GlyphNotificationListener::class.java)).also { it.start() }
     }
