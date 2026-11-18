@@ -18,12 +18,54 @@ class Picture(val width: Int, val height: Int, val argb: IntArray) {
     }
 }
 
-/** The 13 ways a photo becomes dots. */
+/** The 14 ways a photo becomes dots. Portrait is made for faces (and listed first when the photo has one). */
 @Serializable
 enum class PhotoStyle(val label: String) {
     SHADES("Shades"), SOFT_SHADES("Soft shades"), TONES4("4 tones"), TONES3("3 tones"), TONES2("2 tones"),
     FINE_DITHER("Fine dither"), ATKINSON("Atkinson dither"), PATTERN("Pattern"), HALFTONE("Halftone"),
-    OUTLINE("Outline"), OUTLINE_FILL("Outline + fill"), SILHOUETTE("Silhouette"), POP("Pop"),
+    OUTLINE("Outline"), OUTLINE_FILL("Outline + fill"), SILHOUETTE("Silhouette"), POP("Pop"), PORTRAIT("Portrait");
+
+    companion object {
+        /** The Style strip's order: Portrait first for a photo with a face, last otherwise. */
+        fun strip(face: Boolean): List<PhotoStyle> = if (face) listOf(PORTRAIT) + (entries - PORTRAIT) else entries.toList()
+    }
+}
+
+/**
+ * A face found in a photo (by the platform's face detector): the point between the eyes and the distance
+ * between them, in the photo's pixels.
+ */
+@Serializable
+data class FaceSpot(val x: Float, val y: Float, val eyes: Float)
+
+/** Face focus: where to crop a photo so its faces fill the Glyph. */
+object PhotoFaces {
+    /** Margin round the faces, as a share of their size. */
+    const val MARGIN = 0.35f
+
+    /**
+     * The crop that holds [faces] (one to a few) with [MARGIN] round them, centred on the eyes: each face's box
+     * runs about 1.1 eye-distances to each side, 1 above the eyes and 1.6 below (the chin).
+     */
+    fun crop(faces: List<FaceSpot>, width: Int, height: Int): PhotoCrop? {
+        if (faces.isEmpty() || width <= 0 || height <= 0) return null
+        val left = faces.minOf { it.x - 1.1f * it.eyes }
+        val right = faces.maxOf { it.x + 1.1f * it.eyes }
+        val top = faces.minOf { it.y - 1.0f * it.eyes }
+        val bottom = faces.maxOf { it.y + 1.6f * it.eyes }
+        val side = maxOf(right - left, bottom - top) * (1 + MARGIN)
+        val short = minOf(width, height).toFloat()
+        val zoom = (short / side).coerceIn(1f, 8f)
+        // centred on the eyes across; a little below them down, so the mouth and chin are in
+        val eyeY = faces.map { it.y }.average().toFloat()
+        val mean = faces.map { it.eyes }.average().toFloat()
+        val cx = (left + right) / 2 / width
+        val cy = (eyeY + 0.3f * mean) / height
+        return PhotoCrop(zoom = zoom, cx = cx, cy = cy).clamped()
+    }
+
+    /** Detail for faces: features (eyes, brows, mouth) need more local contrast than a landscape. */
+    const val FACE_DETAIL = 55
 }
 
 /** What happens to the area round the subject (found from the photo's edges). */
@@ -66,6 +108,11 @@ data class PhotoSettings(
     val background: PhotoBackground = PhotoBackground.KEEP,
     val invert: Boolean = false,
     val crop: PhotoCrop = PhotoCrop(),
+    /**
+     * The photo has a face (focused on it): every style maps the skin to a light tone and spreads the tones
+     * below it, so eyes, brows and mouth read darker than the skin.
+     */
+    val face: Boolean = false,
 ) {
     fun clamped() = copy(
         brightness = brightness.coerceIn(-100, 100), contrast = contrast.coerceIn(-100, 100), midtones = midtones.coerceIn(-100, 100),
@@ -76,7 +123,7 @@ data class PhotoSettings(
 /**
  * Photo to dots. The crop is sampled at 4x the grid in linear light, levelled on the LED circle only (2nd to
  * 98th percentile), adjusted (brightness, contrast, midtones, local contrast), averaged down to the grid and
- * drawn in one of the 13 styles.
+ * drawn in one of the 14 styles (Portrait leads the strip when there is a face).
  */
 object PhotoDots {
     private const val SS = 4
@@ -129,7 +176,7 @@ object PhotoDots {
     /** One frame of [pic] with [settings]. */
     fun frame(p: DeviceProfile, pic: Picture, settings: PhotoSettings): Frame = render(p, sample(p, pic, settings.crop), settings)
 
-    /** The style step on samples from [sample] (so the Style tab's 13 thumbnails share one sampling). */
+    /** The style step on samples from [sample] (so the Style tab's 14 thumbnails share one sampling). */
     fun render(p: DeviceProfile, samples: DoubleArray, settings: PhotoSettings, brightnessScale: Float = 1f): Frame {
         val s = settings.clamped()
         val n = p.size
@@ -148,6 +195,12 @@ object PhotoDots {
             x = (x - 0.5) * k + 0.5 + s.brightness / 200.0
             x.coerceIn(0.0, 1.0)
         }
+        // Portrait: local contrast first, so features in a flat-lit face stand out
+        if (s.style == PhotoStyle.PORTRAIT) {
+            // half strength: full CLAHE flattens the skin and the features get lost in its texture
+            val eq = clahe(v, hi, tiles = 3, clip = 1.5)
+            v = DoubleArray(v.size) { (v[it] * 3 + eq[it]) / 4 }
+        }
         if (s.detail > 0) {
             val blur = blur(blur(v, hi, 3), hi, 3)
             val amt = s.detail / 100.0 * 1.6
@@ -162,6 +215,7 @@ object PhotoDots {
             g[cell] += v[y * hi + x] / (SS * SS)
             if (edges != null) e[cell] = maxOf(e[cell], edges[y * hi + x])
         }
+        if (s.face && s.style != PhotoStyle.PORTRAIT) faceTones(p, g)
         background(p, g, s.background)
         if (s.invert) for (cell in p.ledCells) g[cell] = 1 - g[cell]
         val out = IntArray(p.cellCount)
@@ -195,6 +249,7 @@ object PhotoDots {
                 val smooth = blur(g, n, 1)
                 for (c in p.ledCells) out[c] = if (smooth[c] > t) 255 else 0
             }
+            PhotoStyle.PORTRAIT -> portrait(p, g, out)
             PhotoStyle.POP -> {
                 val cut = edgeCut(p, e, 0.6)
                 for (c in p.ledCells) {
@@ -332,6 +387,144 @@ object PhotoDots {
             frames += AnimFrame(f, frameMs)
         }
         return Animation(p, frames)
+    }
+
+    /**
+     * The settings a photo opens with, from what it shows: a face gets Portrait, focused on the faces with more
+     * detail; a graphic or logo (few flat colours) gets 2 tones; anything else gets Shades.
+     */
+    fun defaults(pic: Picture, faces: List<FaceSpot>): PhotoSettings {
+        PhotoFaces.crop(faces, pic.width, pic.height)?.let { return PhotoSettings(style = PhotoStyle.PORTRAIT, detail = PhotoFaces.FACE_DETAIL, crop = it, face = true) }
+        return if (looksLikeGraphic(pic)) PhotoSettings(style = PhotoStyle.TONES2) else PhotoSettings()
+    }
+
+    /**
+     * True for high-contrast graphics (logos, signs, icons, text): a few flat colours cover most of the picture.
+     * Colours are counted at 4 bits a channel on a 64 x 64 grid, so JPEG noise doesn't split a flat area.
+     */
+    fun looksLikeGraphic(pic: Picture): Boolean {
+        val counts = HashMap<Int, Int>()
+        val n = 64
+        for (j in 0 until n) for (i in 0 until n) {
+            val c = pic.argb[(j * pic.height / n) * pic.width + i * pic.width / n]
+            val key = (c shr 20 and 0xF shl 8) or (c shr 12 and 0xF shl 4) or (c shr 4 and 0xF)
+            counts[key] = (counts[key] ?: 0) + 1
+        }
+        val top = counts.values.sortedDescending().take(6).sum()
+        return top >= n * n * 0.6
+    }
+
+    /**
+     * Contrast-limited adaptive histogram equalisation on an [w]-wide square: [tiles] x [tiles] tiles, each
+     * equalised with its histogram clipped at [clip] times the mean, blended between tile centres.
+     */
+    internal fun clahe(v: DoubleArray, w: Int, tiles: Int = 4, clip: Double = 2.5, bins: Int = 64): DoubleArray {
+        val tw = w.toDouble() / tiles
+        val maps = Array(tiles * tiles) { t ->
+            val tx = t % tiles
+            val ty = t / tiles
+            val hist = DoubleArray(bins)
+            var count = 0
+            for (y in (ty * tw).toInt() until ((ty + 1) * tw).toInt().coerceAtMost(w)) for (x in (tx * tw).toInt() until ((tx + 1) * tw).toInt().coerceAtMost(w)) {
+                hist[(v[y * w + x] * (bins - 1)).roundToInt().coerceIn(0, bins - 1)] += 1.0
+                count++
+            }
+            val limit = clip * count / bins
+            var excess = 0.0
+            for (b in 0 until bins) if (hist[b] > limit) { excess += hist[b] - limit; hist[b] = limit }
+            for (b in 0 until bins) hist[b] += excess / bins
+            val cdf = DoubleArray(bins)
+            var acc = 0.0
+            for (b in 0 until bins) { acc += hist[b]; cdf[b] = acc / count.coerceAtLeast(1) }
+            cdf
+        }
+        return DoubleArray(v.size) { i ->
+            val x = i % w
+            val y = i / w
+            val b = (v[i] * (bins - 1)).roundToInt().coerceIn(0, bins - 1)
+            val gx = ((x + 0.5) / tw - 0.5).coerceIn(0.0, tiles - 1.0)
+            val gy = ((y + 0.5) / tw - 0.5).coerceIn(0.0, tiles - 1.0)
+            val x0 = gx.toInt().coerceAtMost(tiles - 1); val x1 = (x0 + 1).coerceAtMost(tiles - 1)
+            val y0 = gy.toInt().coerceAtMost(tiles - 1); val y1 = (y0 + 1).coerceAtMost(tiles - 1)
+            val fx = gx - x0; val fy = gy - y0
+            val top = maps[y0 * tiles + x0][b] * (1 - fx) + maps[y0 * tiles + x1][b] * fx
+            val bot = maps[y1 * tiles + x0][b] * (1 - fx) + maps[y1 * tiles + x1][b] * fx
+            top * (1 - fy) + bot * fy
+        }
+    }
+
+    /**
+     * Portrait on the grid, like a drawing: the face tones from [faceTones], then the face is the light area
+     * joined to the middle (inside an upright oval). Inside it, the 6 tones are kept and anything clearly darker
+     * than its neighbours (eyes, brows, nostrils, mouth) goes fully dark; outside it, everything is dimmed so
+     * the face leads; and a one-dot dark line runs round the face.
+     */
+    private fun portrait(p: DeviceProfile, g: DoubleArray, out: IntArray) {
+        val n = p.size
+        faceTones(p, g)
+        val cx = (n - 1) / 2.0
+        val cy = (n - 1) / 2.0 + 0.5
+        fun oval(x: Int, y: Int) = ((x - cx) / (n * 0.36)).pow(2) + ((y - cy) / (n * 0.46)).pow(2) <= 1
+        val smooth = blur(g, n, 1)
+        val face = BooleanArray(p.cellCount)
+        val stack = ArrayDeque<Int>()
+        for (c in p.ledCells) {
+            if (hypot(c % n - cx, c / n - cy) <= 3.5 && smooth[c] > SKIN_CUT) { face[c] = true; stack.addLast(c) }
+        }
+        while (stack.isNotEmpty()) {
+            val c = stack.removeLast()
+            val x = c % n; val y = c / n
+            for ((dx, dy) in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) {
+                val nx = x + dx; val ny = y + dy
+                if (!p.isActive(nx, ny) || !oval(nx, ny)) continue
+                val nc = ny * n + nx
+                if (!face[nc] && smooth[nc] > SKIN_CUT) { face[nc] = true; stack.addLast(nc) }
+            }
+        }
+        // features are holes in the skin: a cell with face on both sides (in its row or its column) is face too
+        val inside = BooleanArray(p.cellCount) { c ->
+            val x = c % n; val y = c / n
+            face[c] || (p.mask[c] && oval(x, y) &&
+                (((0 until x).any { face[y * n + it] } && (x + 1 until n).any { face[y * n + it] }) ||
+                    ((0 until y).any { face[it * n + x] } && (y + 1 until n).any { face[it * n + x] })))
+        }
+        val tones = doubleArrayOf(0.0, 0.12, 0.3, 0.55, 0.8, 1.0)
+        fun tone(x: Double) = tones.minBy { abs(it - x) }
+        for (c in p.ledCells) {
+            out[c] = (255 * when {
+                // a feature: clearly darker than the skin round it goes off, a shadow half way
+                inside[c] && g[c] < smooth[c] - 0.2 && g[c] < 0.6 -> 0.0
+                inside[c] && g[c] < smooth[c] - 0.1 -> tone(g[c] * 0.5)
+                inside[c] -> tone(g[c])
+                else -> tone(g[c] * 0.4)
+            }).roundToInt()
+        }
+        for (c in p.ledCells) {
+            if (inside[c]) continue
+            val x = c % n; val y = c / n
+            if (listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1).any { (dx, dy) -> p.isActive(x + dx, y + dy) && inside[(y + dy) * n + x + dx] }) out[c] = 0
+        }
+    }
+
+    private const val SKIN_CUT = 0.4
+
+    /**
+     * Tones for a face: the skin (the light end of the middle of the circle) goes to 80 %; darker values fall
+     * away on a steep curve, so eyes, brows and mouth, a little darker than skin, become clearly dark and hair
+     * goes near black; lighter values (teeth, highlights) share the top.
+     */
+    private fun faceTones(p: DeviceProfile, g: DoubleArray) {
+        val n = p.size
+        val c0 = (n - 1) / 2.0
+        val mid = p.ledCells.filter { hypot(it % n - c0, it / n - c0 - 0.5) <= 6.0 }.map { g[it] }.sorted()
+        if (mid.isEmpty()) return
+        val m = mid[(mid.size * 0.6).toInt().coerceAtMost(mid.size - 1)].coerceIn(0.1, 0.95)
+        for (c in p.ledCells) {
+            val x = g[c]
+            val y = if (x < m) 0.8 * (x / m).pow(2.5) else 0.8 + 0.2 * (x - m) / (1 - m)
+            // the darkest go fully off: on the Glyph a faint dot still reads as lit
+            g[c] = if (y < 0.08) 0.0 else y
+        }
     }
 
     /** A test picture without a photo: soft light from the top left and a bright disc (previews and tests). */

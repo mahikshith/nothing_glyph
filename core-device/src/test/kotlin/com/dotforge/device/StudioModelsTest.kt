@@ -132,9 +132,9 @@ class StudioModelsTest {
     @Test fun everyPhotoStyleLightsDotsAndTheyDiffer() {
         val samples = PhotoDots.sample(p, pic, PhotoCrop())
         val frames = PhotoStyle.entries.associateWith { PhotoDots.render(p, samples, PhotoSettings(style = it)).pixels.toList() }
-        assertEquals(13, frames.size)
+        assertEquals(14, frames.size)
         frames.forEach { (s, px) -> assertTrue("$s", px.any { it > 0 }) }
-        assertTrue(frames.values.toSet().size >= 12)
+        assertTrue(frames.values.toSet().size >= 13)
         // the on/off styles only use full dots
         for (s in listOf(PhotoStyle.TONES2, PhotoStyle.FINE_DITHER, PhotoStyle.ATKINSON, PhotoStyle.PATTERN, PhotoStyle.HALFTONE, PhotoStyle.SILHOUETTE, PhotoStyle.OUTLINE)) {
             assertTrue("$s", frames.getValue(s).all { it == 0 || it == 255 })
