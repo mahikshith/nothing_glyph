@@ -55,7 +55,7 @@ import kotlinx.coroutines.isActive
 import java.io.File
 import kotlin.math.abs
 
-private const val PREVIEW_ID = "ringtone"
+private var previews = 0
 
 /** Playback of a ringtone with its lights: [posMs] counts from [offsetMs] in the file, over [lengthMs]. */
 @Stable
@@ -135,15 +135,17 @@ fun rememberRingtonePreview(file: File, offsetMs: Long, lengthMs: Long?, rows: L
     val index = (preview.posMs * GlyphAuthor.FPS / 1000).toInt()
     val pixels = remember(rows, index) { rows.getOrNull(index)?.let(RingtoneImporter::toLevels) }
     val lastPost = remember { longArrayOf(0L) }
+    // each preview has its own request, so a page leaving does not clear the next page's frame
+    val requestId = remember { "ringtone-${previews++}" }
     val profile = AppGraph.profile
     LaunchedEffect(pixels) {
         val now = SystemClock.uptimeMillis()
         if (preview.playing && now - lastPost[0] < 33) return@LaunchedEffect
         lastPost[0] = now
         val frame = Frame.of(profile, pixels ?: IntArray(profile.cellCount))
-        AppGraph.arbiter.post(DisplayRequest(PREVIEW_ID, Priority.STUDIO_PREVIEW, Animation.single(frame, 1_000), loop = true, label = "Ringtone preview"))
+        AppGraph.arbiter.post(DisplayRequest(requestId, Priority.STUDIO_PREVIEW, Animation.single(frame, 1_000), loop = true, label = "Ringtone preview"))
     }
-    DisposableEffect(Unit) { onDispose { AppGraph.arbiter.remove(PREVIEW_ID) } }
+    DisposableEffect(requestId) { onDispose { AppGraph.arbiter.remove(requestId) } }
     preview.pixels = pixels
     return preview
 }

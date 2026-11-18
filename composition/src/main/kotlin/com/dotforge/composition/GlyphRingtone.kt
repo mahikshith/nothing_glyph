@@ -12,13 +12,13 @@ object GlyphRingtone {
     private val OURS = setOf("COMPOSER", "AUTHOR", "CUSTOM1", "CUSTOM2", "TITLE", "ALBUM")
 
     /** The comments of a Phone (3) glyph ringtone. [rows] are 625 values 0-4095 per 60 fps frame. */
-    fun comments(title: String, rows: List<IntArray>): List<Pair<String, String>> {
+    fun comments(title: String, rows: List<IntArray>, custom1: String = GlyphAuthor.EMPTY_ZLIB): List<Pair<String, String>> {
         val cols = rows.firstOrNull()?.size ?: PHONE3_COLUMNS
         return listOf(
             "TITLE" to title,
             "ALBUM" to ALBUM,
             "COMPOSER" to COMPOSER,
-            "CUSTOM1" to GlyphAuthor.EMPTY_ZLIB,
+            "CUSTOM1" to custom1,
             "CUSTOM2" to "${cols}cols",
             "AUTHOR" to GlyphAuthor.encodeComposer(rows),
         )
@@ -26,11 +26,12 @@ object GlyphRingtone {
 
     /**
      * [ogg] (Opus or Vorbis) with our glyph comments in place of any old ones. Other comments (artist, ...) and
-     * the vendor string are kept; the audio pages are copied unchanged.
+     * the vendor string are kept; the audio pages are copied unchanged. [custom1] defaults to an empty zlib
+     * stream; the timeline editor stores its [Timeline] there ([TimelineCodec]).
      */
-    fun write(ogg: ByteArray, title: String, rows: List<IntArray>): ByteArray =
+    fun write(ogg: ByteArray, title: String, rows: List<IntArray>, custom1: String = GlyphAuthor.EMPTY_ZLIB): ByteArray =
         OggRepager.retag(ogg) { old ->
-            OggTags(old.vendor.ifEmpty { "DotForge" }, old.comments.filterNot { it.first in OURS } + comments(title, rows))
+            OggTags(old.vendor.ifEmpty { "DotForge" }, old.comments.filterNot { it.first in OURS } + comments(title, rows, custom1))
         }
 
     /** Which phone a column count was made for, for the import screen. */

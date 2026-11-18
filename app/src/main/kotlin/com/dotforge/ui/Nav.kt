@@ -50,12 +50,15 @@ sealed interface Page {
     data object Diagnostics : Page
     data object Ringtones : Page
     data class RingtoneImport(val uri: String, val mode: ImportMode) : Page
+    /** The timeline editor for the open import page's lights. */
+    data object RingtoneEdit : Page
 }
 
 private fun Page.encode(): String = when (this) {
     Page.Notifications -> "notifications"
     Page.Diagnostics -> "diagnostics"
     Page.Ringtones -> "ringtones"
+    Page.RingtoneEdit -> "ringedit"
     is Page.RingtoneImport -> "ringimport:${mode.name}:$uri"
     is Page.RuleEditor -> "rule:${ruleId.orEmpty()}"
     is Page.ToySettings -> "toy:${toy.name}"
@@ -68,6 +71,7 @@ private fun decode(s: String): Page? {
         "notifications" -> Page.Notifications
         "diagnostics" -> Page.Diagnostics
         "ringtones" -> Page.Ringtones
+        "ringedit" -> Page.RingtoneEdit
         "ringimport" -> ImportMode.entries.firstOrNull { it.name == parts.getOrNull(1) }?.let { mode ->
             parts.getOrNull(2)?.takeIf { it.isNotEmpty() }?.let { Page.RingtoneImport(it, mode) }
         }

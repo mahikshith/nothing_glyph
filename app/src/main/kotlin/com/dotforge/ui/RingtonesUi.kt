@@ -184,6 +184,9 @@ fun RingtoneImportPage(uri: String, mode: ImportMode, nav: Nav) {
             ImportMode.FILE -> "IMPORT"
         },
         onBack = close,
+        actions = {
+            if (ready != null && session.rows.isNotEmpty()) TextButton(onClick = { nav.push(Page.RingtoneEdit) }) { Text("Edit", color = Color.White) }
+        },
         bottomBar = if (ready == null) null else {
             {
                 if (saved != null) {

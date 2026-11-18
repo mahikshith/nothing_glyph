@@ -20,6 +20,8 @@ import com.dotforge.composition.Pcm
 import com.dotforge.composition.RingtoneConverter
 import com.dotforge.composition.RingtoneParser
 import com.dotforge.composition.SongWindow
+import com.dotforge.composition.Timeline
+import com.dotforge.composition.TimelineCodec
 import com.dotforge.device.DeviceProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +58,8 @@ class RingtoneSource(
     val ogg: File?,
     /** Songs only. */
     val song: SongSource?,
+    /** The file's CUSTOM1, which holds the timeline of a ringtone edited in DotForge. */
+    val custom1: String? = null,
 ) {
     /** What the preview plays. */
     val playFile: File get() = ogg ?: song!!.file
@@ -103,7 +107,7 @@ object RingtoneImporter {
         if (kind !is ImportKind.AudioOnly) {
             val audio = File(dir, "audio.ogg")
             if (retaggable) source.moveTo(audio) else AudioCodec.encodeOggOpus(AudioCodec.decode(source).pcm, audio)
-            return RingtoneSource(title, kind, audio, null)
+            return RingtoneSource(title, kind, audio, null, info?.custom1)
         }
         val scan = AudioCodec.scan(source)
         if (scan.durationMs <= 0) throw IOException("There's no sound in this file.")
@@ -267,7 +271,41 @@ class ImportSession(val key: String, private val context: Context, private val u
         }
     }
 
-    fun save(library: RingtoneLibrary, onSaved: (Uri) -> Unit) {
+    private var editorState: TimelineEditorState? = null
+    private var editorBase: List<IntArray>? = null
+
+    /**
+     * The timeline editor for the current lights: the timeline stored in the file's CUSTOM1 when it has one,
+     * else the lights as a single imported lane. Kept while the lights it started from are unchanged.
+     */
+    fun editor(): TimelineEditorState {
+        val base = rows
+        editorState?.let { if (editorBase === base) return it }
+        val stored = TimelineCodec.decode(source?.custom1)?.takeIf { editorState == null }
+        val frames = maxOf(base.size, stored?.frames ?: 0, GlyphAuthor.FPS)
+        val timeline = stored?.copy(frames = frames) ?: Timeline.fromImported(base, frames)
+        val imported = if (stored != null) TimelineCodec.importedRows(stored) else base
+        editorBase = base
+        return TimelineEditorState(timeline, imported).also { editorState = it }
+    }
+
+    /** After the editor saved: the page previews (and saves again) the edited lights. */
+    fun applyEdit(edited: List<IntArray>) {
+        rows = edited
+        editorBase = edited
+    }
+
+    /**
+     * Saves the lights as a ringtone: [rows], or the editor's [override] rows with its timeline in [custom1].
+     * Replaces [replace] (a ringtone of ours) when given, else adds a new one.
+     */
+    fun save(
+        library: RingtoneLibrary,
+        override: List<IntArray>? = null,
+        custom1: String = GlyphAuthor.EMPTY_ZLIB,
+        replace: Uri? = null,
+        onSaved: (Uri) -> Unit,
+    ) {
         val src = source ?: return
         if (saving) return
         saving = true
@@ -275,11 +313,12 @@ class ImportSession(val key: String, private val context: Context, private val u
             analysing?.join()
             generation?.join()
             val name = title.trim().ifEmpty { src.name }
-            val lights = rows
+            val lights = override ?: rows
             val p = part
             try {
                 val uri = withContext(Dispatchers.IO) {
-                    library.save(name, GlyphRingtone.write(RingtoneImporter.oggBytes(src, p, dir), name, lights))
+                    val ogg = GlyphRingtone.write(RingtoneImporter.oggBytes(src, p, dir), name, lights, custom1)
+                    if (replace != null) library.replace(replace, name, ogg) else library.save(name, ogg)
                 }
                 savedUri = uri
                 onSaved(uri)

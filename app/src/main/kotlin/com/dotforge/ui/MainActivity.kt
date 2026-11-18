@@ -153,6 +153,7 @@ private fun PageContent(page: Page, nav: Nav, setup: Setup) {
         is Page.DesignEditor -> DesignEditorPage(page.designId, page.animated, onClose = nav::pop)
         Page.Ringtones -> RingtonesPage(nav)
         is Page.RingtoneImport -> RingtoneImportPage(page.uri, page.mode, nav)
+        Page.RingtoneEdit -> TimelineEditorPage(nav)
         Page.Diagnostics -> {
             BackHandler(onBack = nav::pop)
             DiagnosticsScreen(onClose = nav::pop)

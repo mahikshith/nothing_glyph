@@ -73,6 +73,14 @@ class RingtoneLibrary(private val context: Context) {
         return uri
     }
 
+    /** Writes [ogg] over our ringtone at [uri] (after editing it); returns [uri]. */
+    fun replace(uri: Uri, title: String, ogg: ByteArray): Uri {
+        resolver.openOutputStream(uri, "wt")?.use { it.write(ogg) } ?: throw IOException("Couldn't write the ringtone file.")
+        resolver.update(uri, ContentValues().apply { put(MediaStore.Audio.Media.TITLE, title) }, null, null)
+        refresh()
+        return uri
+    }
+
     fun delete(uri: Uri) {
         runCatching { resolver.delete(uri, null, null) }
         refresh()

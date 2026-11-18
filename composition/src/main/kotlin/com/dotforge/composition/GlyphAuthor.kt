@@ -27,7 +27,7 @@ object GlyphAuthor {
      * zlib, then base64 without '=' padding in 76-character lines. Streams, so long ringtones never build the
      * whole CSV in memory.
      */
-    fun encodeComposer(rows: List<IntArray>): String {
+    fun encodeComposer(rows: List<IntArray>, wrapLines: Boolean = true): String {
         val zipped = ByteArrayOutputStream()
         DeflaterOutputStream(zipped, Deflater(Deflater.BEST_COMPRESSION), 64 * 1024).use { z ->
             val line = StringBuilder()
@@ -38,8 +38,15 @@ object GlyphAuthor {
                 z.write(line.toString().toByteArray(Charsets.US_ASCII))
             }
         }
-        return wrap(base64NoPad(zipped.toByteArray()))
+        val b64 = base64NoPad(zipped.toByteArray())
+        return if (wrapLines) wrap(b64) else b64
     }
+
+    /** Text as zlib + base64 (no padding, 76-character lines), the form CUSTOM1 uses. */
+    fun packText(text: String): String = wrap(base64NoPad(deflate(text.toByteArray(Charsets.UTF_8))))
+
+    /** The text of [packText]; tolerant like [decode]. */
+    fun unpackText(packed: String): String = String(inflate(base64Decode(packed)), Charsets.UTF_8)
 
     /** An empty zlib stream in base64, as Composer writes CUSTOM1 when there are no timeline marks. */
     val EMPTY_ZLIB: String by lazy { base64NoPad(deflate(ByteArray(0))) }
