@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,6 +82,7 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
     val designs by repo.designs.collectAsStateWithLifecycle()
     var choose by rememberSaveable { mutableStateOf(false) }
     var library by rememberSaveable { mutableStateOf(false) }
+    val import = rememberDesignImport(nav)
     var deleting by remember { mutableStateOf<Design?>(null) }
 
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp)) {
@@ -128,7 +130,7 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
             containerColor = Surface2,
             title = { Text("New design") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ChoiceCard("Static", "One picture on the matrix", false, Modifier.fillMaxWidth()) {
                         choose = false
                         nav.push(Page.DesignEditor(null, animated = false))
@@ -140,6 +142,18 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
                     ChoiceCard("From the library", "${AnimationLibrary.entries.size} ready-made animations", false, Modifier.fillMaxWidth()) {
                         choose = false
                         library = true
+                    }
+                    ChoiceCard("Import", "A picture, or a Dot Hub or Glyph Museum file", false, Modifier.fillMaxWidth()) {
+                        choose = false
+                        import.file()
+                    }
+                    ChoiceCard("Photo", "Take one and turn it into dots", false, Modifier.fillMaxWidth()) {
+                        choose = false
+                        import.camera()
+                    }
+                    ChoiceCard("Text", "Words in dots", false, Modifier.fillMaxWidth()) {
+                        choose = false
+                        import.text()
                     }
                 }
             },
@@ -259,7 +273,12 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
     PageScaffold(
         if (existing == null) "NEW DESIGN" else "EDIT DESIGN",
         onBack = ::close,
-        actions = { if (existing != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete design") } },
+        actions = {
+            if (existing != null) {
+                IconButton(onClick = { shareDesign(ctx, existing.copy(frames = animation().toMuseumJson())) }) { Icon(Icons.Filled.Share, "Share as JSON") }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete design") }
+            }
+        },
         bottomBar = {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(

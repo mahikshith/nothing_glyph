@@ -191,13 +191,14 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
         Text("Tap to add a toy. Hold for its settings.", color = Muted, fontSize = 13.sp)
 
         GroupTitle("CUSTOMISE")
+        val designImport = rememberDesignImport(nav)
         TileRow {
             FeatureTile("Essential Key", "No supported way yet", Modifier.weight(1f), comingSoon = true)
             FeatureTile("Ringtones", "Import, make and edit glyph ringtones", Modifier.weight(1f), onClick = { nav.push(Page.Ringtones) })
         }
         TileRow {
             FeatureTile("App integrations", "Tasker, media, more", Modifier.weight(1f), onClick = { nav.push(Page.Integrations) })
-            FeatureTile("Import", "Glyph Museum files", Modifier.weight(1f), comingSoon = true)
+            FeatureTile("Import", "Pictures, Dot Hub and Glyph Museum files", Modifier.weight(1f), onClick = { designImport.file() })
         }
         Spacer(Modifier.height(24.dp))
     }
