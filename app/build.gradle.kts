@@ -22,7 +22,28 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { test ->
+            // Screenshot tests render every screen with Robolectric; they run only with -Pscreens=<folder>.
+            val screens = project.findProperty("screens") as String?
+            if (screens == null) test.exclude("**/screens/**")
+            else test.systemProperty("screens.out", screens)
+            // Robolectric fetches its Android jars itself; ROBOLECTRIC_REPO points it at a Maven mirror if set.
+            System.getenv("ROBOLECTRIC_REPO")?.let { test.systemProperty("robolectric.dependency.repo.url", it) }
+            test.maxHeapSize = "3g"
+        }
+    }
+    // NOTICE and licenses/ ship in the app (Profile > About > Licences); copied, never duplicated in src/
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/notices"))
 }
+
+val copyNotices by tasks.registering(Sync::class) {
+    from(rootProject.file("NOTICE"))
+    from(rootProject.file("licenses")) { into("licenses") }
+    into(layout.buildDirectory.dir("generated/notices/notices"))
+}
+tasks.named("preBuild") { dependsOn(copyNotices) }
 
 kotlin {
     compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
@@ -49,4 +70,8 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

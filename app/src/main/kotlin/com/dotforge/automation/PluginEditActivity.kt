@@ -33,7 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.rules.GlyphStyle
 import com.dotforge.ui.ChoiceCard
-import com.dotforge.ui.DotForgeTheme
+import com.dotforge.ui.design.DotForgeTheme
 import com.dotforge.ui.EmptyState
 import com.dotforge.ui.GroupTitle
 import com.dotforge.ui.Muted

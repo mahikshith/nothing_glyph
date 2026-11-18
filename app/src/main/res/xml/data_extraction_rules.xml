@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto Backup and device transfer: designs, rules and settings only (well under 25 MB).
+     Not the alert history, logs, caches or the downloaded spam list. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="designs.json" />
+        <include domain="file" path="rules.json" />
+        <include domain="file" path="calls.json" />
+        <include domain="file" path="filters.json" />
+        <include domain="sharedpref" path="dotforge.xml" />
+        <include domain="sharedpref" path="toys.xml" />
+        <include domain="sharedpref" path="media.xml" />
+        <include domain="sharedpref" path="automation.xml" />
+        <include domain="sharedpref" path="system_glyphs.xml" />
+        <include domain="sharedpref" path="ui.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="designs.json" />
+        <include domain="file" path="rules.json" />
+        <include domain="file" path="calls.json" />
+        <include domain="file" path="filters.json" />
+        <include domain="sharedpref" path="dotforge.xml" />
+        <include domain="sharedpref" path="toys.xml" />
+        <include domain="sharedpref" path="media.xml" />
+        <include domain="sharedpref" path="automation.xml" />
+        <include domain="sharedpref" path="system_glyphs.xml" />
+        <include domain="sharedpref" path="ui.xml" />
+    </device-transfer>
+</data-extraction-rules>

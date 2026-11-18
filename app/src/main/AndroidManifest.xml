@@ -28,6 +28,8 @@
     <!-- Toys page > Get toys: installs a toy APK from GitHub; Android's "Install unknown apps" switch is asked
          for then, with Not now, and Android confirms each install. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- "Keep DotForge running": asks Android to leave the app out of battery optimisation. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Automation API: apps that hold this (normal) permission may send commands; DotForge obeys only the ones
          the user allows on the Integrations page. -->
@@ -53,7 +55,9 @@
 
     <application
         android:name=".DotForgeApp"
-        android:allowBackup="false"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@drawable/ic_app"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -66,7 +70,8 @@
 
         <activity
             android:name=".ui.MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

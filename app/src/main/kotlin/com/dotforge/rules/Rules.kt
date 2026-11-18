@@ -98,7 +98,8 @@ data class Rule(
     val soundName: String? = null,
     val vibrate: Boolean = false,
     /** This use's timing (show for, speed, repeat, brightness, show again); null = the design's own, else the default. */
-    val timing: com.dotforge.device.Timing? = null,
+    /** What this rule changes from the design's own timing (null fields follow the design). */
+    val timing: com.dotforge.device.TimingOverride? = null,
 ) {
     val usesContacts: Boolean get() = match.allConditions.any { it.field == Field.CONTACT || it.field == Field.STARRED }
 
@@ -254,7 +255,8 @@ object RuleEngine {
     ): com.dotforge.engine.AlertQueue.Alert<com.dotforge.engine.AlertGlyph> {
         val label = "${rule.name}: ${info.sender.ifBlank { info.title }.ifBlank { info.appLabel }}"
         val anim = animation(rule, info, profile, design)
-        val timing = rule.timing ?: designTiming(rule.designId).takeIf { rule.glyph == GlyphStyle.DESIGN }
+        val own = designTiming(rule.designId).takeIf { rule.glyph == GlyphStyle.DESIGN }
+        val timing = rule.timing?.over(own ?: com.dotforge.device.Timing()) ?: own
             ?: return com.dotforge.engine.AlertQueue.Alert(info.key, info.conversation, isCall, rule.until, com.dotforge.engine.AlertGlyph(anim, label))
         val plan = com.dotforge.device.Timings.plan(anim, timing)
         val until = if (plan.untilChecked && rule.until == Until.TIMEOUT) Until.READ else rule.until

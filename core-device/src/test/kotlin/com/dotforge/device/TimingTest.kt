@@ -32,16 +32,13 @@ class TimingTest {
 
     @Test fun repeatTimesBackwardsAndBounce() {
         assertEquals(9, Timings.plan(three, Timing(repeat = Repeat.TIMES, times = 3)).animation.frames.size)
-        val back = Timings.plan(three, Timing(backwards = true)).animation
+        val back = Timings.plan(three, Timing(direction = Direction.BACKWARD)).animation
         assertArrayEquals(three.frames[2].frame.pixels, back.frames[0].frame.pixels)
-        assertEquals(4, Timings.plan(three, Timing(bounce = true)).animation.frames.size)
+        assertEquals(4, Timings.plan(three, Timing(direction = Direction.BOUNCE)).animation.frames.size)
         assertTrue(Timings.plan(three, Timing(repeat = Repeat.FOREVER)).loop)
     }
 
-    @Test fun aStillBlinksAndFades() {
-        val blink = Timings.plan(still, Timing(blink = Blink.FAST)).animation
-        assertEquals(2, blink.frames.size)
-        assertEquals(0, blink.frames[1].frame.pixels.count { it > 0 })
+    @Test fun aStillFades() {
         val fade = Timings.plan(still, Timing(fade = Fade.SHORT)).animation
         assertEquals(7, fade.frames.size)
         assertTrue(fade.frames.first().frame.pixels.max() < 255)
@@ -55,15 +52,16 @@ class TimingTest {
         assertEquals(400, late.frames[0].durationMs)
     }
 
-    @Test fun showForAndShowAgain() {
+    @Test fun showForAndRemindMe() {
         val secs = Timings.plan(three, Timing(showFor = ShowFor.SECONDS, seconds = 10))
         assertTrue(secs.loop)
         assertEquals(10_000L, secs.showMs)
-        val held = Timings.plan(three, Timing(showFor = ShowFor.UNTIL_CHECKED, showAgainMinutes = 5))
+        val held = Timings.plan(three, Timing(showFor = ShowFor.UNTIL_CHECKED, remindMinutes = 5))
         assertTrue(held.untilChecked)
         assertTrue(held.loop)
         assertEquals(300_000L, held.againMs)
-        assertNull(Timings.plan(three, Timing(showAgainMinutes = 5)).againMs) // only for held ones
+        assertNull(Timings.plan(three, Timing(remindMinutes = 5)).againMs) // only for held ones
+        assertNull(Timings.plan(three, Timing(showFor = ShowFor.UNTIL_CHECKED)).againMs) // remind off
     }
 
     @Test fun playbackFollowsTheTimedFrames() {
@@ -74,5 +72,27 @@ class TimingTest {
         assertEquals(1, pb.frame)
         pb.tick(100)
         assertFalse(pb.playing) // once: stops at the end
+    }
+
+    @Test fun anOverrideChangesOnlyItsFieldsAndFollowsLaterDesignEdits() {
+        val design = Timing(speed = 2f, seconds = 3, showFor = ShowFor.SECONDS)
+        val edited = design.copy(brightness = 40)
+        val o = TimingOverride.diff(design, edited)
+        assertEquals(TimingOverride(brightness = 40), o)
+        assertEquals(edited, o.over(design))
+        // the design changes later: the place keeps its brightness and follows the new speed
+        val later = design.copy(speed = 0.5f)
+        assertEquals(0.5f, o.over(later).speed)
+        assertEquals(40, o.over(later).brightness)
+        assertTrue(TimingOverride.diff(design, design).isEmpty)
+    }
+
+    @Test fun anUntilCheckedAnimationRestsAfterThreeLoopsUnlessKeptMoving() {
+        val rests = Timings.plan(three, Timing(showFor = ShowFor.UNTIL_CHECKED)).animation
+        assertEquals(3 * 3 + 1, rests.frames.size)
+        assertEquals(Animation.MAX_FRAME_MS, rests.frames.last().durationMs)
+        assertArrayEquals(three.frames[0].frame.pixels, rests.frames.last().frame.pixels)
+        assertEquals(3, Timings.plan(three, Timing(showFor = ShowFor.UNTIL_CHECKED, rest = false)).animation.frames.size)
+        assertEquals(1, Timings.plan(still, Timing(showFor = ShowFor.UNTIL_CHECKED)).animation.frames.size) // a still has nothing to rest
     }
 }

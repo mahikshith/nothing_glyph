@@ -82,6 +82,28 @@ class Setup(private val activity: ComponentActivity) {
     /** The sheet for installing toys (Android's "Install unknown apps" switch). */
     var installSheet by mutableStateOf(false)
         private set
+    /** Microphone (Music visualiser), notifications (quiet copies) and Modify system settings (ringtones). */
+    var microphone by mutableStateOf(hasMic())
+        private set
+    var notifications by mutableStateOf(canPost())
+        private set
+    var systemSettings by mutableStateOf(Settings.System.canWrite(activity))
+        private set
+    /** Left out of battery optimisation, so alerts, timers and the visualiser keep running. */
+    var keepRunning by mutableStateOf(hasKeepRunning())
+        private set
+
+    private fun hasKeepRunning() =
+        activity.getSystemService(android.os.PowerManager::class.java)?.isIgnoringBatteryOptimizations(activity.packageName) == true
+
+    /** "Keep DotForge running": Android's one-tap dialog, or App info when it is already allowed. */
+    @android.annotation.SuppressLint("BatteryLife")
+    fun needKeepRunning() {
+        if (hasKeepRunning()) return openAppDetails()
+        runCatching {
+            activity.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${activity.packageName}")))
+        }.onFailure { openAppDetails() }
+    }
     /** Bumped on every resume, so screens can re-read system state. */
     var resumes by mutableIntStateOf(0)
         private set
@@ -175,6 +197,10 @@ class Setup(private val activity: ComponentActivity) {
         notificationAccess = hasNotificationAccess()
         contacts = hasContacts()
         screening = hasScreening()
+        microphone = hasMic()
+        notifications = canPost()
+        systemSettings = Settings.System.canWrite(activity)
+        keepRunning = hasKeepRunning()
         flow.resumed(notificationAccess)
         sync()
         resumes++
@@ -243,12 +269,34 @@ class Setup(private val activity: ComponentActivity) {
         contacts = hasContacts()
     }
 
+    /** Profile > Permissions: Android's page for "Modify system settings". */
+    fun openWriteSettings() {
+        runCatching {
+            activity.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${activity.packageName}")))
+        }.onFailure { openAppDetails() }
+    }
+
+    /** Profile > Permissions: the microphone, asked through the same sheet as the visualiser. */
+    fun needMicrophone() {
+        micStartsLive = false
+        if (!hasMic()) micSheet = true else openAppDetails()
+    }
+
+    /** The microphone was asked for by the visualiser (start it once allowed), not by Profile. */
+    private var micStartsLive = true
+
+    /** Profile > Permissions: posting notifications. */
+    fun needNotifications() {
+        if (!canPost()) postSheet = true else openAppDetails()
+    }
+
     private fun hasMic() =
         activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     /** Live switch on (Glyph tab or the Quick Settings tile): start, or ask for the microphone first. */
     fun startLive() {
         if (!hasMic()) {
+            micStartsLive = true
             micSheet = true
             return
         }
@@ -272,7 +320,8 @@ class Setup(private val activity: ComponentActivity) {
     }
 
     fun onMicResult(granted: Boolean) {
-        if (granted) startLive()
+        microphone = granted
+        if (granted && micStartsLive) startLive()
     }
 
     private companion object {

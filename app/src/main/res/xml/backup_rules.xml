@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older read this instead of data_extraction_rules.xml; same contents. -->
+<full-backup-content>
+    <include domain="file" path="designs.json" />
+    <include domain="file" path="rules.json" />
+    <include domain="file" path="calls.json" />
+    <include domain="file" path="filters.json" />
+    <include domain="sharedpref" path="dotforge.xml" />
+    <include domain="sharedpref" path="toys.xml" />
+    <include domain="sharedpref" path="media.xml" />
+    <include domain="sharedpref" path="automation.xml" />
+    <include domain="sharedpref" path="system_glyphs.xml" />
+    <include domain="sharedpref" path="ui.xml" />
+</full-backup-content>

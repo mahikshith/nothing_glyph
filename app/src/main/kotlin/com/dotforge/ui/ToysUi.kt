@@ -155,7 +155,7 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
             Toy.GALLERY -> {
                 var chosen by remember { mutableStateOf(prefs.galleryIds) }
                 GroupTitle("DESIGNS")
-                if (designs.isEmpty()) EmptyState("No designs yet", "Make one in Create, or take one from the library.", "Open Create") { nav.popTo(Tab.CREATE) }
+                if (designs.isEmpty()) EmptyState("No designs yet", "Make one in Create, or take one from the library.", "Open Create") { nav.popTo(Tab.STUDIO) }
                 else Text(if (chosen.isEmpty()) "None picked: all designs play." else "${chosen.size} picked.", color = Muted, fontSize = 13.sp)
                 designs.forEach { d ->
                     SwitchRow(d.name, if (d.animated) "Animated" else "Static", d.id in chosen) { on ->
@@ -194,7 +194,7 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
             Toy.PLAYER -> {
                 GroupTitle("PLAYS")
                 if (designs.isEmpty()) {
-                    EmptyState("No designs yet", "Make one in Create. Until then it plays a ring.", "Open Create") { nav.popTo(Tab.CREATE) }
+                    EmptyState("No designs yet", "Make one in Create. Until then it plays a ring.", "Open Create") { nav.popTo(Tab.STUDIO) }
                 } else {
                     val chosen = AppGraph.designs.get(playerDesign)
                     ChoiceCard("Newest design", designs.first().name, chosen == null, Modifier.fillMaxWidth().padding(bottom = 8.dp)) {

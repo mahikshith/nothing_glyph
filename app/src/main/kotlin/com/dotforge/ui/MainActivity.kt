@@ -9,20 +9,27 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -38,9 +45,29 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import com.dotforge.diagnostics.DiagnosticsScreen
 import com.dotforge.diagnostics.EventLog
 import com.dotforge.ringtones.ImportMode
+import com.dotforge.ui.alerts.AlertsScreen
+import com.dotforge.ui.design.ComponentGallery
+import com.dotforge.ui.design.DotForgeTheme
+import com.dotforge.ui.design.LocalReduceMotion
+import com.dotforge.ui.design.Tokens
+import com.dotforge.ui.design.TopBar
+import com.dotforge.ui.design.UndoSnackbarHost
+import com.dotforge.ui.editor.EditorScreen
+import com.dotforge.ui.features.FeaturePage
+import com.dotforge.ui.features.FeaturesScreen
+import com.dotforge.ui.home.HomeScreen
+import com.dotforge.ui.library.LibraryScreen
+import com.dotforge.ui.onboarding.FirstRun
+import com.dotforge.ui.settings.BackupPage
+import com.dotforge.ui.settings.LicencesPage
+import com.dotforge.ui.settings.OldScreensPage
+import com.dotforge.ui.settings.ProfilePage
+import com.dotforge.ui.settings.rememberPermissions
+import com.dotforge.ui.studio.StudioScreen
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -61,26 +88,13 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(incoming) {
                     val uri = incoming ?: return@LaunchedEffect
                     incoming = null
-                    nav.popTo(Tab.GLYPH)
+                    nav.popTo(Tab.STUDIO)
                     nav.push(Page.Ringtones)
                     nav.push(Page.RingtoneImport(uri.toString(), ImportMode.FILE))
                 }
-                val scrolls = Tab.entries.associateWith { rememberScrollState() }
-                // keeps each tab's remembered UI state while a page is open or another tab is shown
-                val saved = rememberSaveableStateHolder()
-                Box(Modifier.fillMaxSize().background(Color.Black)) {
-                    AnimatedContent(
-                        targetState = nav.page,
-                        transitionSpec = {
-                            val dir = if (nav.forward) 1 else -1
-                            (slideInHorizontally { it / 4 * dir } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 * dir } + fadeOut())
-                        },
-                        label = "page",
-                    ) { page ->
-                        if (page == null) saved.SaveableStateProvider("tabs") { Tabs(nav, setup, scrolls) } else PageContent(page, nav, setup)
-                    }
-                }
-                SetupSheets(setup)
+                var firstRunDone by rememberSaveable { mutableStateOf(false) }
+                AppRoot(nav, setup)
+                if (!firstRunDone) FirstRun(setup) { firstRunDone = true }
             }
         }
     }
@@ -116,60 +130,98 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** The whole app under the theme: the tabs or the open page, the snackbar host, and the setup sheets. */
 @Composable
-private fun Tabs(nav: Nav, setup: Setup, scrolls: Map<Tab, ScrollState>) {
+fun AppRoot(nav: Nav, setup: Setup) {
+    val lists = Tab.entries.associateWith { rememberLazyListState() }
+    // keeps each tab's remembered UI state while a page is open or another tab is shown
+    val saved = rememberSaveableStateHolder()
+    UndoSnackbarHost(Modifier) {
+        Box(Modifier.fillMaxSize().background(Tokens.Background)) {
+            val reduce = LocalReduceMotion.current
+            AnimatedContent(
+                targetState = nav.page,
+                transitionSpec = {
+                    if (reduce) EnterTransition.None togetherWith ExitTransition.None
+                    else {
+                        val dir = if (nav.forward) 1 else -1
+                        (slideInHorizontally(tween(Tokens.StandardMs, easing = Tokens.StandardEasing)) { it / 4 * dir } + fadeIn(tween(Tokens.StandardMs))) togetherWith
+                            (slideOutHorizontally(tween(Tokens.StandardMs, easing = Tokens.StandardEasing)) { -it / 4 * dir } + fadeOut(tween(Tokens.StandardMs)))
+                    }
+                },
+                label = "page",
+            ) { page ->
+                if (page == null) saved.SaveableStateProvider("tabs") { Tabs(nav, setup, lists) } else PageContent(page, nav, setup)
+            }
+        }
+    }
+    SetupSheets(setup)
+}
+
+@Composable
+private fun Tabs(nav: Nav, setup: Setup, lists: Map<Tab, LazyListState>) {
     val scope = rememberCoroutineScope()
     val saved = rememberSaveableStateHolder()
-    val needsContacts by rememberNeedsContacts()
     val needsScreening by rememberNeedsScreening()
-    val needsSetup = !setup.notificationAccess || (needsContacts && !setup.contacts) || (needsScreening && !setup.screening)
     // spam protection for calls is on by default, so setup asks for call screening once, with Not now
     LaunchedEffect(needsScreening, setup.resumes) { if (needsScreening) setup.askScreeningOnce() }
-    BackHandler(enabled = nav.tab != Tab.GLYPH) { nav.tab = Tab.GLYPH }
+    BackHandler(enabled = nav.tab != Tab.HOME) { nav.tab = Tab.HOME }
     Scaffold(
-        containerColor = Color.Black,
-        bottomBar = {
-            NavigationBar(containerColor = Color(0xFF0A0A0A)) {
-                Tab.entries.forEach { t ->
-                    val selected = nav.tab == t
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = {
-                            if (selected) scope.launch { scrolls.getValue(t).animateScrollTo(0) } else nav.tab = t
-                        },
-                        icon = {
-                            BadgedBox(badge = { if (t == Tab.SETTINGS && needsSetup) Badge(containerColor = NothingRed) }) {
-                                Icon(if (selected) t.selectedIcon else t.icon, contentDescription = t.label)
-                            }
-                        },
-                        label = { Text(t.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.White,
-                            selectedTextColor = Color.White,
-                            indicatorColor = Color(0xFF262626),
-                            unselectedIconColor = Muted,
-                            unselectedTextColor = Muted,
-                        ),
-                    )
-                }
-            }
-        },
+        containerColor = Tokens.Background,
+        bottomBar = { BottomBar(nav.tab) { t -> if (t == nav.tab) scope.launch { lists.getValue(t).animateScrollToItem(0) } else nav.tab = t } },
     ) { pad ->
-        Crossfade(nav.tab, Modifier.padding(pad), label = "tab") { tab ->
+        Crossfade(nav.tab, Modifier.padding(pad), animationSpec = Tokens.standard(LocalReduceMotion.current), label = "tab") { tab ->
             saved.SaveableStateProvider(tab.name) {
+                val state = lists.getValue(tab)
                 when (tab) {
-                    Tab.GLYPH -> GlyphScreen(nav, setup, scrolls.getValue(tab))
-                    Tab.CREATE -> CreateScreen(nav, scrolls.getValue(tab))
-                    Tab.SETTINGS -> SettingsScreen(nav, setup, scrolls.getValue(tab))
+                    Tab.HOME -> HomeScreen(nav, setup, state)
+                    Tab.ALERTS -> AlertsScreen(nav, setup, state)
+                    Tab.STUDIO -> StudioScreen(nav, state)
+                    Tab.FEATURES -> FeaturesScreen(nav, setup, state)
                 }
             }
         }
     }
 }
 
+/** The bottom bar: 80 dp, 4 equal slots, a 64x32 pill behind the selected icon, a label under each. */
 @Composable
-private fun PageContent(page: Page, nav: Nav, setup: Setup) {
+fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
+    // labels grow with the font up to 1.5x, then stay on one line ("Features" must not break mid-word)
+    val fs = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    val labelStyle = MaterialTheme.typography.labelMedium.let { it.copy(fontSize = it.fontSize * (minOf(fs, 1.5f) / fs)) }
+    NavigationBar(containerColor = Color(0xFF0A0A0A)) {
+        Tab.entries.forEach { t ->
+            val on = selected == t
+            NavigationBarItem(
+                selected = on,
+                onClick = { onSelect(t) },
+                icon = { Icon(if (on) t.selectedIcon else t.icon, contentDescription = null) },
+                label = { Text(t.label, style = labelStyle, textAlign = TextAlign.Center, maxLines = 1, softWrap = false) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = Color.White,
+                    selectedTextColor = Color.White,
+                    indicatorColor = Color(0xFF2A2A2A),
+                    unselectedIconColor = Tokens.Secondary,
+                    unselectedTextColor = Tokens.Secondary,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+fun PageContent(page: Page, nav: Nav, setup: Setup) {
     when (page) {
+        Page.Profile -> ProfilePage(nav, rememberPermissions(setup))
+        Page.Backup -> BackupPage(nav)
+        Page.Licences -> LicencesPage(nav)
+        Page.OldScreens -> OldScreensPage(nav)
+        Page.Components -> ComponentGallery(onBack = nav::pop)
+        Page.Library -> LibraryScreen(nav)
+        is Page.Editor -> EditorScreen(page.designId, page.animated, page.draft, nav)
+        is Page.Feature -> FeaturePage(page.key, nav, setup)
+        is Page.OldTab -> OldTab(page.key, nav, setup)
         Page.Notifications -> NotificationsPage(nav, setup)
         is Page.RuleEditor -> RuleEditorPage(page.ruleId, page.template, setup, onClose = nav::pop)
         Page.Calls -> CallsPage(nav, setup)
@@ -185,6 +237,23 @@ private fun PageContent(page: Page, nav: Nav, setup: Setup) {
         Page.Diagnostics -> {
             BackHandler(onBack = nav::pop)
             DiagnosticsScreen(onClose = nav::pop)
+        }
+    }
+}
+
+/** Temporary: an old tab from before the redesign, as a page under Profile > Old screens. */
+@Composable
+private fun OldTab(key: String, nav: Nav, setup: Setup) {
+    BackHandler(onBack = nav::pop)
+    val scroll = rememberScrollState()
+    Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        TopBar("Old ${key.lowercase()} tab", onBack = nav::pop)
+        Box(Modifier.weight(1f)) {
+            when (key) {
+                "GLYPH" -> GlyphScreen(nav, setup, scroll)
+                "CREATE" -> CreateScreen(nav, scroll)
+                else -> SettingsScreen(nav, setup, scroll)
+            }
         }
     }
 }

@@ -88,6 +88,12 @@ object NothingSettings {
             ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open Settings")
     }
 
+    /** Nothing's Glyph Interface page (where the phone's own Glyph brightness is), else system Settings. */
+    fun glyphSettings(pm: PackageManager): SettingsLink =
+        SettingsLink(Intent("android.settings.ACTION_GLYPHS_SETTINGS").setPackage(SETTINGS_PACKAGE), "Open Glyph Interface")
+            .takeIf { pm.resolveActivity(it.intent, 0) != null }
+            ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open Settings")
+
     /** True when the firmware lets us read the bedtime switch, so "Follow Nothing bedtime" can work. */
     fun bedtimeReadable(cr: ContentResolver): Boolean = global(cr, BEDTIME_ENABLE) != null
 

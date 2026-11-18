@@ -25,7 +25,6 @@ import com.dotforge.notify.FaceDownSensor
 import com.dotforge.notify.MediaRingSettings
 import com.dotforge.system.SystemGlyphSettings
 import com.dotforge.system.SystemGlyphs
-import com.dotforge.ui.Skins
 import com.dotforge.ringtones.RingtoneLibrary
 import com.dotforge.rules.FiltersRepository
 import com.dotforge.rules.LogEntry
@@ -149,7 +148,8 @@ object AppGraph {
 
     internal fun init(app: Application) {
         prefs = app.getSharedPreferences("dotforge", Context.MODE_PRIVATE)
-        Skins.init(prefs)
+        com.dotforge.ui.design.HapticsSetting.init(app.getSharedPreferences("ui", Context.MODE_PRIVATE))
+        com.dotforge.backup.BackupStore.init(app)
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
         device = MatrixDevices.create(app, Channel.APP)
         device.clear() // nothing is posted yet: take off any frame an earlier process left (a stuck torch)

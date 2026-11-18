@@ -69,3 +69,16 @@ Not included in this repository:
   https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit . Its licence (Glyph SDK End
   User License Agreement) does not allow redistribution, so it is downloaded by scripts/fetch-glyph-sdk.sh
   into app/libs/ (gitignored) and must not be committed or shared.
+
+Fonts (bundled in app/src/main/res/font, SIL Open Font License 1.1):
+
+10. Doto - https://github.com/oliverlalan/Doto (via https://github.com/google/fonts, ofl/doto)
+    Copyright 2024 The Doto Project Authors. Full licence text: licenses/Doto-OFL.txt.
+    The dot-matrix display font, used for titles and big numbers.
+
+11. Inter - https://github.com/rsms/inter (via https://github.com/google/fonts, ofl/inter)
+    Copyright 2020 The Inter Project Authors. Full licence text: licenses/Inter-OFL.txt.
+    The body font, used for everything else.
+
+Both fonts are unmodified variable fonts. The OFL lets them be bundled and redistributed with software,
+provided the copyright notice and licence travel with them; the app shows both under Profile > Licences.

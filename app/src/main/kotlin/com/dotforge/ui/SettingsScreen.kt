@@ -1,5 +1,6 @@
 package com.dotforge.ui
 
+
 import android.app.StatusBarManager
 import android.content.ComponentName
 import android.content.Context
@@ -130,16 +131,6 @@ fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             ValueRow("Rule presets", "Restore", subtitle = "Add back Calls, Messages, OTP codes and Delivery") {
                 AppGraph.rules.addPresets()
                 Toast.makeText(ctx, "Presets restored", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        GroupTitle("SKIN")
-        Skin.entries.chunked(2).forEach { row ->
-            TileRow {
-                row.forEach { s ->
-                    ChoiceCard(s.label, if (s == Skin.RED) "The default" else "Accent colour", s == Skins.current, Modifier.weight(1f)) { Skins.set(s) }
-                }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
 
