@@ -3,7 +3,9 @@ package com.dotforge.notify
 import com.dotforge.device.Effects
 import com.dotforge.device.DeviceProfile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressTest {
@@ -74,5 +76,17 @@ class ProgressTest {
         assertEquals(1f, Progress.media(239_000, 240_000, updatedAt = 1, now = 10_000, speed = 1f, playing = true)!!, 1e-6f)
         assertNull(Progress.media(5_000, 0, updatedAt = 1, now = 2, speed = 1f, playing = true))
         assertNull(Progress.media(-1, 240_000, updatedAt = 1, now = 2, speed = 1f, playing = true))
+    }
+
+    @Test fun waitingBarsBreathe() {
+        assertTrue(Progress.waiting(mapOf(Progress.PROGRESS to 0, Progress.MAX to 0, Progress.INDETERMINATE to true)))
+        assertTrue(Progress.waiting(mapOf(Progress.TEMPLATE to Progress.PROGRESS_STYLE, Progress.INDETERMINATE to true)))
+        assertFalse(Progress.waiting(mapOf(Progress.INDETERMINATE to true))) // no bar at all
+        assertFalse(Progress.waiting(mapOf(Progress.PROGRESS to 3, Progress.MAX to 10)))
+        val p = DeviceProfile.Phone3
+        val frames = Progress.breathing(p).frames
+        val levels = frames.map { f -> f.frame.pixels[p.ring[0]] }
+        assertTrue(levels.min() >= 40 && levels.max() > levels.min())
+        assertTrue(frames.all { f -> p.ring.all { f.frame.pixels[it] == f.frame.pixels[p.ring[0]] } })
     }
 }

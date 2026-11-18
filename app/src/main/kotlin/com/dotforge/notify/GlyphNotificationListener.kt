@@ -122,14 +122,15 @@ class GlyphNotificationListener : NotificationListenerService() {
      */
     private fun showProgress(sbn: StatusBarNotification, info: NotificationInfo) {
         val fraction = progressOf(sbn.notification)?.takeIf { AppGraph.progressRings.value }
-        val match = fraction?.let {
+        val waiting = fraction == null && AppGraph.progressRings.value && Progress.waiting(progressValues(sbn.notification))
+        val match = (fraction ?: if (waiting) 0f else null)?.let {
             val s = Delivery.subject(
                 info, AppGraph.filters.filters.value, { FilterActions.conditions(this) }, { contacts.lookup(info) },
                 region, AppGraph.spamList::contains,
             )
             RuleEngine.progress(s, AppGraph.rules.rules.value, AppGraph.rules.lists.value)
         }
-        if (fraction == null || match == null) {
+        if (match == null) {
             AppGraph.arbiter.remove(progressId(sbn.key))
             return
         }
@@ -137,7 +138,8 @@ class GlyphNotificationListener : NotificationListenerService() {
             DisplayRequest(
                 id = progressId(sbn.key),
                 priority = Priority.PROGRESS,
-                animation = Effects.progress(AppGraph.profile, fraction),
+                // no value yet: the ring breathes until there is one
+                animation = fraction?.let { Effects.progress(AppGraph.profile, it) } ?: Progress.breathing(AppGraph.profile),
                 loop = true,
                 label = "Progress: ${info.appLabel}",
             ),
@@ -248,10 +250,10 @@ class GlyphNotificationListener : NotificationListenerService() {
         n.category == Notification.CATEGORY_MISSED_CALL && AppGraph.calls.settings.value.missedGlyph
 
 
-    /** Determinate progress 0..1, from the classic extras or (Android 16) a ProgressStyle notification. */
-    private fun progressOf(n: Notification): Float? {
+    /** A notification's progress extras as plain values for [Progress]. */
+    private fun progressValues(n: Notification): Map<String, Any?> {
         val e = n.extras
-        val values = buildMap<String, Any?> {
+        return buildMap {
             for (k in listOf(Progress.PROGRESS, Progress.MAX)) if (e.containsKey(k)) put(k, e.getInt(k))
             put(Progress.INDETERMINATE, e.getBoolean(Progress.INDETERMINATE, false))
             put(Progress.TEMPLATE, e.getString(Progress.TEMPLATE))
@@ -259,6 +261,11 @@ class GlyphNotificationListener : NotificationListenerService() {
                 put(Progress.SEGMENTS, list.map { mapOf(Progress.SEGMENT_LENGTH to it.getInt(Progress.SEGMENT_LENGTH)) })
             }
         }
+    }
+
+    /** Determinate progress 0..1, from the classic extras or (Android 16) a ProgressStyle notification. */
+    private fun progressOf(n: Notification): Float? {
+        val values = progressValues(n)
         Progress.fraction(values)?.let { return it }
         // a ProgressStyle that keeps its values elsewhere: ask Android
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA || values[Progress.TEMPLATE] != Progress.PROGRESS_STYLE) return null

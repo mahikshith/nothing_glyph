@@ -1,6 +1,12 @@
 package com.dotforge.notify
 
+import com.dotforge.device.AnimFrame
+import com.dotforge.device.Animation
+import com.dotforge.device.DeviceProfile
+import com.dotforge.device.Effects
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * Progress for the outer ring, from plain values (no Android types, so it is unit tested):
@@ -36,6 +42,16 @@ object Progress {
         }
         return (progress.toFloat() / total).coerceIn(0f, 1f)
     }
+
+    /** A progress bar with no value yet ("waiting", "preparing"): indeterminate, classic or ProgressStyle. */
+    fun waiting(extras: Map<String, Any?>): Boolean =
+        extras[INDETERMINATE] == true && (extras.containsKey(PROGRESS) || extras.containsKey(MAX) || extras[TEMPLATE] == PROGRESS_STYLE)
+
+    /** The waiting state: the whole ring breathes gently. */
+    fun breathing(p: DeviceProfile, steps: Int = 30, periodMs: Int = 3000): Animation = Animation(p, List(steps) { i ->
+        val level = (40 + 140 * (0.5 + 0.5 * sin(2 * PI * i / steps - PI / 2))).roundToInt()
+        AnimFrame(Effects.ring(p, 1f, on = level), periodMs / steps)
+    })
 
     /** How many of [ringSize] ring cells [fraction] lights (as [com.dotforge.device.Effects.ring] draws it). */
     fun litCells(ringSize: Int, fraction: Float): Int = (ringSize * fraction.coerceIn(0f, 1f)).roundToInt()
