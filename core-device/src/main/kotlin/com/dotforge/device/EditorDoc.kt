@@ -218,8 +218,11 @@ class EditorDoc(
         commit(state.with(frames = withFrame(state.cur, IntArray(profile.cellCount))))
     }
 
-    /** Starts over with one blank frame (timing, name and layers stay). */
-    fun clearAll() = commit(state.with(frames = listOf(IntArray(profile.cellCount)), durations = listOf(state.durations[state.cur]), cur = 0))
+    /** Blanks every frame: the frames, their times, the current frame, timing, name and layers all stay. */
+    fun clearAll() {
+        if (state.frames.all { f -> f.all { it == 0 } }) return
+        commit(state.with(frames = List(state.frames.size) { IntArray(profile.cellCount) }))
+    }
 
     // ---- frames ----
 

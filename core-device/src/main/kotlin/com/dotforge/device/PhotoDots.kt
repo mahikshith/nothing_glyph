@@ -492,9 +492,8 @@ object PhotoDots {
         fun tone(x: Double) = tones.minBy { abs(it - x) }
         for (c in p.ledCells) {
             out[c] = (255 * when {
-                // a feature: clearly darker than the skin round it goes off, a shadow half way
-                inside[c] && g[c] < smooth[c] - 0.2 && g[c] < 0.6 -> 0.0
-                inside[c] && g[c] < smooth[c] - 0.1 -> tone(g[c] * 0.5)
+                // a feature: much darker than the skin round it (a pupil, the line of the lips) goes off
+                inside[c] && g[c] < smooth[c] - 0.25 && g[c] < 0.45 -> 0.0
                 inside[c] -> tone(g[c])
                 else -> tone(g[c] * 0.4)
             }).roundToInt()

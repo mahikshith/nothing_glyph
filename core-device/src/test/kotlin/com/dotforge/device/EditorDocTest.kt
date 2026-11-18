@@ -84,8 +84,9 @@ class EditorDocTest {
             doc.clearFrame()
             assertEquals(0, lit(doc.current))
             drawsWith("after clear frame")
+            val size = doc.size
             doc.clearAll()
-            assertEquals(1, doc.size)
+            assertEquals(size, doc.size)
             drawsWith("after clear all")
             doc.undo()
             drawsWith("after undo")
@@ -123,15 +124,23 @@ class EditorDocTest {
         assertEquals(0, lit(doc.frames[1]))
         doc.undo()
 
+        // Clear all blanks the dots only: every frame and its time stays
+        doc.setDuration(0, 150)
+        doc.setDuration(2, 1200)
+        val durations = doc.durations.toList()
+        val cur = doc.cur
         doc.clearAll()
-        assertEquals(1, doc.size)
-        assertEquals(0, lit(doc.current))
+        assertEquals(3, doc.size)
+        assertEquals(durations, doc.durations.toList())
+        assertEquals(cur, doc.cur)
+        doc.frames.forEach { assertEquals(0, lit(it)) }
         doc.undo()
         assertEquals(3, doc.size)
         doc.frames.indices.forEach { assertArrayEquals(all[it], doc.frames[it]) }
         doc.redo()
-        assertEquals(1, doc.size)
-        assertEquals(0, lit(doc.current))
+        assertEquals(3, doc.size)
+        assertEquals(durations, doc.durations.toList())
+        doc.frames.forEach { assertEquals(0, lit(it)) }
     }
 
     @Test fun frameOperationsAndTimingAreUndoable() {
