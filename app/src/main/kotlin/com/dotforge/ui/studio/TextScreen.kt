@@ -262,7 +262,10 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
     UndoSnackbarHost {
         val snacks = rememberSnacks()
         Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            // the editor's top bar: Close, then Glyph, Undo, Redo, ⋮ and Done (the name sits under the preview)
+            // the editor's top bar: Close, then Glyph, Undo, Redo, ⋮ and Done (the name sits under the preview).
+            // When the bar is tight (narrow screen, large text), Redo moves into ⋮ so nothing is squeezed or cut.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val tight = maxWidth < 400.dp
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = ::close) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
                 Spacer(Modifier.weight(1f))
@@ -271,10 +274,15 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
                     state = glyphState.text, enabled = glyphState != com.dotforge.ui.editor.PhoneState.NOT_PHONE3,
                 ) { glyph = !glyph }
                 TextBarIcon(com.dotforge.ui.design.DfIcons.Undo, "Undo", t.canUndo) { t.undo() }
-                TextBarIcon(com.dotforge.ui.design.DfIcons.Redo, "Redo", t.canRedo) { t.redo() }
+                if (!tight) TextBarIcon(com.dotforge.ui.design.DfIcons.Redo, "Redo", t.canRedo) { t.redo() }
                 Box {
                     IconButton(onClick = { panel = TextPanel.MENU }) { Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = Color.White) }
                     DropdownMenu(expanded = panel == TextPanel.MENU, onDismissRequest = { panel = TextPanel.NONE }, containerColor = Tokens.Raised) {
+                        if (tight) DropdownMenuItem(
+                            text = { Text("Redo") }, enabled = t.canRedo, modifier = Modifier.heightIn(min = Tokens.Target),
+                            leadingIcon = { Icon(com.dotforge.ui.design.DfIcons.Redo, contentDescription = null, tint = Color.White.copy(alpha = if (t.canRedo) 1f else DISABLED_ALPHA)) },
+                            onClick = { panel = TextPanel.NONE; t.redo() },
+                        )
                         DropdownMenuItem(text = { Text("Edit as dots") }, modifier = Modifier.heightIn(min = Tokens.Target), onClick = {
                             panel = TextPanel.NONE
                             val bg = t.background
@@ -300,8 +308,9 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
                     }
                 }
                 TextButton(onClick = ::done, enabled = t.spec.text.isNotBlank(), modifier = Modifier.heightIn(min = Tokens.Target)) {
-                    Text("Done", color = if (t.spec.text.isNotBlank()) Color.White else Color.White.copy(alpha = DISABLED_ALPHA), style = MaterialTheme.typography.labelLarge.capped())
+                    Text("Done", color = if (t.spec.text.isNotBlank()) Color.White else Color.White.copy(alpha = DISABLED_ALPHA), style = MaterialTheme.typography.labelLarge.capped(), maxLines = 1, softWrap = false)
                 }
+            }
             }
             // the matrix stays pinned while the controls scroll under it
             BoxWithConstraints(Modifier.fillMaxWidth().padding(bottom = Tokens.Small), contentAlignment = Alignment.Center) {

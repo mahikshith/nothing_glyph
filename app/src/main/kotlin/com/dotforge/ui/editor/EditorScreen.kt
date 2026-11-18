@@ -887,9 +887,14 @@ private fun PlaybackRow(s: EditorSession) {
         }
         IconButton(onClick = { s.step(true) }) { Icon(DfIcons.StepForward, contentDescription = "Step forward", tint = Color.White) }
         Column(Modifier.weight(1f).padding(horizontal = Tokens.Small)) {
+            // "3/6 · 340 ms of 1 s"; when that doesn't fit, the total goes first, never a cut word
+            val full = "${i + 1}/${s.doc.size} · ${StudioText.seconds(at)} of ${StudioText.seconds(total)}"
+            var short by remember { mutableStateOf(false) }
             Text(
-                "${i + 1}/${s.doc.size} · ${StudioText.seconds(at)} of ${StudioText.seconds(total)}",
-                style = MaterialTheme.typography.bodySmall.capped(), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                if (short) "${i + 1}/${s.doc.size} · ${StudioText.seconds(at)}" else full,
+                style = MaterialTheme.typography.bodySmall.capped(), color = Color.White, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                onTextLayout = { r -> if (r.hasVisualOverflow && !short) short = true },
+                modifier = Modifier.semantics { contentDescription = "Frame ${i + 1} of ${s.doc.size}, ${StudioText.seconds(at)} of ${StudioText.seconds(total)}" },
             )
             Scrubber(at.toFloat() / total.coerceAtLeast(1)) { f -> s.scrub((f * total).toInt()) }
         }
