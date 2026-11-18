@@ -306,6 +306,48 @@ abstract class StudioScreens : ScreenshotTest() {
         capture(f, "49-editor-background-picker")
     }
 
+    // ---------------------------------------------------------------- add a photo as a frame, trace photo
+
+    @Test fun editorAddPhotoAsFrame() {
+        val d = animation()
+        editor(d, EditorStart(EditorPanel.ADD_MENU, phone = PhoneState.ON, prepare = { it.select(2) }))
+        capture(f, "80-editor-add-frame-menu")
+        editor(d, EditorStart(EditorPanel.INSERT, phone = PhoneState.ON, prepare = { it.select(2) }))
+        capture(f, "81-editor-insert-photo")
+        var session: com.dotforge.ui.editor.EditorSession? = null
+        val beach = com.dotforge.ui.studio.MediaSource.Pictures(listOf(PhotoDots.samplePicture(200, 150)), "Beach")
+        editor(d, EditorStart(phone = PhoneState.ON, photo = beach, prepare = { it.select(2); session = it }))
+        settle()
+        capture(f, "82-editor-photo-add-as-frame")
+        val trip = com.dotforge.ui.studio.MediaSource.Pictures(List(3) { PhotoDots.samplePicture(160 + it * 20, 120) }, "Trip")
+        editor(d, EditorStart(phone = PhoneState.ON, photo = trip, prepare = { it.select(2) }))
+        settle()
+        capture(f, "83-editor-photos-add-frames")
+        editor(d, EditorStart(phone = PhoneState.ON, photo = beach, prepare = { it.select(2); session = it }))
+        settle()
+        val before = session!!.doc.size
+        rule.onNodeWithText("Add as frame").performClick()
+        rule.waitForIdle()
+        check(session!!.doc.size == before + 1 && session!!.doc.cur == 3) { "the photo goes in after frame 3" }
+        capture(f, "84-editor-photo-added")
+    }
+
+    @Test fun editorTracePhoto() {
+        val d = still()
+        editor(d, EditorStart(EditorPanel.TRACE, phone = PhoneState.ON))
+        capture(f, "85-editor-trace-choose")
+        val file = com.dotforge.ui.studio.PhotoLoader.keep(PhotoDots.samplePicture(300, 300), "shot-trace")
+        val traced = d.copy(trace = com.dotforge.studio.TracePhoto(file, opacity = 45)).also { AppGraph.designs.update(it) }
+        editor(traced)
+        settle()
+        capture(f, "86-editor-trace-under-grid")
+        editor(traced, EditorStart(EditorPanel.TRACE, phone = PhoneState.ON))
+        settle()
+        capture(f, "87-editor-trace-sheet")
+        editor(traced, EditorStart(EditorPanel.MORE, phone = PhoneState.ON))
+        capture(f, "88-editor-more-trace")
+    }
+
     // ---------------------------------------------------------------- Text
 
     private fun textDesign(spec: TextSpec, layers: Layers? = null): Design {
