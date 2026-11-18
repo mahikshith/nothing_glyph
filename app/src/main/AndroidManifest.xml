@@ -6,6 +6,8 @@
     <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
     <!-- Only asked for when a rule's People picker opens or the spam filter needs to know who is a contact. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Get more on the Ringtones page: lists and downloads shared ringtones from GitHub. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Music visualiser (Live switch, Quick Settings tile, DF Music toy): asked when first switched on. Visualizer
          on the output mix needs it, and so does the microphone fallback. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

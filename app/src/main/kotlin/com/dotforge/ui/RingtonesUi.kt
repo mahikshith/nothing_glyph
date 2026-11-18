@@ -83,6 +83,7 @@ fun RingtonesPage(nav: Nav) {
     val items by lib.items.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var choose by rememberSaveable { mutableStateOf(false) }
+    var getMore by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<SavedRingtone?>(null) }
     LifecycleResumeEffect(Unit) {
         scope.launch(Dispatchers.IO) { lib.refresh() }
@@ -122,6 +123,7 @@ fun RingtonesPage(nav: Nav) {
                 }
             }
         }
+        if (items.isNotEmpty()) SecondaryButton("Get more", Modifier.fillMaxWidth().padding(top = 8.dp)) { getMore = true }
         Surface(color = Surface2, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) {
             Text(
                 "For the lights to play while ringing, keep Nothing's Glyph ringtone setting on.",
@@ -145,11 +147,16 @@ fun RingtonesPage(nav: Nav) {
                         choose = false
                         openSong.launch(SONG_TYPES)
                     }
+                    ChoiceCard("Get more", "Free ringtones shared on GitHub and Glyphtones", false, Modifier.fillMaxWidth()) {
+                        choose = false
+                        getMore = true
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { choose = false }) { Text("Cancel", color = Color.White) } },
         )
     }
+    if (getMore) GetMoreSheet(nav) { getMore = false }
     deleting?.let { r ->
         ConfirmDialog("Delete \"${r.title}\"?", "It's removed from the phone's ringtones.", "Delete", onConfirm = {
             scope.launch(Dispatchers.IO) { lib.delete(r.uri) }
