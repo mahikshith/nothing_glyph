@@ -111,13 +111,9 @@ fun RingtoneScreen(uri: String, nav: Nav) {
         LaunchedEffect(session.error) { session.error?.let { snacks?.show(it); session.error = null } }
         Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
             val ready = session.state as? ImportSession.State.Ready
-            TopBar("Glyph ringtone", onBack = ::close, close = true) {
-                if (ready != null && session.rows.isNotEmpty()) TextButton(onClick = { nav.push(Page.RingtoneEdit) }, modifier = Modifier.heightIn(min = Tokens.Target)) {
-                    Text("Edit lights", color = Color.White)
-                }
-            }
+            TopBar("Glyph ringtone", onBack = ::close, close = true)
             when (val st = session.state) {
-                ImportSession.State.Loading -> RingtoneLoading(onCancel = ::close)
+                ImportSession.State.Loading -> RingtoneLoading(session.progress, onCancel = ::close)
                 is ImportSession.State.Failed -> RingtoneFailed(onChange = { change.launch(arrayOf("audio/*", "application/ogg")) }, onClose = ::close)
                 is ImportSession.State.Ready -> {
                     val src = st.source
@@ -131,7 +127,7 @@ fun RingtoneScreen(uri: String, nav: Nav) {
                             name = src.name, kind = src.kind, envelope = src.song?.scan?.envelope, window = session.window,
                             updating = session.updatingPart, style = session.style, layout = session.layout,
                             brightness = session.intensity, speed = session.speed, title = session.title,
-                            pixels = preview.pixels, playing = preview.playing, saving = session.saving,
+                            pixels = preview.pixels, playing = preview.playing, saving = session.saving, sync = session.syncMs,
                         ),
                         onChange = { change.launch(arrayOf("audio/*", "application/ogg")) },
                         onWindow = session::changeWindow, onStyle = { session.choose(it) }, onLayout = { session.choose(it) },
@@ -139,6 +135,8 @@ fun RingtoneScreen(uri: String, nav: Nav) {
                         onPreview = preview::toggle,
                         onSet = { target, apply -> session.savedUri?.let { apply(it) } ?: session.save(AppGraph.ringtones) { u -> apply(u) } },
                         onDone = { close() },
+                        onSync = session::changeSync,
+                        onEditLights = if (ready != null && session.rows.isNotEmpty()) ({ nav.push(Page.RingtoneEdit) }) else null,
                     )
                 }
             }
@@ -161,27 +159,35 @@ class RingtoneUi(
     val pixels: IntArray?,
     val playing: Boolean,
     val saving: Boolean,
+    /** "Lights earlier / later", ms. */
+    val sync: Int = 0,
 )
 
+/** "Finding the beat… 40%" while the song is read through, on a track that shows, with Cancel. */
 @Composable
-fun RingtoneLoading(onCancel: () -> Unit) {
-    // the composer has no progress to report, so the bar runs without a number
+fun RingtoneLoading(progress: Float? = null, onCancel: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(Tokens.Gutter), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Finding the beat…", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-        LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = Tokens.Gap), color = Color.White, trackColor = Tokens.Raised)
+        val pct = progress?.let { (it * 100).toInt().coerceIn(0, 100) }
+        Text(
+            if (pct != null) "Finding the beat… $pct%" else "Finding the beat…", style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        val bar = Modifier.fillMaxWidth().height(6.dp).padding(top = 0.dp)
+        Box(Modifier.fillMaxWidth().padding(top = Tokens.Gap)) {
+            if (progress != null) LinearProgressIndicator(progress = { progress }, bar, color = Color.White, trackColor = TRACK, gapSize = 0.dp, drawStopIndicator = {})
+            else LinearProgressIndicator(bar, color = Color.White, trackColor = TRACK, gapSize = 0.dp)
+        }
+        Text("Reading the song for its beats and loud parts", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Small))
         SecondaryButton("Cancel", Modifier.padding(top = Tokens.Section), onClick = onCancel)
     }
 }
 
+/** A progress track that shows on black. */
+private val TRACK = Color(0xFF4A4A4A)
+
 @Composable
-fun RingtoneFailed(onChange: () -> Unit, onClose: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(Tokens.Gutter), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(DfIcons.Music, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(48.dp))
-        Text("This song can't be read. Try another file.", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Tokens.Gap))
-        PrimaryButton("Choose another file", Modifier.padding(top = Tokens.Section), onClick = onChange)
-        TextButton(onClick = onClose, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Close", color = Color.White) }
-    }
-}
+fun RingtoneFailed(onChange: () -> Unit, onClose: () -> Unit) =
+    com.dotforge.ui.design.LoadFailed(DfIcons.Music, "This song can't be read.", com.dotforge.ui.design.Supported.SONGS, "Choose another song", onChange, onClose)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -199,6 +205,9 @@ fun RingtoneReady(
     onDone: () -> Unit,
     startMenu: Boolean = false,
     startFlip: Boolean = false,
+    onSync: (Int) -> Unit = {},
+    /** "Edit lights": the keyframe timeline, for power users; null while there are no lights yet. */
+    onEditLights: (() -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val snacks = rememberSnacks()
@@ -253,7 +262,9 @@ fun RingtoneReady(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Tokens.Gutter)) {
+        val scroll = rememberScrollState()
+        Box(Modifier.weight(1f)) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = Tokens.Gutter)) {
             // the song, with Change
             Row(Modifier.fillMaxWidth().heightIn(min = Tokens.Row), verticalAlignment = Alignment.CenterVertically) {
                 Icon(DfIcons.Music, contentDescription = null, tint = Color.White)
@@ -311,6 +322,18 @@ fun RingtoneReady(
                 SectionLabel("Speed · ${com.dotforge.ui.design.speedText(ui.speed)}")
                 DotSlider("Speed", ui.speed, 0.5f..2f, readout = "${"%.1f".format(ui.speed)}x", mark = 1f, onChange = onSpeed)
             }
+            if (ui.kind == ImportKind.AudioOnly) {
+                val sync = ui.sync
+                SectionLabel("Lights earlier / later · ${if (sync == 0) "in time" else if (sync < 0) "${-sync} ms earlier" else "$sync ms later"}")
+                DotSlider(
+                    "Lights earlier or later", sync.toFloat(), -com.dotforge.ringtones.SYNC_MAX_MS.toFloat()..com.dotforge.ringtones.SYNC_MAX_MS.toFloat(),
+                    readout = if (sync == 0) "in time" else "$sync milliseconds", mark = 0f,
+                ) { onSync(((it / 50).toInt() * 50)) }
+            }
+            if (onEditLights != null) {
+                SecondaryButton("Edit lights", Modifier.fillMaxWidth().padding(top = Tokens.Gap), onClick = onEditLights)
+                Hint("A timeline of every light, for fine changes.")
+            }
             SectionLabel("Name")
             OutlinedTextField(
                 ui.title, onTitle, Modifier.fillMaxWidth().padding(bottom = Tokens.Section), singleLine = true,
@@ -318,7 +341,15 @@ fun RingtoneReady(
                 shape = RoundedCornerShape(14.dp),
             )
         }
-        Box(Modifier.fillMaxWidth().padding(Tokens.Gutter)) {
+        // more below: the list fades into the pinned bar instead of running under it
+        if (scroll.value < scroll.maxValue) Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(32.dp)
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Tokens.Background))),
+        )
+        }
+        // the pinned bar: its own strip with a hairline, so it never sits over a control
+        androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
+        Box(Modifier.fillMaxWidth().background(Tokens.Background).padding(horizontal = Tokens.Gutter, vertical = Tokens.Small)) {
             PrimaryButton(if (ui.saving) "Saving…" else "Save and set ▾", Modifier.fillMaxWidth(), enabled = !ui.saving) { menu = true }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Tokens.Raised) {
                 SetTarget.entries.forEach { t ->

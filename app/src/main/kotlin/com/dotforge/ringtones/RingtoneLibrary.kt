@@ -19,14 +19,14 @@ data class SavedRingtone(val uri: Uri, val title: String, val durationMs: Long)
  * IS_RINGTONE so they show in the ringtone pickers. Written through MediaStore, so no storage permission is
  * needed; the list shows the files this app created. Call [refresh], [save] and [delete] off the main thread.
  */
-class RingtoneLibrary(private val context: Context) {
+open class RingtoneLibrary(private val context: Context) {
     private val resolver get() = context.contentResolver
     private val collection: Uri = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
-    private val _items = MutableStateFlow<List<SavedRingtone>>(emptyList())
+    protected val _items = MutableStateFlow<List<SavedRingtone>>(emptyList())
     val items: StateFlow<List<SavedRingtone>> = _items.asStateFlow()
 
-    fun refresh() {
+    open fun refresh() {
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,

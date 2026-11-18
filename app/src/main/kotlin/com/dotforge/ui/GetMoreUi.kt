@@ -52,18 +52,30 @@ import java.io.File
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GetMoreSheet(nav: Nav, onDismiss: () -> Unit) {
+fun GetMoreSheet(
+    nav: Nav, onDismiss: () -> Unit,
+    /** Reads the lists; screenshots pass their own (still loading, failed or a list). */
+    load: (suspend (refresh: Boolean) -> List<CatalogResult>)? = null,
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val client = remember { RingtoneCatalogClient(File(ctx.cacheDir, "ringtone-catalog")) }
     var results by remember { mutableStateOf<List<CatalogResult>?>(null) }
+    var failed by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     var downloading by remember { mutableStateOf<CatalogFile?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(reload) {
         results = null
-        results = withContext(Dispatchers.IO) { RingtoneCatalog.COLLECTIONS.map { client.load(it, refresh = reload > 0) } }
+        failed = false
+        val got = runCatching {
+            if (load != null) load(reload > 0)
+            else withContext(Dispatchers.IO) { RingtoneCatalog.COLLECTIONS.map { client.load(it, refresh = reload > 0) } }
+        }
+        if (got.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw got.exceptionOrNull()!!
+        results = got.getOrNull()
+        failed = got.isFailure
     }
 
     fun open(file: CatalogFile) {
@@ -97,16 +109,18 @@ fun GetMoreSheet(nav: Nav, onDismiss: () -> Unit) {
                 error?.let { Text(it, color = NothingRed, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
             }
             val list = results
-            if (list == null) {
+            if (failed) {
+                item { Notice("Couldn't load the ringtones.", "Check your connection and try again.", "Retry") { reload++ } }
+            } else if (list == null) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+                        com.dotforge.ui.design.DotSpinner("Loading ringtones…")
                     }
                 }
             } else {
                 list.forEach { r ->
                     item(key = "h-" + r.collection.fullName) {
-                        GroupTitle(r.collection.title, Modifier.padding(top = 16.dp))
+                        com.dotforge.ui.design.SectionLabel(r.collection.title, Modifier.padding(top = 8.dp))
                         val licence = (r as? CatalogResult.Files)?.licence
                         Text(
                             r.collection.fullName + (licence?.let { " · $it licence" } ?: ""),
@@ -132,7 +146,7 @@ fun GetMoreSheet(nav: Nav, onDismiss: () -> Unit) {
                 }
             }
             item {
-                GroupTitle("More on the web", Modifier.padding(top = 20.dp))
+                com.dotforge.ui.design.SectionLabel("More on the web", Modifier.padding(top = 12.dp))
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -177,7 +191,7 @@ private fun Notice(title: String, body: String, button: String?, onClick: () -> 
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
         Text(title, fontSize = 15.sp)
         Text(body, color = Muted, fontSize = 13.sp)
-        if (button != null) TextButton(onClick = onClick) { Text(button, color = Color.White) }
+        if (button != null) com.dotforge.ui.design.SecondaryButton(button, Modifier.padding(top = 8.dp), onClick = onClick)
     }
 }
 

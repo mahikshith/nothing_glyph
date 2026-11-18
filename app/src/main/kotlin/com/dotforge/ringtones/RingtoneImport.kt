@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.dotforge.composition.AudioAnalysis
@@ -73,7 +74,8 @@ object RingtoneImporter {
     private const val FADE_IN_MS = 30
 
     /** Reads [uri] into the work folder [dir] and prepares it. Slow: call off the main thread. */
-    fun load(context: Context, uri: Uri, mode: ImportMode, dir: File): RingtoneSource {
+    /** [progress] gets 0-1 while a song is read through (the long part of finding the beat). */
+    fun load(context: Context, uri: Uri, mode: ImportMode, dir: File, progress: ((Float) -> Unit)? = null): RingtoneSource {
         dir.deleteRecursively()
         dir.mkdirs()
         val cr = context.contentResolver
@@ -109,7 +111,7 @@ object RingtoneImporter {
             if (retaggable) source.moveTo(audio) else AudioCodec.encodeOggOpus(AudioCodec.decode(source).pcm, audio)
             return RingtoneSource(title, kind, audio, null, info?.custom1)
         }
-        val scan = AudioCodec.scan(source)
+        val scan = AudioCodec.scan(source, progress = progress)
         if (scan.durationMs <= 0) throw IOException("There's no sound in this file.")
         return RingtoneSource(title, kind, null, SongSource(source, scan, retaggable))
     }
@@ -120,6 +122,18 @@ object RingtoneImporter {
 
     /** The chosen part of a song, decoded, and its analysis. */
     class Part(val window: SongWindow, val pcm: Pcm, val analysis: AudioAnalysis)
+
+    /**
+     * The lights moved against the sound by [ms]: later (positive) adds dark rows at the start, earlier drops
+     * the first rows. The length stays the same.
+     */
+    fun shift(rows: List<IntArray>, ms: Int): List<IntArray> {
+        val n = (ms.toLong() * GlyphAuthor.FPS / 1000).toInt()
+        if (n == 0 || rows.isEmpty()) return rows
+        val blank = IntArray(rows[0].size)
+        return if (n > 0) (List(minOf(n, rows.size)) { blank } + rows).take(rows.size)
+        else rows.drop(minOf(-n, rows.size)) + List(minOf(-n, rows.size)) { blank }
+    }
 
     fun analysePart(song: SongSource, window: SongWindow): Part {
         val pcm = AudioCodec.decode(song.file, window.lengthMs, window.startMs).pcm
@@ -167,6 +181,9 @@ object RingtoneImporter {
  * The state of one import page. Lives outside composition (see [ImportSessions]) so a rotation does not read
  * and analyse the file again.
  */
+/** "Lights earlier / later" goes this far either way. */
+const val SYNC_MAX_MS = 500
+
 class ImportSession(val key: String, private val context: Context, private val uri: Uri, val mode: ImportMode) {
     sealed interface State {
         data object Loading : State
@@ -198,6 +215,12 @@ class ImportSession(val key: String, private val context: Context, private val u
     var savedUri by mutableStateOf(if (mode == ImportMode.SAVED) uri else null)
         private set
     var error by mutableStateOf<String?>(null)
+    /** While loading: 0-1 through the song ("Finding the beat… 40%"), or null before it is known. */
+    var progress by mutableStateOf<Float?>(null)
+        private set
+    /** "Lights earlier / later": the lights move by this many ms against the sound, -500..500. */
+    var syncMs by mutableIntStateOf(0)
+        private set
 
     /** Songs: the chosen part, as shown while dragging. */
     var window by mutableStateOf<SongWindow?>(null)
@@ -210,7 +233,9 @@ class ImportSession(val key: String, private val context: Context, private val u
     init {
         scope.launch {
             state = try {
-                val src = withContext(Dispatchers.IO) { RingtoneImporter.load(context, uri, mode, dir) }
+                // reading the song is most of the wait: 0-90%, then the chosen part's beats
+                val src = withContext(Dispatchers.IO) { RingtoneImporter.load(context, uri, mode, dir) { f -> scope.launch { progress = f * 0.9f } } }
+                progress = 0.9f
                 title = src.name
                 src.song?.let { song ->
                     val w = SongWindow.loudest(song.scan.durationMs, song.scan.envelope, song.scan.bucketMs)
@@ -236,6 +261,7 @@ class ImportSession(val key: String, private val context: Context, private val u
     fun choose(style: ComposeStyle) { this.style = style; changed() }
     fun changeIntensity(v: Float) { intensity = v; changed() }
     fun changeSpeed(v: Float) { speed = v; changed() }
+    fun changeSync(ms: Int) { syncMs = ms.coerceIn(-SYNC_MAX_MS, SYNC_MAX_MS); changed() }
 
     /** Moves or resizes the song window; the part is decoded and analysed again once dragging pauses. */
     fun changeWindow(w: SongWindow) {
@@ -266,8 +292,8 @@ class ImportSession(val key: String, private val context: Context, private val u
         generation?.cancel()
         generation = scope.launch {
             if (!now) delay(120)
-            val l = layout; val s = style; val i = intensity; val sp = speed; val p = part
-            rows = withContext(Dispatchers.Default) { RingtoneImporter.generate(src, p, l, s, i, sp) }
+            val l = layout; val s = style; val i = intensity; val sp = speed; val p = part; val sync = syncMs
+            rows = withContext(Dispatchers.Default) { RingtoneImporter.shift(RingtoneImporter.generate(src, p, l, s, i, sp), sync) }
         }
     }
 

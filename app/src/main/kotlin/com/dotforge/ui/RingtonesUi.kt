@@ -156,7 +156,7 @@ fun RingtonesPage(nav: Nav) {
             confirmButton = { TextButton(onClick = { choose = false }) { Text("Cancel", color = Color.White) } },
         )
     }
-    if (getMore) GetMoreSheet(nav) { getMore = false }
+    if (getMore) GetMoreSheet(nav, onDismiss = { getMore = false })
     deleting?.let { r ->
         ConfirmDialog("Delete \"${r.title}\"?", "It's removed from the phone's ringtones.", "Delete", onConfirm = {
             scope.launch(Dispatchers.IO) { lib.delete(r.uri) }

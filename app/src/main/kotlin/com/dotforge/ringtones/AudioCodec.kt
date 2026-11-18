@@ -41,10 +41,10 @@ object AudioCodec {
     }
 
     /** Reads the whole song (up to [maxMs]) without keeping the samples: peaks every 50 ms and the length. */
-    fun scan(file: File, maxMs: Long = 15 * 60_000L): Scan {
+    fun scan(file: File, maxMs: Long = 15 * 60_000L, progress: ((Float) -> Unit)? = null): Scan {
         var env: PeakEnvelope? = null
         var samples = 0L
-        val (rate, channels) = pump(file, 0L) { chunk, n, rate, ch ->
+        val (rate, channels) = pump(file, 0L, progress) { chunk, n, rate, ch ->
             val e = env ?: PeakEnvelope(rate, ch).also { env = it }
             e.add(chunk, n)
             samples += n
@@ -58,7 +58,7 @@ object AudioCodec {
      * Decodes [file] from [startMs] and hands each block of interleaved samples to [sink] (which returns false to
      * stop). Returns the sample rate and channel count.
      */
-    private fun pump(file: File, startMs: Long, sink: (ShortArray, Int, Int, Int) -> Boolean): Pair<Int, Int> {
+    private fun pump(file: File, startMs: Long, progress: ((Float) -> Unit)? = null, sink: (ShortArray, Int, Int, Int) -> Boolean): Pair<Int, Int> {
         val ex = MediaExtractor()
         try {
             ex.setDataSource(file.path)
@@ -69,6 +69,9 @@ object AudioCodec {
             val startUs = startMs * 1000
             if (startUs > 0) ex.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
             val format = ex.getTrackFormat(track)
+            // how far through the file, for "Finding the beat… 40%"
+            val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
+            var shown = -1
             val mime = format.getString(MediaFormat.KEY_MIME)!!
             var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
@@ -115,6 +118,10 @@ object AudioCodec {
                             buf.asShortBuffer().get(chunk, 0, n)
                         }
                         codec.releaseOutputBuffer(o, false)
+                        if (progress != null && durationUs > 0) {
+                            val pct = ((info.presentationTimeUs - startUs).coerceAtLeast(0) * 100 / durationUs).toInt().coerceIn(0, 100)
+                            if (pct != shown) { shown = pct; progress(pct / 100f) }
+                        }
                         // drop what the decoder gives before the start (seeking lands on the sync point before it)
                         val ch = channels.coerceAtLeast(1)
                         val skipFrames = if (startUs > info.presentationTimeUs) ((startUs - info.presentationTimeUs) * rate / 1_000_000L) else 0L

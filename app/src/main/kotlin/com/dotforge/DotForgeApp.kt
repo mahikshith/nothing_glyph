@@ -68,8 +68,9 @@ object AppGraph {
         private set
     lateinit var toys: ToySettings
         private set
+    /** Settable for screenshots, which list ringtones without MediaStore. */
+    @set:androidx.annotation.VisibleForTesting
     lateinit var ringtones: RingtoneLibrary
-        private set
     lateinit var calls: CallsRepository
         private set
     lateinit var spamList: SpamListStore
