@@ -12,5 +12,6 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":core-device"))
     testImplementation(libs.junit)
 }

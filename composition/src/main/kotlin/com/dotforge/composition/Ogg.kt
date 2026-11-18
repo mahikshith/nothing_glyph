@@ -14,6 +14,26 @@ class OggPage(
     val isContinued get() = headerType and 0x01 != 0
     val isFirst get() = headerType and 0x02 != 0
     val isLast get() = headerType and 0x04 != 0
+
+    /** True when the last segment is shorter than 255, so the page's last packet ends here. */
+    val endsPacket get() = segments.isNotEmpty() && segments.last() < 255
+
+    /** The page as bytes, with a freshly computed CRC. */
+    fun toBytes(): ByteArray {
+        val out = ByteArray(27 + segments.size + body.size)
+        "OggS".toByteArray(Charsets.ISO_8859_1).copyInto(out)
+        out[4] = 0
+        out[5] = headerType.toByte()
+        for (i in 0 until 8) out[6 + i] = ((granule ushr (8 * i)) and 0xFF).toByte()
+        for (i in 0 until 4) out[14 + i] = ((serial ushr (8 * i)) and 0xFF).toByte()
+        for (i in 0 until 4) out[18 + i] = ((sequence ushr (8 * i)) and 0xFF).toByte()
+        out[26] = segments.size.toByte()
+        for (i in segments.indices) out[27 + i] = segments[i].toByte()
+        body.copyInto(out, 27 + segments.size)
+        val crc = OggCrc.crc(out)
+        for (i in 0 until 4) out[22 + i] = ((crc ushr (8 * i)) and 0xFF).toByte()
+        return out
+    }
 }
 
 object OggCrc {
@@ -58,6 +78,26 @@ object OggReader {
             return page to (bodyStart + bodyLen)
         }
         return null
+    }
+
+    /**
+     * Checks the CRC of every page (from the first capture pattern on). Returns the number of pages, or throws
+     * [IllegalStateException] naming the first bad page.
+     */
+    fun verifyCrc(data: ByteArray): Int {
+        var pos = 0
+        var n = 0
+        while (true) {
+            val (page, next) = pageAt(data, pos) ?: break
+            val start = next - (27 + page.segments.size + page.body.size)
+            val raw = data.copyOfRange(start, next)
+            val stored = le32(raw, 22)
+            for (i in 22 until 26) raw[i] = 0
+            check(OggCrc.crc(raw) == stored) { "bad CRC on page ${page.sequence} (#$n)" }
+            pos = next
+            n++
+        }
+        return n
     }
 
     /** Parses up to [maxPages] pages. Resyncs on garbage; never throws on truncation. */

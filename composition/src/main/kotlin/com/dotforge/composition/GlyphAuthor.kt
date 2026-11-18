@@ -13,6 +13,41 @@ import java.util.zip.InflaterInputStream
 object GlyphAuthor {
     const val FPS = 60
 
+    /** Brightness range of AUTHOR values. */
+    const val MAX = 4095
+
+    /** One AUTHOR value (0-4095) as a 0-255 level. */
+    fun toLevel(v: Int): Int = (v.coerceIn(0, MAX) * 255 + MAX / 2) / MAX
+
+    /** A 0-255 level as an AUTHOR value. */
+    fun fromLevel(level: Int): Int = level.coerceIn(0, 255) * MAX / 255
+
+    /**
+     * Encodes rows the way Nothing's Glyph Composer does: every value followed by ',', rows ending in CRLF,
+     * zlib, then base64 without '=' padding in 76-character lines. Streams, so long ringtones never build the
+     * whole CSV in memory.
+     */
+    fun encodeComposer(rows: List<IntArray>): String {
+        val zipped = ByteArrayOutputStream()
+        DeflaterOutputStream(zipped, Deflater(Deflater.BEST_COMPRESSION), 64 * 1024).use { z ->
+            val line = StringBuilder()
+            for (r in rows) {
+                line.setLength(0)
+                for (v in r) line.append(v.coerceIn(0, MAX)).append(',')
+                line.append("\r\n")
+                z.write(line.toString().toByteArray(Charsets.US_ASCII))
+            }
+        }
+        return wrap(base64NoPad(zipped.toByteArray()))
+    }
+
+    /** An empty zlib stream in base64, as Composer writes CUSTOM1 when there are no timeline marks. */
+    val EMPTY_ZLIB: String by lazy { base64NoPad(deflate(ByteArray(0))) }
+
+    private fun base64NoPad(b: ByteArray) = Base64.getEncoder().withoutPadding().encodeToString(b)
+
+    private fun wrap(s: String, width: Int = 76) = s.chunked(width).joinToString("\n")
+
     /** Decode tolerant of missing padding, whitespace/line breaks, url-safe alphabet. Returns rows of ints. */
     fun decode(author: String): List<IntArray> {
         val csv = String(inflate(base64Decode(author)), Charsets.UTF_8)
