@@ -41,6 +41,14 @@ class AlertPlayer(
         cycle = null
         when (val s = synchronized(lock) { queue.advance() }) {
             AlertQueue.Step.Clear -> arbiter.remove(ID)
+            is AlertQueue.Step.Wait -> {
+                arbiter.remove(ID)
+                cycle = scope.launch {
+                    delay(s.ms)
+                    cycle = null
+                    step()
+                }
+            }
             AlertQueue.Step.Keep -> synchronized(lock) { queue.current }?.let(::endOfCycle)
             is AlertQueue.Step.Show -> {
                 val glyph = s.alert.item

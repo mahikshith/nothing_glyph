@@ -38,6 +38,13 @@ class AlertQueue<T>(
         val isCall: Boolean,
         val until: Until,
         val item: T,
+        /** How long a [Until.TIMEOUT] alert shows (whole cycles, at least one); null = the queue's default. */
+        val showMs: Long? = null,
+        /**
+         * For held alerts: show once (for [showMs] or one cycle), then go dark and come back every [againMs]
+         * until checked, instead of staying on. Null = stay on.
+         */
+        val againMs: Long? = null,
     )
 
     enum class Offer { QUEUED, UPDATED, COOLDOWN }
@@ -48,12 +55,16 @@ class AlertQueue<T>(
         data class Show<T>(val alert: Alert<T>) : Step<T>
         /** Nothing left to show. */
         data object Clear : Step<Nothing>
+        /** Nothing to show now; a held alert comes back in [ms] (call [advance] then). */
+        data class Wait(val ms: Long) : Step<Nothing>
     }
 
     private val queued = ArrayList<Alert<T>>()
     /** READ / UNLOCK alerts that have been shown, oldest first. */
     private val held = LinkedHashMap<String, Alert<T>>()
     private val lastAlert = HashMap<String, Long>()
+    /** Held alerts resting until this time (their show-again interval). */
+    private val resting = HashMap<String, Long>()
     private var since = 0L
 
     var current: Alert<T>? = null
@@ -100,6 +111,7 @@ class AlertQueue<T>(
     fun removed(key: String): Boolean {
         queued.removeAll { it.key == key && it.until != Until.UNLOCK }
         if (held[key]?.until == Until.READ) held.remove(key)
+        if (key !in held) resting.remove(key)
         val cur = current ?: return false
         if (cur.key != key || cur.until == Until.UNLOCK) return false
         current = null
@@ -110,6 +122,7 @@ class AlertQueue<T>(
     fun unlocked(): Boolean {
         queued.removeAll { it.until != Until.TIMEOUT }
         held.clear()
+        resting.clear()
         val cur = current ?: return false
         if (cur.until == Until.TIMEOUT) return false
         current = null
@@ -122,15 +135,22 @@ class AlertQueue<T>(
         val cur = current
         if (queued.isNotEmpty()) return start(queued.removeAt(0), t)
         if (cur != null && cur.until == Until.TIMEOUT) {
-            if (t - since < showMs) return Step.Keep
+            if (t - since < (cur.showMs ?: showMs)) return Step.Keep
             current = null
         }
-        val next = held.values.lastOrNull()
+        if (cur != null && cur.until != Until.TIMEOUT && cur.againMs != null && cur.key in held) {
+            if (t - since < (cur.showMs ?: 0L)) return Step.Keep
+            resting[cur.key] = t + cur.againMs
+            current = null
+        }
+        val next = held.values.lastOrNull { (resting[it.key] ?: 0L) <= t }
         if (next == null) {
             current = null
-            return Step.Clear
+            val wake = held.keys.mapNotNull { resting[it] }.minOrNull() ?: return Step.Clear
+            return Step.Wait((wake - t).coerceAtLeast(1))
         }
         if (next.key == cur?.key) return Step.Keep
+        resting.remove(next.key)
         current = next
         since = t
         return Step.Show(next)
@@ -139,6 +159,7 @@ class AlertQueue<T>(
     private fun start(alert: Alert<T>, t: Long): Step<T> {
         current = alert
         since = t
+        resting.remove(alert.key)
         if (alert.until != Until.TIMEOUT) {
             held.remove(alert.key)
             held[alert.key] = alert

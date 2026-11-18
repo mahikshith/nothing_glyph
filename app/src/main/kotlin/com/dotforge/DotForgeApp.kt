@@ -139,6 +139,9 @@ object AppGraph {
     fun playerAnimation(): Animation? = designAnimation(toys.playerDesignId)
 
     /** A saved design's animation; the newest design when [id] is null or gone. */
+    /** A saved design's own timing (null id = the newest design). */
+    fun designTiming(id: String?): com.dotforge.device.Timing? = (designs.get(id) ?: designs.designs.value.firstOrNull())?.timing
+
     fun designAnimation(id: String?): Animation? {
         val design = designs.get(id) ?: designs.designs.value.firstOrNull() ?: return null
         return designs.animation(design)

@@ -97,6 +97,8 @@ data class Rule(
     /** The sound's name, for the rule sentence. */
     val soundName: String? = null,
     val vibrate: Boolean = false,
+    /** This use's timing (show for, speed, repeat, brightness, show again); null = the design's own, else the default. */
+    val timing: com.dotforge.device.Timing? = null,
 ) {
     val usesContacts: Boolean get() = match.allConditions.any { it.field == Field.CONTACT || it.field == Field.STARRED }
 
@@ -241,6 +243,26 @@ object RuleEngine {
 
     fun animation(rule: Rule, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?): Animation =
         animation(rule.glyph, rule.designId, info, profile, design)
+
+    /**
+     * The alert a showing rule posts: its glyph with the rule's timing (or, for a design, the design's own),
+     * held until checked when the rule or the timing says so.
+     */
+    fun alert(
+        rule: Rule, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?,
+        designTiming: (String?) -> com.dotforge.device.Timing? = { null }, isCall: Boolean = info.isCall,
+    ): com.dotforge.engine.AlertQueue.Alert<com.dotforge.engine.AlertGlyph> {
+        val label = "${rule.name}: ${info.sender.ifBlank { info.title }.ifBlank { info.appLabel }}"
+        val anim = animation(rule, info, profile, design)
+        val timing = rule.timing ?: designTiming(rule.designId).takeIf { rule.glyph == GlyphStyle.DESIGN }
+            ?: return com.dotforge.engine.AlertQueue.Alert(info.key, info.conversation, isCall, rule.until, com.dotforge.engine.AlertGlyph(anim, label))
+        val plan = com.dotforge.device.Timings.plan(anim, timing)
+        val until = if (plan.untilChecked && rule.until == Until.TIMEOUT) Until.READ else rule.until
+        return com.dotforge.engine.AlertQueue.Alert(
+            info.key, info.conversation, isCall, until, com.dotforge.engine.AlertGlyph(plan.animation, label),
+            showMs = plan.showMs, againMs = plan.againMs,
+        )
+    }
 
     /** Phone apps that post incoming and missed call notifications. */
     val CALL_APPS = listOf("com.google.android.dialer", "com.android.dialer", "com.android.server.telecom")

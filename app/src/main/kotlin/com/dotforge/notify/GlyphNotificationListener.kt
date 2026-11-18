@@ -81,8 +81,7 @@ class GlyphNotificationListener : NotificationListenerService() {
             // held glyphs end on unlock, so they come back only while the phone is locked
             val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
             if (!locked || rule.glyph == GlyphStyle.NONE || rule.until == Until.TIMEOUT) return
-            val glyph = AlertGlyph(RuleEngine.animation(rule, info, AppGraph.profile, AppGraph::designAnimation), "${rule.name}: ${info.sender.ifBlank { info.title }.ifBlank { info.appLabel }}")
-            AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, false, rule.until, glyph))
+            AppGraph.alerts.offer(RuleEngine.alert(rule, info, AppGraph.profile, AppGraph::designAnimation, AppGraph::designTiming, isCall = false))
             return
         }
         val missed = missedCall(n) && (verdict is Verdict.Show || verdict == Verdict.NoRule)
@@ -96,11 +95,7 @@ class GlyphNotificationListener : NotificationListenerService() {
                 val rule = verdict.match.rule
                 var queued = true
                 if (rule.glyph != GlyphStyle.NONE) {
-                    val glyph = AlertGlyph(
-                        RuleEngine.animation(rule, info, AppGraph.profile, AppGraph::designAnimation),
-                        "${rule.name}: ${info.sender.ifBlank { info.title }.ifBlank { info.appLabel }}",
-                    )
-                    val offer = AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, info.isCall, rule.until, glyph))
+                    val offer = AppGraph.alerts.offer(RuleEngine.alert(rule, info, AppGraph.profile, AppGraph::designAnimation, AppGraph::designTiming))
                     cooldown = offer == AlertQueue.Offer.COOLDOWN
                     queued = offer == AlertQueue.Offer.QUEUED
                     // Nothing's own notification glyph plays now and covers ours without telling us; show ours again after it.

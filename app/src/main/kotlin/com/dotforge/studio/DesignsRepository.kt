@@ -19,6 +19,8 @@ data class Design(
     val animated: Boolean,
     val frames: String,
     val updatedAt: Long = 0,
+    /** The design's own timing; places that use it may override it. Null = the defaults. */
+    val timing: com.dotforge.device.Timing? = null,
 )
 
 /**

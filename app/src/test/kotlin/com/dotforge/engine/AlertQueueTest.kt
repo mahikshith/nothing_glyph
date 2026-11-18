@@ -128,4 +128,37 @@ class AlertQueueTest {
         t = 20_000
         assertEquals(Offer.QUEUED, q.offer(alert("chat", until = Until.READ)))
     }
+
+    @Test fun aTimeoutAlertCanShowForItsOwnTime() {
+        q.offer(AlertQueue.Alert("a", "a", false, Until.TIMEOUT, "a", showMs = 30_000))
+        q.advance()
+        t = 20_000
+        assertEquals(Step.Keep, q.advance())
+        t = 30_000
+        assertEquals(Step.Clear, q.advance())
+    }
+
+    @Test fun aHeldAlertWithShowAgainRestsAndComesBackUntilRead() {
+        q.offer(AlertQueue.Alert("a", "a", false, Until.READ, "a", showMs = 5_000, againMs = 60_000))
+        assertEquals("a", shown(q.advance()))
+        t = 2_000
+        assertEquals(Step.Keep, q.advance())
+        t = 5_000
+        assertEquals(Step.Wait(60_000), q.advance()) // dark for a minute
+        assertNull(q.current)
+        t = 65_000
+        assertEquals("a", shown(q.advance())) // back
+        t = 70_000
+        assertEquals(Step.Wait(60_000), q.advance())
+        q.removed("a") // read: gone for good
+        t = 200_000
+        assertEquals(Step.Clear, q.advance())
+    }
+
+    @Test fun aHeldAlertWithoutShowAgainStaysOn() {
+        q.offer(alert("a", Until.READ))
+        q.advance()
+        t = 600_000
+        assertEquals(Step.Keep, q.advance())
+    }
 }
