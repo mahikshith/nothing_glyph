@@ -22,6 +22,7 @@ import com.dotforge.engine.MatrixDevices
 import com.dotforge.engine.Priority
 import com.dotforge.filter.Field
 import com.dotforge.notify.FaceDownSensor
+import com.dotforge.notify.MediaRingSettings
 import com.dotforge.ringtones.RingtoneLibrary
 import com.dotforge.rules.FiltersRepository
 import com.dotforge.rules.LogEntry
@@ -39,6 +40,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -71,6 +73,8 @@ object AppGraph {
     lateinit var spamList: SpamListStore
         private set
     lateinit var automation: AutomationSettings
+        private set
+    lateinit var media: MediaRingSettings
         private set
     private lateinit var prefs: SharedPreferences
 
@@ -147,8 +151,11 @@ object AppGraph {
         _progressRings.value = prefs.getBoolean(KEY_PROGRESS, true)
         rules = RulesRepository(File(app.filesDir, "rules.json"), legacySpam = filters.spam.value)
         faceDown = FaceDownSensor(app)
+        media = MediaRingSettings(app.getSharedPreferences("media", Context.MODE_PRIVATE))
+        // the sensor runs only while a filter or the media ring asks whether the phone is face down
         MainScope().launch {
-            filters.filters.map { it.onlyFaceDown }.distinctUntilChanged().collect(faceDown::setEnabled)
+            combine(filters.filters.map { it.onlyFaceDown }, media.on, media.onlyLockedOrFaceDown) { f, on, away -> f || (on && away) }
+                .distinctUntilChanged().collect(faceDown::setEnabled)
         }
         designs = DesignsRepository(profile, File(app.filesDir, "designs.json"), legacyFile = File(app.filesDir, "studio_current.json"))
         toys = ToySettings(app.getSharedPreferences("toys", Context.MODE_PRIVATE))

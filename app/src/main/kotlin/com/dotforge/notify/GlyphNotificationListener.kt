@@ -2,7 +2,9 @@ package com.dotforge.notify
 
 import android.app.Notification
 import android.app.Person
+import android.content.ComponentName
 import android.os.Build
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.dotforge.AppGraph
@@ -28,8 +30,10 @@ import com.dotforge.rules.Verdict
 
 /**
  * Turns notifications into matrix glyphs:
- *  - ongoing notifications with a determinate progress value (downloads, deliveries, timers, Android 16
- *    ProgressStyle / Live Updates) become a progress ring, when progress rings are on;
+ *  - a determinate progress bar (downloads, deliveries, timers, Android 16 ProgressStyle / Live Updates)
+ *    becomes a progress ring when progress rings are on and a "Show progress" rule matches; ongoing
+ *    notifications go no further;
+ *  - while connected, [MediaRing] shows the playing media's position on the ring when switched on;
  *  - ringing calls and everything else go through [Delivery] (spam rules first, then the best rule, quiet
  *    hours and the other filters): shown ones go into the alert queue; silenced, hidden and spam ones are
  *    handled and logged in the Spam log. Every one is logged for the rule tester.
@@ -47,27 +51,14 @@ class GlyphNotificationListener : NotificationListenerService() {
         // repeat their children.
         if (!ringing && n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
 
+        val info = infoOf(sbn, ringing)
+        if (!ringing) showProgress(sbn, info)
+        // Ongoing notifications (music, calls in progress, foreground services) are not alerts; only progress is shown.
         if (sbn.isOngoing && !ringing) {
-            // Ongoing notifications (music, calls in progress, foreground services) are not alerts; only progress is shown.
             AppGraph.alerts.removed(sbn.key) // e.g. an incoming call that was answered
-            val fraction = progressOf(n)?.takeIf { AppGraph.progressRings.value }
-            if (fraction == null) {
-                AppGraph.arbiter.remove(progressId(sbn.key)) // finished, indeterminate or switched off
-                return
-            }
-            AppGraph.arbiter.post(
-                DisplayRequest(
-                    id = progressId(sbn.key),
-                    priority = Priority.PROGRESS,
-                    animation = Effects.progress(AppGraph.profile, fraction),
-                    loop = true,
-                    label = "Progress: ${appLabel(sbn.packageName)}",
-                ),
-            )
             return
         }
 
-        val info = infoOf(sbn, ringing)
         val verdict = Delivery.decide(
             info, AppGraph.rules.rules.value, AppGraph.rules.lists.value, AppGraph.filters.filters.value,
             conditions = { FilterActions.conditions(this) },
@@ -108,6 +99,34 @@ class GlyphNotificationListener : NotificationListenerService() {
         AppGraph.log(LogEntry(info, verdict, cooldown))
     }
 
+    /**
+     * A progress bar (classic or Android 16 ProgressStyle) on the outer ring, when progress rings are on and a
+     * "Show progress" rule matches; taken off when it finishes, turns indeterminate or no rule wants it.
+     */
+    private fun showProgress(sbn: StatusBarNotification, info: NotificationInfo) {
+        val fraction = progressOf(sbn.notification)?.takeIf { AppGraph.progressRings.value }
+        val match = fraction?.let {
+            val s = Delivery.subject(
+                info, AppGraph.filters.filters.value, { FilterActions.conditions(this) }, { contacts.lookup(info) },
+                region, AppGraph.spamList::contains,
+            )
+            RuleEngine.progress(s, AppGraph.rules.rules.value, AppGraph.rules.lists.value)
+        }
+        if (fraction == null || match == null) {
+            AppGraph.arbiter.remove(progressId(sbn.key))
+            return
+        }
+        AppGraph.arbiter.post(
+            DisplayRequest(
+                id = progressId(sbn.key),
+                priority = Priority.PROGRESS,
+                animation = Effects.progress(AppGraph.profile, fraction),
+                loop = true,
+                label = "Progress: ${info.appLabel}",
+            ),
+        )
+    }
+
     /** A spam-filter rule: silence (quiet copy), hide, or mark as spam (quiet copy and the spam alert); then log it. */
     private fun block(sbn: StatusBarNotification, info: NotificationInfo, v: Verdict.Blocked) {
         val action = v.match.rule.action
@@ -125,6 +144,18 @@ class GlyphNotificationListener : NotificationListenerService() {
             ),
         )
         if (action == Action.SPAM) FilterActions.spamAlert(this, who)
+    }
+
+    private var mediaRing: MediaRing? = null
+
+    override fun onListenerConnected() {
+        mediaRing?.stop()
+        mediaRing = MediaRing(this, ComponentName(this, GlyphNotificationListener::class.java)).also { it.start() }
+    }
+
+    override fun onListenerDisconnected() {
+        mediaRing?.stop()
+        mediaRing = null
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
@@ -198,16 +229,22 @@ class GlyphNotificationListener : NotificationListenerService() {
 
     /** Determinate progress 0..1, from the classic extras or (Android 16) a ProgressStyle notification. */
     private fun progressOf(n: Notification): Float? {
-        val extras = n.extras
-        val max = extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0)
-        if (max > 0 && !extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)) {
-            return extras.getInt(Notification.EXTRA_PROGRESS, 0).toFloat() / max
+        val e = n.extras
+        val values = buildMap<String, Any?> {
+            for (k in listOf(Progress.PROGRESS, Progress.MAX)) if (e.containsKey(k)) put(k, e.getInt(k))
+            put(Progress.INDETERMINATE, e.getBoolean(Progress.INDETERMINATE, false))
+            put(Progress.TEMPLATE, e.getString(Progress.TEMPLATE))
+            e.getParcelableArrayList(Progress.SEGMENTS, Bundle::class.java)?.let { list ->
+                put(Progress.SEGMENTS, list.map { mapOf(Progress.SEGMENT_LENGTH to it.getInt(Progress.SEGMENT_LENGTH)) })
+            }
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) return null
+        Progress.fraction(values)?.let { return it }
+        // a ProgressStyle that keeps its values elsewhere: ask Android
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA || values[Progress.TEMPLATE] != Progress.PROGRESS_STYLE) return null
         val style = runCatching { Notification.Builder.recoverBuilder(this, n).style }.getOrNull()
             as? Notification.ProgressStyle ?: return null
         if (style.isProgressIndeterminate || style.progressMax <= 0) return null
-        return style.progress.toFloat() / style.progressMax
+        return (style.progress.toFloat() / style.progressMax).coerceIn(0f, 1f)
     }
 
     private fun appLabel(pkg: String): String = runCatching {

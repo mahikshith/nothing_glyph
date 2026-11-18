@@ -48,7 +48,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
-import com.dotforge.rules.Action
 import com.dotforge.rules.LogEntry
 import com.dotforge.rules.NotificationInfo
 import com.dotforge.rules.QuietHours
@@ -121,17 +120,18 @@ fun NotificationsPage(nav: Nav, setup: Setup) {
         )
 
         GroupTitle("RULES")
-        val shown = rules.filter { it.action == Action.SHOW }
+        // rules that show a glyph or a progress bar; the spam filter's rules live on the Spam page
+        val shown = rules.filterNot(RuleEngine::isSpamRule)
         if (shown.isEmpty()) {
             EmptyState("No rules yet", "Start from the presets, or make your own.", "Add presets") {
-                rulesRepo.addPresets(missing.filter { it.action == Action.SHOW })
+                rulesRepo.addPresets(missing.filterNot(RuleEngine::isSpamRule))
             }
         }
         shown.forEach { r -> RuleCard(r, label, nav, setup) }
         if (shown.size > 1) {
             Text("The most specific rule wins: a person, then app and words, words, an app, anything.", color = Muted, fontSize = 13.sp)
         }
-        val missingShow = missing.filter { it.action == Action.SHOW }
+        val missingShow = missing.filterNot(RuleEngine::isSpamRule)
         if (missingShow.isNotEmpty() && shown.isNotEmpty()) {
             FlowRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Text("Add", color = Muted)

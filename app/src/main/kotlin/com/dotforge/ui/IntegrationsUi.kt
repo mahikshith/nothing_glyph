@@ -1,6 +1,7 @@
 package com.dotforge.ui
 
 import android.content.Context
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,15 +16,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.automation.Automation
 import com.dotforge.automation.AutomationRunner
+import com.dotforge.rules.Action
+import com.dotforge.rules.Rule
+import com.dotforge.rules.RuleEngine
+import com.dotforge.rules.RuleText
 
 /** App label for a package, or the package name when Android doesn't show us the app. */
 private fun label(ctx: Context, pkg: String): String = runCatching {
     ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString()
 }.getOrDefault(pkg)
 
-/** Other apps driving DotForge: the automation API, the Tasker plugin. */
+/** Media and progress on the ring, and other apps driving DotForge: the automation API, the Tasker plugin. */
 @Composable
-fun IntegrationsPage(nav: Nav) {
+fun IntegrationsPage(nav: Nav, setup: Setup) {
     val ctx = LocalContext.current
     val settings = AppGraph.automation
     val allowed by settings.allowed.collectAsStateWithLifecycle()
@@ -32,7 +37,42 @@ fun IntegrationsPage(nav: Nav) {
     val last by AutomationRunner.last.collectAsStateWithLifecycle()
     var howTo by rememberToggle()
 
+    val mediaOn by AppGraph.media.on.collectAsStateWithLifecycle()
+    val onlyAway by AppGraph.media.onlyLockedOrFaceDown.collectAsStateWithLifecycle()
+    val progressOn by AppGraph.progressRings.collectAsStateWithLifecycle()
+    val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
+
     PageScaffold("INTEGRATIONS", onBack = nav::pop) {
+        if (mediaOn || progressOn) AccessBanner(setup, "Media and progress rings need notification access.")
+        GroupTitle("MEDIA")
+        SwitchRow("Media progress ring", "While music or a video plays, the outer ring shows how far along it is.", mediaOn) { on ->
+            AppGraph.media.setOn(on)
+            if (on) setup.needNotificationAccess()
+        }
+        if (mediaOn) {
+            SwitchRow("Only when locked or face down", "Keeps the matrix dark while you use the phone.", onlyAway, AppGraph.media::setOnlyLockedOrFaceDown)
+        }
+
+        GroupTitle("PROGRESS BARS")
+        SwitchRow("Progress rings", "Downloads, deliveries, timers and Live Updates on the outer ring.", progressOn) { on ->
+            AppGraph.setProgressRings(on)
+            if (on) setup.needNotificationAccess()
+        }
+        val progressRules = rules.filter { it.action == Action.PROGRESS }
+        if (progressOn) {
+            if (progressRules.isEmpty()) {
+                EmptyState("No apps chosen", "A \"Show progress\" rule picks the apps.", "Add for any app") { AppGraph.rules.ensurePreset(RuleEngine.PROGRESS_PRESET) }
+            }
+            progressRules.forEach { r ->
+                ValueRow(r.name, if (r.enabled) "On" else "Off", subtitle = RuleText.sentence(r, { label(ctx, it) })) {
+                    nav.push(Page.RuleEditor(r.id))
+                }
+            }
+            SecondaryButton("Pick apps for progress", Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                nav.push(Page.RuleEditor(null, RuleTemplates.encode(Rule(name = "", action = Action.PROGRESS))))
+            }
+        }
+
         GroupTitle("TASKER")
         SwitchRow(
             "Tasker plugin",

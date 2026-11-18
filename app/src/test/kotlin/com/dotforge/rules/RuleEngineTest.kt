@@ -9,13 +9,13 @@ import com.dotforge.filter.Match
 import com.dotforge.filter.NamedList
 import com.dotforge.filter.Op
 import com.dotforge.filter.Subject
+import java.time.LocalDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDateTime
 
 class RuleEngineTest {
     private val noon = LocalDateTime.of(2026, 11, 16, 12, 0) // a Monday
@@ -199,5 +199,28 @@ class RuleEngineTest {
         assertFalse(RuleEngine.isValidPattern("(unclosed"))
         assertFalse(RuleEngine.isValidPattern(" "))
         assertSame(RuleEngine.regex("abc"), RuleEngine.regex("abc"))
+    }
+
+    @Test fun progressRulesPickProgressBarsAndNeverDecideAlerts() {
+        val progress = rule("Downloads", packages = listOf("com.example"), action = Action.PROGRESS)
+        val any = rule("Any progress", action = Action.PROGRESS)
+        val show = rule("Show all")
+        // a progress rule neither shows nor blocks
+        assertEquals(Decision(), decide(note(), progress))
+        assertEquals("Show all", shown(note(), progress, show))
+        assertNull(gate(note(), progress, show))
+        // the most specific progress rule wins; other apps fall back to the any-app rule
+        assertEquals("Downloads", RuleEngine.progress(note(), listOf(any, progress))?.rule?.name)
+        assertEquals("Any progress", RuleEngine.progress(note(pkg = "com.other"), listOf(any, progress))?.rule?.name)
+        assertNull(RuleEngine.progress(note(pkg = "com.other"), listOf(progress, show)))
+        assertNull(RuleEngine.progress(note(), listOf(progress.copy(enabled = false))))
+        // conditions apply as in any rule
+        val words = rule("Delivery bar", cond(Field.MESSAGE, Op.CONTAINS, "parcel"), action = Action.PROGRESS)
+        assertNull(RuleEngine.progress(note(text = "your download"), listOf(words)))
+        assertEquals("Delivery bar", RuleEngine.progress(note(text = "your parcel is near"), listOf(words))?.rule?.name)
+        // never for calls, never a spam rule
+        assertFalse(Action.PROGRESS.availableFor(Source.CALLS))
+        assertFalse(RuleEngine.isSpamRule(progress))
+        assertTrue(RuleEngine.presets().any { it.id == RuleEngine.PROGRESS_PRESET && it.enabled && it.action == Action.PROGRESS })
     }
 }

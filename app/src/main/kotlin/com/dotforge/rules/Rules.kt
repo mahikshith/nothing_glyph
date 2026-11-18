@@ -39,7 +39,8 @@ enum class Source { APPS, CALLS, EVERYTHING }
 
 /**
  * What a rule does. [blocks] actions keep the item from lighting up with other rules and put it in the Spam
- * log; [ALLOW] keeps it out of every blocking rule.
+ * log; [ALLOW] keeps it out of every blocking rule. [PROGRESS] stands apart: it only picks which progress bars
+ * reach the ring, and never decides whether a notification alerts.
  */
 @Serializable
 enum class Action(
@@ -57,6 +58,8 @@ enum class Action(
     SPAM("mark as spam", "Silenced, logged in Spam, with the spam glyph and sound", "Spam", calls = true, apps = true, blocks = true),
     REJECT("reject it", "Hangs up; it stays in the call log", "Rejected", calls = true, apps = false, blocks = true),
     REJECT_QUIET("reject it, no call log", "Hangs up and leaves no trace in the call log", "Rejected, no call log", calls = true, apps = false, blocks = true),
+    /** A notification's progress bar (classic or Android 16 ProgressStyle) on the outer ring, while it lasts. */
+    PROGRESS("show its progress", "Its progress bar fills the outer ring", "Progress", calls = false, apps = true, blocks = false),
     ;
 
     fun availableFor(source: Source): Boolean = when (source) {
@@ -186,13 +189,18 @@ object RuleEngine {
      * time limit, then list order. Tiers and the regex cache follow Glyphifier's RuleMatcher (Apache-2.0, NOTICE).
      */
     fun decide(s: Subject, rules: List<Rule>, lists: List<NamedList> = emptyList()): Decision {
-        val live = rules.withIndex().filter { it.value.enabled && it.value.appliesTo(s) }
+        val live = rules.withIndex().filter { it.value.enabled && it.value.action != Action.PROGRESS && it.value.appliesTo(s) }
         fun first(cands: List<IndexedValue<Rule>>) =
             order(cands).firstNotNullOfOrNull { (_, r) -> explain(r, s, lists)?.let { RuleMatch(r, it) } }
         val gate = first(live.filter { it.value.action != Action.SHOW })
         if (gate?.rule?.action?.blocks == true) return Decision(gate, null)
         return Decision(gate, first(live.filter { it.value.action == Action.SHOW }))
     }
+
+    /** The "Show progress" rule for [s] (most specific first), or null when no rule asks for its progress bar. */
+    fun progress(s: Subject, rules: List<Rule>, lists: List<NamedList> = emptyList()): RuleMatch? =
+        order(rules.withIndex().filter { it.value.enabled && it.value.action == Action.PROGRESS && it.value.appliesTo(s) })
+            .firstNotNullOfOrNull { (_, r) -> explain(r, s, lists)?.let { RuleMatch(r, it) } }
 
     /** Why [rule] matches [s] in a few words, or null when it does not. Ignores [Rule.enabled]. */
     fun explain(rule: Rule, s: Subject, lists: List<NamedList> = emptyList()): String? {
@@ -266,7 +274,13 @@ object RuleEngine {
             id = "preset-delivery", name = "Delivery", match = Match(conditions = listOf(Condition(Field.MESSAGE, Op.CONTAINS, DELIVERY_WORDS))),
             glyph = GlyphStyle.COMET, until = Until.TIMEOUT,
         ),
+        progressPreset(),
     ) + spamPresets()
+
+    const val PROGRESS_PRESET = "preset-progress"
+
+    /** Progress bars from any app on the ring (what the "Progress rings" switch did before rules could pick). */
+    fun progressPreset() = Rule(id = PROGRESS_PRESET, name = "Progress bars", action = Action.PROGRESS)
 
     /** The spam filter's built-in rules, for calls and messages alike. */
     fun spamPresets(spamWords: Boolean = false, unknown: Boolean = false, patterns: List<String> = emptyList()) = listOf(
@@ -300,7 +314,7 @@ object RuleEngine {
         NamedList(SPAM_PREFIXES),
     )
 
-    /** A spam-filter rule: anything that allows or blocks rather than shows. */
-    fun isSpamRule(r: Rule) = r.action != Action.SHOW
+    /** A spam-filter rule: anything that allows or blocks rather than shows a glyph or progress. */
+    fun isSpamRule(r: Rule) = r.action != Action.SHOW && r.action != Action.PROGRESS
 
 }

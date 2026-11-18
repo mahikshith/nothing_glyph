@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Serializable
 private data class RulesFile(val version: Int = VERSION, val rules: List<Rule>, val lists: List<NamedList> = emptyList()) {
     companion object {
-        const val VERSION = 3
+        const val VERSION = 4
     }
 }
 
@@ -117,12 +117,13 @@ private data class LegacyRule(
 }
 
 /**
- * Rules and named lists, saved as JSON in app storage: `{"version":3,"rules":[...],"lists":[...]}`.
+ * Rules and named lists, saved as JSON in app storage: `{"version":4,"rules":[...],"lists":[...]}`.
  *
  * Migrations run once on load and keep every setting:
  * - version 1 (a bare array) and version 2 (apps / people / keywords slots) rules become filter-engine rules;
  * - the old spam filter's settings ([legacySpam]: words, patterns, unknown senders, allowed senders) become
- *   the spam rules and the "Spam words" and "Allowed senders" lists.
+ *   the spam rules and the "Spam words" and "Allowed senders" lists;
+ * - version 4 adds the "Progress bars" rule (Show progress, any app), so progress rings keep working.
  * Safe to call from any thread.
  */
 class RulesRepository(private val file: File, private val legacySpam: SpamSettings? = null) {
@@ -158,20 +159,27 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
         return RulesFile(rules = old.map { it.migrate() } + spamRules, lists = lists)
     }
 
+    /** Version 4 added the "Show progress" action; its preset keeps progress rings for every app, as before. */
+    private fun withProgress(f: RulesFile): RulesFile =
+        if (f.rules.any { it.id == RuleEngine.PROGRESS_PRESET }) f.copy(version = RulesFile.VERSION)
+        else f.copy(version = RulesFile.VERSION, rules = f.rules + RuleEngine.progressPreset())
+
     private fun load(): RulesFile {
         if (!file.exists()) return fresh()
         val loaded = runCatching {
             val element = json.parseToJsonElement(file.readText())
             if (element is JsonArray) {
-                fromV2(json.decodeFromJsonElement(ListSerializer(LegacyRule.serializer()), element).filterNot { it.suppress }.map { it.migrate() })
+                withProgress(fromV2(json.decodeFromJsonElement(ListSerializer(LegacyRule.serializer()), element).filterNot { it.suppress }.map { it.migrate() }))
                     .also(::write)
             } else {
                 val version = element.jsonObject["version"]?.jsonPrimitive?.int ?: RulesFile.VERSION
-                if (version < RulesFile.VERSION) {
-                    val old = element.jsonObject["rules"]?.let { json.decodeFromJsonElement(ListSerializer(RuleV2.serializer()), it) }.orEmpty()
-                    fromV2(old).also(::write)
-                } else {
-                    json.decodeFromJsonElement(RulesFile.serializer(), element)
+                when {
+                    version < 3 -> {
+                        val old = element.jsonObject["rules"]?.let { json.decodeFromJsonElement(ListSerializer(RuleV2.serializer()), it) }.orEmpty()
+                        withProgress(fromV2(old)).also(::write)
+                    }
+                    version == 3 -> withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element)).also(::write)
+                    else -> json.decodeFromJsonElement(RulesFile.serializer(), element)
                 }
             }
         }.getOrNull() ?: return fresh()

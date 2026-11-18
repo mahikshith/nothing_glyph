@@ -288,7 +288,7 @@ fun RuleEditorPage(ruleId: String?, template: String?, setup: Setup, onClose: ()
             Text(if (draft.match.all) "All conditions must hold." else "Any one condition is enough.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
         }
         if (draft.usesContacts) ContactsAsk(setup, "Allow Contacts", "Needed to know who is a contact.", Modifier.padding(top = 12.dp))
-        if (apps && draft.action != Action.SHOW) {
+        if (apps && draft.action != Action.SHOW && draft.action != Action.PROGRESS) {
             Text(
                 "The message itself stays in its app (Messages, WhatsApp, ...). DotForge only changes the notification, its sound and the glyph.",
                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp),

@@ -45,7 +45,7 @@ class RulesRepositoryTest {
         val reloaded = RulesRepository(file).rules.value
         assertEquals(listOf("Boss", "Calls", "OTP codes", "Delivery"), reloaded.filter { it.action == Action.SHOW }.map { it.name })
         assertEquals(added.copy(enabled = false), reloaded.first())
-        assertTrue(file.readText().startsWith("""{"version":3,"""))
+        assertTrue(file.readText().startsWith("""{"version":4,"""))
     }
 
     @Test fun addPresetsRestoresOnlyMissingOnes() {
@@ -91,6 +91,26 @@ class RulesRepositoryTest {
         assertEquals(null, RulesRepository(file).list("Family"))
     }
 
+    @Test fun versionThreeGetsTheProgressRuleOnce() {
+        val file = tmp.root.resolve("rules.json")
+        file.writeText(
+            """{"version":3,"rules":[
+              {"id":"preset-calls","name":"Calls","packages":["com.google.android.dialer"],"glyph":"RING"},
+              {"id":"mine","name":"Boss","enabled":false}
+            ],"lists":[{"name":"Allowed senders","entries":["Bank"]}]}""",
+        )
+        val rules = RulesRepository(file).rules.value
+        assertEquals(listOf("preset-calls", "mine", RuleEngine.PROGRESS_PRESET), rules.map { it.id })
+        assertFalse(rules[1].enabled) // the rest is kept as it was
+        assertTrue(rules.last().enabled && rules.last().action == Action.PROGRESS && rules.last().packages.isEmpty())
+        assertTrue(file.readText().startsWith("""{"version":4,"""))
+        // a deleted progress rule stays deleted
+        val repo = RulesRepository(file)
+        repo.delete(RuleEngine.PROGRESS_PRESET)
+        assertTrue(RulesRepository(file).rules.value.none { it.id == RuleEngine.PROGRESS_PRESET })
+        assertEquals(listOf("Bank"), RulesRepository(file).list(RuleEngine.ALLOWED)!!.entries)
+    }
+
     @Test fun unreadableFileFallsBackToPresets() {
         val file = tmp.root.resolve("rules.json").apply { writeText("not json") }
         assertEquals(RuleEngine.presets().size, RulesRepository(file).rules.value.size)
@@ -119,7 +139,7 @@ class RulesRepositoryTest {
         assertTrue(migrated.none { it.id == "s" })
         assertTrue(migrated.any { it.id == "spam-list" }) // spam rules join
 
-        assertTrue(file.readText().startsWith("""{"version":3,"""))
+        assertTrue(file.readText().startsWith("""{"version":4,"""))
         assertEquals(migrated, RulesRepository(file).rules.value)
     }
 

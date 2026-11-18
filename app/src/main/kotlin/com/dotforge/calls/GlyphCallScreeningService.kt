@@ -93,7 +93,7 @@ class GlyphCallScreeningService : CallScreeningService() {
             Action.SILENCE, Action.SPAM, Action.HIDE -> b.setSilenceCall(true)
             Action.REJECT -> b.setDisallowCall(true).setRejectCall(true)
             Action.REJECT_QUIET -> b.setDisallowCall(true).setRejectCall(true).setSkipCallLog(true).setSkipNotification(true)
-            Action.ALLOW, Action.SHOW -> Unit
+            Action.ALLOW, Action.SHOW, Action.PROGRESS -> Unit
         }
         return b.build()
     }
