@@ -159,7 +159,7 @@ class DiagnosticsViewModel(app: Application) : AndroidViewModel(app) {
             val start = System.nanoTime()
             for ((i, r) in rows.withIndex()) {
                 if (!isActive) break
-                GlyphDriver.submit(IntArray(profile.cellCount) { r.getOrElse(it) { 0 } })
+                GlyphDriver.submit(IntArray(profile.cellCount) { GlyphAuthor.toLevel(r.getOrElse(it) { 0 }) })
                 val wait = start + (i + 1) * frameNs - System.nanoTime()
                 if (wait > 0) delay(wait / 1_000_000)
             }

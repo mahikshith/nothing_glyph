@@ -42,7 +42,11 @@ object RuleText {
     fun glyph(rule: Rule, designName: (String?) -> String?): String =
         if (rule.glyph == GlyphStyle.DESIGN) designName(rule.designId) ?: rule.glyph.label else rule.glyph.label
 
+    /** The rule's sound, or null when it plays none. */
+    fun sound(rule: Rule): String? = rule.soundUri?.let { rule.soundName?.takeIf { n -> n.isNotBlank() } ?: "a ringtone" }
+
     fun sentence(rule: Rule, label: (String) -> String, designName: (String?) -> String? = { null }): String =
         "When ${apps(rule, label)} from ${people(rule)} mention ${keywords(rule)}, " +
-            "show ${glyph(rule, designName)} until ${rule.until.label}"
+            "show ${glyph(rule, designName)} until ${rule.until.label}" +
+            (sound(rule)?.let { " and play $it" } ?: "")
 }

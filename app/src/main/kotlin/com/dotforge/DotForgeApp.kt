@@ -17,6 +17,7 @@ import com.dotforge.engine.MatrixDevice
 import com.dotforge.engine.MatrixDevices
 import com.dotforge.engine.Priority
 import com.dotforge.notify.FaceDownSensor
+import com.dotforge.ringtones.RingtoneLibrary
 import com.dotforge.rules.FiltersRepository
 import com.dotforge.rules.LogEntry
 import com.dotforge.rules.RulesRepository
@@ -55,6 +56,8 @@ object AppGraph {
     lateinit var designs: DesignsRepository
         private set
     lateinit var toys: ToySettings
+        private set
+    lateinit var ringtones: RingtoneLibrary
         private set
     private lateinit var prefs: SharedPreferences
 
@@ -114,6 +117,7 @@ object AppGraph {
         }
         designs = DesignsRepository(profile, File(app.filesDir, "designs.json"), legacyFile = File(app.filesDir, "studio_current.json"))
         toys = ToySettings(app.getSharedPreferences("toys", Context.MODE_PRIVATE))
+        ringtones = RingtoneLibrary(app)
     }
 }
 

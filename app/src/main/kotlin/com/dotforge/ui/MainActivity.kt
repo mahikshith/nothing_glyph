@@ -1,5 +1,7 @@
 package com.dotforge.ui
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -27,7 +29,10 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -35,17 +40,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.dotforge.diagnostics.DiagnosticsScreen
 import com.dotforge.diagnostics.EventLog
+import com.dotforge.ringtones.ImportMode
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    /** A file opened with or shared to DotForge, waiting to be shown in the import page. */
+    private var incoming by mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) incoming = importUri(intent)
         enableEdgeToEdge()
         EventLog.init(this)
         val setup = Setup(this)
         setContent {
             DotForgeTheme {
                 val nav = rememberSaveable(saver = Nav.saver) { Nav() }
+                LaunchedEffect(incoming) {
+                    val uri = incoming ?: return@LaunchedEffect
+                    incoming = null
+                    nav.popTo(Tab.GLYPH)
+                    nav.push(Page.Ringtones)
+                    nav.push(Page.RingtoneImport(uri.toString(), ImportMode.FILE))
+                }
                 val scrolls = Tab.entries.associateWith { rememberScrollState() }
                 // keeps each tab's remembered UI state while a page is open or another tab is shown
                 val saved = rememberSaveableStateHolder()
@@ -64,6 +81,18 @@ class MainActivity : ComponentActivity() {
                 SetupSheets(setup)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        importUri(intent)?.let { incoming = it }
+    }
+
+    /** The file of an "Open with" (VIEW) or Share (SEND) intent. */
+    private fun importUri(intent: Intent?): Uri? = when (intent?.action) {
+        Intent.ACTION_VIEW -> intent.data
+        Intent.ACTION_SEND -> intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        else -> null
     }
 }
 
@@ -122,6 +151,8 @@ private fun PageContent(page: Page, nav: Nav, setup: Setup) {
         is Page.RuleEditor -> RuleEditorPage(page.ruleId, setup, onClose = nav::pop)
         is Page.ToySettings -> ToySettingsPage(page.toy, nav)
         is Page.DesignEditor -> DesignEditorPage(page.designId, page.animated, onClose = nav::pop)
+        Page.Ringtones -> RingtonesPage(nav)
+        is Page.RingtoneImport -> RingtoneImportPage(page.uri, page.mode, nav)
         Page.Diagnostics -> {
             BackHandler(onBack = nav::pop)
             DiagnosticsScreen(onClose = nav::pop)

@@ -14,6 +14,7 @@ import com.dotforge.engine.AlertGlyph
 import com.dotforge.engine.AlertQueue
 import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
+import com.dotforge.ringtones.NotificationSound
 import com.dotforge.rules.Conditions
 import com.dotforge.rules.Delivery
 import com.dotforge.rules.LogEntry
@@ -78,6 +79,7 @@ class GlyphNotificationListener : NotificationListenerService() {
                 )
                 val offer = AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, info.isCall, rule.until, glyph))
                 cooldown = offer == AlertQueue.Offer.COOLDOWN
+                if (offer == AlertQueue.Offer.QUEUED) rule.soundUri?.let { NotificationSound.play(this, it) }
                 // Nothing's own notification glyph plays now and covers ours without telling us; show ours again after it.
                 AppGraph.arbiter.refreshAfter(DotForgeApp.COVERED_MS)
             }

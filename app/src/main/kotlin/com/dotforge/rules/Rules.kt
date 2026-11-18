@@ -51,6 +51,10 @@ data class Rule(
     val until: Until = Until.READ,
     /** 1 high, 0 normal, -1 low. */
     val priority: Int = 0,
+    /** A sound played with the glyph (a DotForge ringtone's content URI), or null for none. */
+    val soundUri: String? = null,
+    /** The sound's name, for the rule sentence. */
+    val soundName: String? = null,
 ) {
     val usesContacts: Boolean get() = people.any { it.isNotBlank() } || starred || unknown
     val words: List<String> get() = keywords.filter { it.isNotBlank() }

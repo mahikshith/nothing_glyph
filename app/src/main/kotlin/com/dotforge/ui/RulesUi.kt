@@ -73,7 +73,7 @@ import com.dotforge.rules.RuleText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private enum class Slot { APPS, PEOPLE, KEYWORDS, GLYPH, UNTIL }
+private enum class Slot { APPS, PEOPLE, KEYWORDS, GLYPH, UNTIL, SOUND }
 
 private const val TEST_ID = "rule-test"
 private const val PICK_ID = "glyph-pick"
@@ -155,6 +155,10 @@ fun RuleEditorPage(ruleId: String?, setup: Setup, onClose: () -> Unit) {
             SlotChip(RuleText.glyph(draft, ::designName), accent = true) { slot = Slot.GLYPH }
             Word("until")
             SlotChip(draft.until.label) { slot = Slot.UNTIL }
+            RuleText.sound(draft)?.let { sound ->
+                Word("and play")
+                SlotChip(sound) { slot = Slot.SOUND }
+            }
         }
 
         Collapsible("More options", more, { more = !more }) {
@@ -189,6 +193,13 @@ fun RuleEditorPage(ruleId: String?, setup: Setup, onClose: () -> Unit) {
         Slot.KEYWORDS -> KeywordsDialog(draft, onDismiss = { slot = null }) { draft = it; slot = null }
         Slot.GLYPH -> GlyphDialog(draft, sample, onDismiss = { slot = null }) { draft = it; slot = null }
         Slot.UNTIL -> UntilDialog(draft.until, onDismiss = { slot = null }) { draft = draft.copy(until = it); slot = null }
+        Slot.SOUND -> ConfirmDialog(
+            "Stop playing ${RuleText.sound(draft)}?",
+            "The rule keeps lighting up. Pick a sound again from Ringtones > Set as.",
+            "Remove",
+            onConfirm = { draft = draft.copy(soundUri = null, soundName = null); slot = null },
+            onDismiss = { slot = null },
+        )
         null -> Unit
     }
     if (confirmLeave) ConfirmDialog("Discard changes?", "This rule hasn't been saved.", "Discard", onConfirm = onClose, onDismiss = { confirmLeave = false })

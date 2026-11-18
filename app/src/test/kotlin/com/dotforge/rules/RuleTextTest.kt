@@ -40,4 +40,11 @@ class RuleTextTest {
         assertEquals("Heart", RuleText.glyph(r) { if (it == "d1") "Heart" else null })
         assertEquals("My design", RuleText.glyph(r) { null })
     }
+
+    @Test fun soundIsNamedAtTheEnd() {
+        val r = Rule(soundUri = "content://media/external/audio/media/7", soundName = "Bells")
+        assertEquals("When Any app from Anyone mention Anything, show Pulse until read and play Bells", RuleText.sentence(r, ::l))
+        assertEquals("a ringtone", RuleText.sound(r.copy(soundName = null)))
+        assertEquals(null, RuleText.sound(Rule(soundName = "Bells")))
+    }
 }

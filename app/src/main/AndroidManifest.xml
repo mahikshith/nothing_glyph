@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Glyph SDK access (a normal permission on Nothing phones). -->
     <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
     <!-- Only asked for when a rule's People picker opens or the spam filter needs to know who is a contact. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Ringtones > Set as > A contact: asked only then, to set that contact's ringtone. -->
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <!-- Ringtones > Set as > Phone ringtone: special access ("Modify system settings"), asked only then. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <queries>
         <!-- The rule editor's app picker lists launcher apps; no QUERY_ALL_PACKAGES needed. -->
@@ -35,6 +42,21 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- "Open with" an .ogg or audio file: lands in Ringtones > Import. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="application/ogg" />
+            </intent-filter>
+            <!-- Share an .ogg or audio file to DotForge. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="application/ogg" />
             </intent-filter>
         </activity>
 

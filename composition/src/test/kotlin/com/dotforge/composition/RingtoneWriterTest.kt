@@ -112,12 +112,27 @@ class RingtoneWriterTest {
         rows.indices.forEach { assertArrayEquals(rows[it], info.rows!![it]) }
     }
 
-    @Test fun audioOnAHeaderPageIsRefused() {
+    @Test fun audioOnAHeaderPageMovesToItsOwnPage() {
         val o = ByteArrayOutputStream()
         o.write(page(0x02, 0, 0, opusHead()))
-        o.write(page(0x04, 960, 1, VorbisComments.buildOpusPacket(OggTags("v", emptyList())), audio[0]))
-        assertFalse(OggRepager.canRetag(o.toByteArray()))
+        o.write(page(0, 1920, 1, VorbisComments.buildOpusPacket(OggTags("v", emptyList())), audio[0], audio[1]))
+        o.write(page(0x04, 3840, 2, audio[2], audio[3]))
+        val src = o.toByteArray()
+        assertTrue(OggRepager.canRetag(src))
+        val out = GlyphRingtone.write(src, "t", rows(5, 625))
+        val pages = OggReader.readPages(out)
+        assertEquals(pages.size, OggReader.verifyCrc(out))
+        assertEquals(listOf(1920L, 3840L), pages.takeLast(2).map { it.granule })
+        assertTrue(pages.last().isLast)
+        val packets = OggReader.readPackets(out).drop(2)
+        audio.take(4).forEachIndexed { i, p -> assertArrayEquals(p, packets[i]) }
+        assertEquals(5, RingtoneParser.parse(out).rowCount)
+    }
+
+    @Test fun notOggOrUnknownCodecIsRefused() {
         assertFalse(OggRepager.canRetag(ByteArray(100)))
+        assertFalse(OggRepager.canRetag(OggWriter.write(listOf("FLAC".toByteArray() + ByteArray(30), ByteArray(10)))))
+        assertEquals(null, OggRepager.codecOf(ByteArray(10)))
     }
 
     @Test fun writerOutputReadsBackWithIdenticalAuthor() {

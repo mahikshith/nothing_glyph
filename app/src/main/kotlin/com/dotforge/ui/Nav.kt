@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathData
 import androidx.compose.ui.unit.dp
+import com.dotforge.ringtones.ImportMode
 
 /** A 3x3 dot grid, the Glyph tab icon. Bigger dots when selected. */
 private fun dotGrid(name: String, r: Float): ImageVector = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
@@ -47,11 +48,15 @@ sealed interface Page {
     data class ToySettings(val toy: Toy) : Page
     data class DesignEditor(val designId: String?, val animated: Boolean) : Page
     data object Diagnostics : Page
+    data object Ringtones : Page
+    data class RingtoneImport(val uri: String, val mode: ImportMode) : Page
 }
 
 private fun Page.encode(): String = when (this) {
     Page.Notifications -> "notifications"
     Page.Diagnostics -> "diagnostics"
+    Page.Ringtones -> "ringtones"
+    is Page.RingtoneImport -> "ringimport:${mode.name}:$uri"
     is Page.RuleEditor -> "rule:${ruleId.orEmpty()}"
     is Page.ToySettings -> "toy:${toy.name}"
     is Page.DesignEditor -> "design:$animated:${designId.orEmpty()}"
@@ -62,6 +67,10 @@ private fun decode(s: String): Page? {
     return when (parts[0]) {
         "notifications" -> Page.Notifications
         "diagnostics" -> Page.Diagnostics
+        "ringtones" -> Page.Ringtones
+        "ringimport" -> ImportMode.entries.firstOrNull { it.name == parts.getOrNull(1) }?.let { mode ->
+            parts.getOrNull(2)?.takeIf { it.isNotEmpty() }?.let { Page.RingtoneImport(it, mode) }
+        }
         "rule" -> Page.RuleEditor(parts.getOrNull(1)?.ifEmpty { null })
         "toy" -> Toy.entries.firstOrNull { it.name == parts.getOrNull(1) }?.let(Page::ToySettings)
         "design" -> Page.DesignEditor(parts.getOrNull(2)?.ifEmpty { null }, parts.getOrNull(1) == "true")

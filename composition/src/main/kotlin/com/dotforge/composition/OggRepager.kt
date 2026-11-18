@@ -69,6 +69,7 @@ object OggRepager {
         val cur = ByteArrayOutputStream()
         var codec: Codec? = null
         var lastHeaderPage = -1
+        var leftover: OggPage? = null
         val others = ArrayList<OggPage>()
         loop@ for ((i, page) in pages.withIndex()) {
             if (page.serial != serial) { others += page; continue }
@@ -87,8 +88,8 @@ object OggRepager {
                         }
                     }
                     if (headers.size == codec.headerPackets) {
-                        require(k == page.segments.lastIndex) { "audio starts on a header page" }
                         lastHeaderPage = i
+                        if (k < page.segments.lastIndex) leftover = leftoverPage(page, k + 1, off)
                         break@loop
                     }
                 }
@@ -96,8 +97,19 @@ object OggRepager {
         }
         require(codec != null && lastHeaderPage >= 0) { "headers incomplete" }
         if (codec == Codec.OPUS) require(headers[1].startsWith(OPUS_TAGS)) { "second packet is not OpusTags" }
-        val rest = others + pages.subList(lastHeaderPage + 1, pages.size)
+        val rest = others + listOfNotNull(leftover) + pages.subList(lastHeaderPage + 1, pages.size)
         return Split(codec, serial, headers, rest)
+    }
+
+    /**
+     * Audio that a muxer put on the last header page after the headers (not allowed by the specs, but seen):
+     * moved to a page of its own. It keeps the page's granule when a packet ends on it, else -1.
+     */
+    private fun leftoverPage(page: OggPage, fromSegment: Int, fromByte: Int): OggPage {
+        val segs = page.segments.copyOfRange(fromSegment, page.segments.size)
+        val body = page.body.copyOfRange(fromByte, page.body.size)
+        val endsPacket = segs.any { it < 255 }
+        return OggPage(page.headerType and 0x04, if (endsPacket) page.granule else -1L, page.serial, page.sequence, segs, body)
     }
 
     /**
