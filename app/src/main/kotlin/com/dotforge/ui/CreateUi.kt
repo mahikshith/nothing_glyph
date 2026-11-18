@@ -59,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.device.AnimFrame
+import com.dotforge.device.AnimationLibrary
+import com.dotforge.device.DesignEffect
 import com.dotforge.device.Animation
 import com.dotforge.device.Frame
 import com.dotforge.engine.DisplayRequest
@@ -78,6 +80,7 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
     val repo = AppGraph.designs
     val designs by repo.designs.collectAsStateWithLifecycle()
     var choose by rememberSaveable { mutableStateOf(false) }
+    var library by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Design?>(null) }
 
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp)) {
@@ -134,10 +137,20 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
                         choose = false
                         nav.push(Page.DesignEditor(null, animated = true))
                     }
+                    ChoiceCard("From the library", "${AnimationLibrary.entries.size} ready-made animations", false, Modifier.fillMaxWidth()) {
+                        choose = false
+                        library = true
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { choose = false }) { Text("Cancel", color = Color.White) } },
         )
+    }
+    if (library) LibraryDialog(onDismiss = { library = false }) { e ->
+        library = false
+        val d = Design(name = e.name, animated = true, frames = e.make(AppGraph.profile).toMuseumJson(), updatedAt = System.currentTimeMillis())
+        repo.save(d)
+        nav.push(Page.DesignEditor(d.id, animated = true))
     }
     deleting?.let { d ->
         ConfirmDialog("Delete \"${d.name}\"?", "It can't be brought back.", "Delete", onConfirm = {
@@ -145,6 +158,34 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
             deleting = null
         }, onDismiss = { deleting = null })
     }
+}
+
+/** The animation library: each plays in its card; a tap copies it into the user's designs. */
+@Composable
+private fun LibraryDialog(onDismiss: () -> Unit, onPick: (AnimationLibrary.Entry) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface2,
+        title = { Text("Library") },
+        text = {
+            Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                AnimationLibrary.entries.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                        row.forEach { e ->
+                            val anim = remember(e) { e.make(AppGraph.profile) }
+                            val frame = rememberLoopingFrame(anim)
+                            Column(Modifier.weight(1f).clickable { onPick(e) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                                MatrixView(frame?.pixels, AppGraph.profile, Modifier.fillMaxWidth())
+                                Text(e.name, fontSize = 12.sp, maxLines = 1)
+                            }
+                        }
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Color.White) } },
+    )
 }
 
 private fun delete(d: Design) {
@@ -173,9 +214,19 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
     var live by rememberSaveable { mutableStateOf(true) }
     var confirmLeave by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var effects by remember { mutableStateOf(false) }
+    var undo by remember { mutableStateOf<Animation?>(null) }
+    var hasFrames by remember { mutableStateOf(animated || startAnimation.frames.size > 1) }
 
     fun current() = frames[index.coerceIn(0, frames.lastIndex)]
     fun animation() = Animation(profile, frames.indices.map { AnimFrame(frames[it].copy(), durations[it]) })
+    fun setAll(a: Animation) {
+        frames.clear(); frames.addAll(a.frames.map { it.frame.copy() })
+        durations.clear(); durations.addAll(a.frames.map { it.durationMs })
+        index = index.coerceIn(0, frames.lastIndex)
+        if (frames.size > 1) hasFrames = true
+        version++
+    }
     val savedJson = remember { startAnimation.toMuseumJson() }
     fun dirty() = animation().toMuseumJson() != savedJson || name != existing?.name.orEmpty()
 
@@ -195,7 +246,7 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
         val d = Design(
             id = existing?.id ?: UUID.randomUUID().toString(),
             name = name.trim().ifEmpty { repo.nextName() },
-            animated = animated,
+            animated = hasFrames,
             frames = animation().toMuseumJson(),
             updatedAt = System.currentTimeMillis(),
         )
@@ -239,11 +290,20 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
             TextButton(onClick = { current().fill(0); version++ }, Modifier.padding(start = 8.dp)) { Text("Clear", color = Color.White) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { effects = true }) { Text("Effects", color = NothingRed) }
+            undo?.let { before ->
+                TextButton(onClick = {
+                    setAll(before)
+                    undo = null
+                }) { Text("Undo effect", color = Color.White) }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Dot brightness", Modifier.padding(end = 12.dp))
             Slider(level, { level = it }, valueRange = 20f..255f, colors = sliderColors())
         }
 
-        if (animated) {
+        if (hasFrames) {
             GroupTitle("FRAMES")
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 itemsIndexed(frames) { i, f ->
@@ -295,6 +355,26 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
         )
     }
 
+    if (effects) {
+        AlertDialog(
+            onDismissRequest = { effects = false },
+            containerColor = Surface2,
+            title = { Text("Effects") },
+            text = {
+                Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DesignEffect.entries.forEach { e ->
+                        ChoiceCard(e.label, e.hint, false, Modifier.fillMaxWidth()) {
+                            val before = animation()
+                            undo = before
+                            setAll(e.apply(before))
+                            effects = false
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { effects = false }) { Text("Cancel", color = Color.White) } },
+        )
+    }
     if (confirmLeave) {
         ConfirmDialog("Discard changes?", "Your drawing hasn't been saved.", "Discard", onConfirm = onClose, onDismiss = { confirmLeave = false })
     }
