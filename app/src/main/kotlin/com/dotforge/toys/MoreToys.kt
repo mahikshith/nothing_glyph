@@ -362,3 +362,23 @@ class MoonToy : GlyphToyService() {
         }
     }
 }
+
+/** Download speed, from Android's traffic counters, once a second. */
+class SpeedToy : GlyphToyService() {
+    override fun onToyStart() {
+        toyScope.launch {
+            var last = android.net.TrafficStats.getTotalRxBytes()
+            var at = SystemClock.elapsedRealtime()
+            show(ToyFaces.speed(profile, 0))
+            while (isActive) {
+                delay(1_000)
+                val now = android.net.TrafficStats.getTotalRxBytes()
+                val t = SystemClock.elapsedRealtime()
+                val rate = if (now < 0 || last < 0) 0 else (now - last) * 1000 / (t - at).coerceAtLeast(1)
+                last = now
+                at = t
+                show(ToyFaces.speed(profile, rate.coerceAtLeast(0)))
+            }
+        }
+    }
+}

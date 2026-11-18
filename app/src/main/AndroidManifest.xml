@@ -348,6 +348,17 @@
             <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
             <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
         </service>
+        <service
+            android:name=".toys.SpeedToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_speed_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_speed" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_speed_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+        </service>
 
         <!-- Quick Settings tile: switches DF Always-on's face. -->
         <service

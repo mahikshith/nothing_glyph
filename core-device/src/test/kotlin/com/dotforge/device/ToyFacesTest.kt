@@ -95,4 +95,13 @@ class ToyFacesTest {
         assertNotEquals(ToyFaces.nowPlaying(p, true, 0.3f).pixels.toList(), ToyFaces.nowPlaying(p, false, 0.3f).pixels.toList())
         assertEquals(0, ToyFaces.nowPlaying(p, true, null).let { f -> p.ring.count { f.pixels[it] > 0 && f.pixels[it] != 255 } })
     }
+
+    @Test fun speedReadsPlainly() {
+        assertEquals("0", ToyFaces.speedText(500))
+        assertEquals("850K", ToyFaces.speedText(850_000))
+        assertEquals("12M", ToyFaces.speedText(12_400_000))
+        assertEquals(0, p.ring.count { ToyFaces.speed(p, 0).pixels[it] == 255 })
+        assertEquals(p.ring.size, p.ring.count { ToyFaces.speed(p, 500_000_000).pixels[it] == 255 })
+        assertEquals(Math.round(p.ring.size * 0.6f), p.ring.count { ToyFaces.speed(p, 1_000_000).pixels[it] == 255 })
+    }
 }

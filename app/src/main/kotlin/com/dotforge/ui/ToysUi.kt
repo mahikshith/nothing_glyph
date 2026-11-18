@@ -63,6 +63,7 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
     SNAKE(R.string.toy_snake_name, R.string.toy_snake_summary, "The classic game"),
     BREATHE(R.string.toy_breathe_name, R.string.toy_breathe_summary, "Slow breathing"),
     MOON(R.string.toy_moon_name, R.string.toy_moon_summary, "Moon phase"),
+    SPEED(R.string.toy_speed_name, R.string.toy_speed_summary, "Download speed"),
     ;
 
     fun preview(profile: DeviceProfile): Frame = when (this) {
@@ -74,6 +75,7 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
         COMPASS -> ToyFaces.compass(profile, 30.0)
         SNAKE -> SnakeGame(profile, 3).frame()
         BREATHE -> ToyFaces.breath(profile, 3.0)
+        SPEED -> ToyFaces.speed(profile, 2_400_000)
         MOON -> ToyFaces.moon(profile, ToyFaces.moonAge(java.time.LocalDate.now().toEpochDay() + 0.5))
         BATTERY -> Effects.ring(profile, 0.7f)
         DICE -> Effects.dice(profile, 5)
@@ -176,7 +178,7 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
                 }
             }
             Toy.NOW_PLAYING -> AccessNote()
-            Toy.COMPASS, Toy.SNAKE, Toy.BREATHE, Toy.MOON -> Unit
+            Toy.COMPASS, Toy.SNAKE, Toy.BREATHE, Toy.MOON, Toy.SPEED -> Unit
             Toy.BATTERY -> {
                 var anim by remember { mutableStateOf(prefs.batteryChargeAnimation) }
                 GroupTitle("OPTIONS")

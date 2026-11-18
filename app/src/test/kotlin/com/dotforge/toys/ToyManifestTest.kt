@@ -29,7 +29,7 @@ class ToyManifestTest {
 
     @Test fun everyToyDeclaresNameImageAndSummaryAsResources() {
         val toys = toys()
-        assertEquals(13, toys.size)
+        assertEquals(14, toys.size)
         for (t in toys) {
             val name = t.getAttributeNS(android, "name")
             val m = meta(t)

@@ -30,6 +30,8 @@
     <string name="toy_breathe_summary">Box breathing: press to start four slow breaths.</string>
     <string name="toy_moon_name">DF Moon</string>
     <string name="toy_moon_summary">Today\'s moon phase. Long press: days to the full moon.</string>
+    <string name="toy_speed_name">DF Speed</string>
+    <string name="toy_speed_summary">Download speed now, on the ring and in numbers.</string>
     <string name="hub_tile">Always-on face</string>
     <string name="live_tile">Music on Glyph</string>
 </resources>

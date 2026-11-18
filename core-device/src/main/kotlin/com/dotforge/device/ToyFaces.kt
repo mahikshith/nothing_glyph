@@ -136,6 +136,19 @@ object ToyFaces {
         return f
     }
 
+    /** Network speed in a few letters: "0", "850K", "12M". */
+    fun speedText(bytesPerSecond: Long): String = when {
+        bytesPerSecond < 1_000 -> "0"
+        bytesPerSecond < 1_000_000 -> "${bytesPerSecond / 1_000}K"
+        else -> "${bytesPerSecond / 1_000_000}M"
+    }
+
+    /** Download speed: the ring on a log scale from 1 KB/s to 100 MB/s, the speed in the middle. */
+    fun speed(p: DeviceProfile, bytesPerSecond: Long): Frame {
+        val fraction = if (bytesPerSecond < 1_000) 0f else (kotlin.math.log10(bytesPerSecond / 1_000.0) / 5).toFloat()
+        return Effects.ring(p, fraction.coerceIn(0f, 1f)).overlay(Frame.of(p, DotText.centered(p.size, speedText(bytesPerSecond))))
+    }
+
     /** One breath for box breathing: in, hold, out, hold, [phaseSeconds] each; [t] seconds into the cycle. */
     fun breath(p: DeviceProfile, t: Double, phaseSeconds: Int = 4): Frame {
         val phase = floor(t / phaseSeconds).toInt() % 4
