@@ -79,7 +79,7 @@ fun BackupPage(nav: Nav, preview: RestoreChoice? = null, error: String? = null, 
 
     PageLayout("Backup and restore", onBack = nav::pop) {
         item(key = "why") {
-            Hint("Designs and rules live inside DotForge. Uninstalling deletes them unless you back up. Glyph ringtones stay in your Ringtones folder.")
+            Hint("Designs (with their photos and trace photos) and rules live inside DotForge. Uninstalling deletes them unless you back up. Glyph ringtones stay in your Ringtones folder.")
         }
         item(key = "backup") {
             SectionLabel("Back up")

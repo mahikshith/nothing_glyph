@@ -24,7 +24,8 @@ import java.util.zip.ZipOutputStream
 
 /**
  * Backup and restore: one ".dotforge" file (a zip) with designs, alert rules, people, spam rules and lists,
- * caller glyphs, filter settings and the app's settings. Glyph ringtones are not in it: they live in the phone's
+ * caller glyphs, filter settings and the app's settings, plus the designs' pictures (the photo a photo design
+ * was made from, and trace photos) from the design_media folder. Glyph ringtones are not in it: they live in the phone's
  * Ringtones folder. Pure JVM so it is unit tested; the UI moves the bytes through the system file picker.
  */
 object Backup {
@@ -38,7 +39,10 @@ object Backup {
 
     /** The data files in the app's files folder that a backup carries. */
     val DATA_FILES = listOf("designs.json", "rules.json", "calls.json", "filters.json")
-    private const val MAX_BYTES = 50L * 1024 * 1024
+    /** The designs' pictures: kept in this folder of the files folder, and under this path in the zip. */
+    const val MEDIA = "design_media"
+    private val MEDIA_NAME = Regex("""[A-Za-z0-9][A-Za-z0-9._-]{0,127}""")
+    private const val MAX_BYTES = 200L * 1024 * 1024
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /** What a backup holds, for the restore preview: "52 designs, 9 alert rules, 14 spam rules". */
@@ -50,7 +54,11 @@ object Backup {
     }
 
     /** A backup read into memory, checked, ready to preview and apply. */
-    class Contents internal constructor(val format: Int, val files: Map<String, ByteArray>, val settings: JsonObject?) {
+    class Contents internal constructor(
+        val format: Int, val files: Map<String, ByteArray>, val settings: JsonObject?,
+        /** Design pictures by file name (photo designs' photos, trace photos). */
+        val media: Map<String, ByteArray> = emptyMap(),
+    ) {
         val summary: Summary by lazy {
             val designs = files["designs.json"]?.let { parse(it) as? JsonArray }?.size ?: 0
             val rules = (files["rules.json"]?.let { parse(it) as? JsonObject })?.get("rules") as? JsonArray ?: JsonArray(emptyList())
@@ -84,6 +92,9 @@ object Backup {
             }
             put(MANIFEST, manifest.toString().toByteArray())
             DATA_FILES.map { File(filesDir, it) }.filter { it.isFile }.forEach { put(it.name, it.readBytes()) }
+            // only the pictures a design still uses (photoFile, trace.file), not leftovers
+            mediaUsed(File(filesDir, "designs.json")).map { File(File(filesDir, MEDIA), it) }.filter { it.isFile }
+                .forEach { put("$MEDIA/${it.name}", it.readBytes()) }
             put(SETTINGS, settings.toString().toByteArray())
         }
         return counting.count
@@ -92,6 +103,7 @@ object Backup {
     /** Reads and checks a backup. Throws [NewerBackupException] for a newer format, [IOException] for anything else. */
     fun read(input: InputStream): Contents {
         val files = HashMap<String, ByteArray>()
+        val media = HashMap<String, ByteArray>()
         var manifest: JsonObject? = null
         var settings: JsonObject? = null
         var total = 0L
@@ -106,7 +118,8 @@ object Backup {
                     MANIFEST -> manifest = parse(bytes) as? JsonObject
                     SETTINGS -> settings = parse(bytes) as? JsonObject
                     in DATA_FILES -> files[e.name] = bytes
-                    else -> Unit // unknown entries (from a later version) are ignored, never written
+                    // a plain file name inside design_media/ only: never a path that leaves the folder
+                    else -> if (e.name.startsWith("$MEDIA/") && MEDIA_NAME.matches(e.name.removePrefix("$MEDIA/"))) media[e.name.removePrefix("$MEDIA/")] = bytes // unknown entries (from a later version) are ignored, never written
                 }
             }
         }
@@ -114,7 +127,15 @@ object Backup {
         val format = m["format"]?.jsonPrimitive?.intOrNull ?: throw IOException("Not a DotForge backup")
         if (format > FORMAT) throw NewerBackupException()
         files.forEach { (name, bytes) -> parse(bytes) ?: throw IOException("Damaged file in backup: $name") }
-        return Contents(format, files, settings)
+        return Contents(format, files, settings, media)
+    }
+
+    /** The picture file names that the designs in [designsFile] use. */
+    internal fun mediaUsed(designsFile: File): Set<String> {
+        val designs = designsFile.takeIf { it.isFile }?.let { parse(it.readBytes()) as? JsonArray } ?: return emptySet()
+        return designs.mapNotNull { it as? JsonObject }.flatMap { d ->
+            listOfNotNull(d.str("photoFile"), (d["trace"] as? JsonObject)?.str("file"))
+        }.filter { MEDIA_NAME.matches(it) }.toSet()
     }
 
     /**
@@ -133,6 +154,12 @@ object Backup {
                 name == "rules.json" -> mergeRules(parse(current) as? JsonObject, parse(incoming) as JsonObject).toString().toByteArray()
                 else -> continue
             }
+        }
+        // pictures first, so no restored design points at a missing file; "Add" never overwrites one that is here
+        val media = File(filesDir, MEDIA)
+        c.media.forEach { (name, bytes) ->
+            val f = File(media, name)
+            if (replace || !f.exists()) writeAtomically(f, bytes)
         }
         out.forEach { (name, bytes) -> writeAtomically(File(filesDir, name), bytes) }
     }

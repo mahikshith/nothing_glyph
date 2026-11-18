@@ -107,4 +107,44 @@ class BackupTest {
         assertEquals("Heart (2)", Backup.uniqueName("Heart", setOf("Heart")))
         assertEquals("Heart (3)", Backup.uniqueName("Heart (2)", setOf("Heart", "Heart (2)")))
     }
+
+    @Test fun photosAndTracePhotosRoundTrip() {
+        val src = tempDir()
+        File(src, "designs.json").writeText(
+            """[{"id":"p","name":"Sky","animated":false,"frames":"x","kind":"PHOTO","photoFile":"p.png"},
+                {"id":"t","name":"Cat","animated":false,"frames":"y","trace":{"file":"t-trace.png","opacity":45}}]""",
+        )
+        val media = File(src, Backup.MEDIA).apply { mkdirs() }
+        val photo = ByteArray(3000) { (it * 7).toByte() }
+        val trace = ByteArray(1200) { (it * 3).toByte() }
+        File(media, "p.png").writeBytes(photo)
+        File(media, "t-trace.png").writeBytes(trace)
+        File(media, "old-unused.png").writeBytes(ByteArray(10)) // no design uses it: left out
+        val c = Backup.read(ByteArrayInputStream(backupOf(src)))
+        assertEquals(setOf("p.png", "t-trace.png"), c.media.keys)
+
+        // restore on a fresh phone: the designs and their pictures come back byte for byte
+        val dst = tempDir()
+        Backup.restore(c, dst, replace = false)
+        assertTrue(File(dst, "designs.json").readText().contains("t-trace.png"))
+        assertTrue(photo.contentEquals(File(dst, "${Backup.MEDIA}/p.png").readBytes()))
+        assertTrue(trace.contentEquals(File(dst, "${Backup.MEDIA}/t-trace.png").readBytes()))
+        assertFalse(File(dst, "${Backup.MEDIA}/old-unused.png").exists())
+
+        // "Add to what's here" keeps a picture that is already on the phone; "Replace" overwrites it
+        File(dst, "${Backup.MEDIA}/p.png").writeBytes(ByteArray(5))
+        Backup.restore(c, dst, replace = false)
+        assertEquals(5, File(dst, "${Backup.MEDIA}/p.png").length())
+        Backup.restore(c, dst, replace = true)
+        assertTrue(photo.contentEquals(File(dst, "${Backup.MEDIA}/p.png").readBytes()))
+    }
+
+    @Test fun mediaEntriesThatLeaveTheFolderAreNeverWritten() {
+        val c = Backup.read(ByteArrayInputStream(zip(Backup.MANIFEST to """{"format":1}""", "design_media/../../evil.png" to "x", "design_media/ok.png" to "y")))
+        assertEquals(setOf("ok.png"), c.media.keys)
+        val dst = tempDir()
+        Backup.restore(c, dst, replace = true)
+        assertEquals("y", File(dst, "design_media/ok.png").readText())
+        assertFalse(File(dst.parentFile, "evil.png").exists())
+    }
 }
