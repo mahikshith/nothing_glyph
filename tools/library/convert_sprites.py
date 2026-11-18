@@ -116,18 +116,25 @@ def best_scale(grids, seq):
     x0 = min(x for x, _ in opaque); x1 = max(x for x, _ in opaque)
     y0 = min(y for _, y in opaque); y1 = max(y for _, y in opaque)
     bcx, bcy = (x0 + x1 + 1) / 2, (y0 + y1 + 1) / 2
-    for s in candidates():
-        ok = True
+    def cropped(s):
+        outside, seen = set(), set()
         for oy in range(SIZE):
             for ox in range(SIZE):
                 sx = int((bcx + (ox + 0.5 - 12.5) / s) // 1)
                 sy = int((bcy + (oy + 0.5 - 12.5) / s) // 1)
-                if (sx, sy) in opaque and (ox, oy) not in MASK:
-                    ok = False; break
-            if not ok: break
-        if ok:
+                if (sx, sy) in opaque:
+                    (seen if (ox, oy) in MASK else outside).add((sx, sy))
+        lost = outside | (opaque - seen if s >= 1 else set())
+        return len(lost)
+
+    for s in (c for c in candidates() if c >= 0.5):
+        if cropped(s) == 0:
             return s, bcx, bcy
-    return 0.25, bcx, bcy
+    # Sparse art with pixels in the far corners cannot fit at a readable size: keep the largest scale >= 0.5
+    # that crops the fewest pixels.
+    s = min((c for c in candidates() if c >= 0.5), key=lambda c: (cropped(c), -c))
+    print('  note: some pixels of this sprite fall outside the mask at scale', s)
+    return s, bcx, bcy
 
 
 def render(grid, s, bcx, bcy):
