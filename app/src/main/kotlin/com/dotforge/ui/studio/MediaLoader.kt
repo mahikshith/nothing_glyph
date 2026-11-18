@@ -90,3 +90,29 @@ object MediaLoader {
         return Picture(b.width, b.height, px)
     }
 }
+
+/**
+ * Faces in a photo, with Android's built-in [android.media.FaceDetector] (no ML Kit, no download). It wants an
+ * RGB_565 bitmap of even width, so the picture is copied at most [SIDE] px on the long side; spots come back in
+ * the picture's own pixels. Any failure means no faces.
+ */
+object FaceFinder {
+    private const val SIDE = 480
+    private const val MAX_FACES = 3
+    private const val MIN_CONFIDENCE = 0.4f
+
+    fun find(pic: Picture): List<com.dotforge.device.FaceSpot> = runCatching {
+        val k = minOf(1f, SIDE.toFloat() / max(pic.width, pic.height))
+        val w = ((pic.width * k).roundToInt() / 2 * 2).coerceAtLeast(2)
+        val h = (pic.height * k).roundToInt().coerceAtLeast(1)
+        val argb = IntArray(w * h) { i -> pic.argb[((i / w) / k).toInt().coerceAtMost(pic.height - 1) * pic.width + ((i % w) / k).toInt().coerceAtMost(pic.width - 1)] }
+        val bmp = Bitmap.createBitmap(argb, w, h, Bitmap.Config.ARGB_8888).copy(Bitmap.Config.RGB_565, false)
+        val found = arrayOfNulls<android.media.FaceDetector.Face>(MAX_FACES)
+        val n = android.media.FaceDetector(w, h, MAX_FACES).findFaces(bmp, found)
+        val mid = android.graphics.PointF()
+        found.take(n).filterNotNull().filter { it.confidence() >= MIN_CONFIDENCE }.map { f ->
+            f.getMidPoint(mid)
+            com.dotforge.device.FaceSpot(mid.x / k, mid.y / k, f.eyesDistance() / k)
+        }
+    }.getOrDefault(emptyList())
+}

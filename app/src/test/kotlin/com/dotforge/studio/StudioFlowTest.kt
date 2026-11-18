@@ -45,7 +45,11 @@ class StudioFlowTest {
         assertEquals("1 frame", StudioText.subtitle(d, Animation.single(Frame.blank(p), 100)))
         assertEquals("Text", StudioText.subtitle(d.copy(kind = DesignKind.TEXT), null))
         assertEquals("12 s", StudioText.seconds(12_000))
-        assertEquals("0.1 s", StudioText.seconds(100))
+        assertEquals("100 ms", StudioText.seconds(100))
+        // one format: never 150 ms rounded to "0.2 s"
+        assertEquals("150 ms", StudioText.seconds(150))
+        assertEquals("1.2 s", StudioText.seconds(1200))
+        assertEquals("1 s", StudioText.seconds(1000))
     }
 
     @Test fun aNewEditorDesignIsOnlySavedOnceItHasDots() {
@@ -113,6 +117,37 @@ class StudioFlowTest {
         s.redo(); s.redo()
         assertEquals(PhotoStyle.HALFTONE, s.settings.style)
         assertFalse(s.canRedo)
+    }
+
+    @Test fun aPhotoWithAFaceOpensOnTheFaceInPortraitAndTheFaceChipToggles() {
+        val pic = PhotoDots.samplePicture(320, 400)
+        com.dotforge.ui.studio.PhotoLoader.faces = { listOf(com.dotforge.device.FaceSpot(160f, 150f, 40f)) }
+        val s = try { com.dotforge.ui.studio.PhotoLoader.session("Me", listOf(pic), listOf(1000)) } finally { com.dotforge.ui.studio.PhotoLoader.faces = com.dotforge.ui.studio.FaceFinder::find }
+        assertEquals(PhotoStyle.PORTRAIT, s.settings.style)
+        assertEquals(PhotoStyle.PORTRAIT, s.styles.first())
+        assertTrue(s.settings.face)
+        assertEquals(s.faceCrop, s.settings.crop)
+        assertTrue(s.settings.crop.zoom > 1.5f)
+        // Face off: the whole photo, one undo step
+        s.face(false)
+        assertEquals(com.dotforge.device.PhotoCrop(), s.settings.crop)
+        assertFalse(s.settings.face)
+        s.face(true)
+        assertEquals(s.faceCrop, s.settings.crop)
+        s.undo()
+        assertEquals(com.dotforge.device.PhotoCrop(), s.settings.crop)
+        // no face: no Face chip, Shades first, and nothing to toggle
+        val plain = PhotoSession(p, "Sky", listOf(pic), listOf(1000))
+        assertNull(plain.faceCrop)
+        assertEquals(PhotoStyle.SHADES, plain.styles.first())
+        // several pictures are never searched for faces
+        com.dotforge.ui.studio.PhotoLoader.faces = { error("not for several pictures") }
+        try { assertNull(com.dotforge.ui.studio.PhotoLoader.session("Trip", listOf(pic, pic), listOf(500, 500)).faceCrop) } finally { com.dotforge.ui.studio.PhotoLoader.faces = com.dotforge.ui.studio.FaceFinder::find }
+    }
+
+    @Test fun theFaceFinderNeverThrows() {
+        // Robolectric has no native face detector: no faces, no crash
+        assertEquals(emptyList<com.dotforge.device.FaceSpot>(), com.dotforge.ui.studio.FaceFinder.find(PhotoDots.samplePicture(321, 200)))
     }
 
     @Test fun severalPhotosBecomeFramesAndOneCanMove() {

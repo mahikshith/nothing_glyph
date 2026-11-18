@@ -86,11 +86,13 @@ import com.dotforge.AppGraph
 import com.dotforge.device.AnimFrame
 import com.dotforge.device.Animation
 import com.dotforge.device.DeviceProfile
+import com.dotforge.device.FaceSpot
 import com.dotforge.device.Frame
 import com.dotforge.device.Gif
 import com.dotforge.device.PhotoBackground
 import com.dotforge.device.PhotoCrop
 import com.dotforge.device.PhotoDots
+import com.dotforge.device.PhotoFaces
 import com.dotforge.device.PhotoMotion
 import com.dotforge.device.PhotoSettings
 import com.dotforge.device.PhotoStyle
@@ -141,7 +143,12 @@ class PhotoSession(
     start: PhotoSettings = PhotoSettings(),
     /** The saved photo design being re-tuned, or null. */
     val existing: Design? = null,
+    /** Faces found in the (single) photo; empty for none or for several pictures. */
+    val faces: List<FaceSpot> = emptyList(),
 ) {
+    /** The crop on the faces (+35 %), or null when none was found: the Crop tab's Face chip. */
+    val faceCrop: PhotoCrop? = PhotoFaces.crop(faces, pictures.first().width, pictures.first().height)
+
     /** One undo step: the settings and the frame list (several photos can be moved and removed). */
     private data class Step(val settings: PhotoSettings, val pictures: List<Picture>, val delays: List<Int>)
 
@@ -178,6 +185,15 @@ class PhotoSession(
         settings = next
         version++
     }
+
+    /** The Face chip: on crops to the faces and tunes tones for skin; off goes back to the whole photo. */
+    fun face(on: Boolean) {
+        val crop = faceCrop ?: return
+        set(if (on) settings.copy(crop = crop, face = true) else settings.copy(crop = PhotoCrop(), face = false))
+    }
+
+    /** The Style tab's order: Portrait first when there is a face. */
+    val styles: List<PhotoStyle> get() = PhotoStyle.strip(faceCrop != null)
 
     /** Several photos: moves frame [from] to [to] (0-based). */
     fun move(from: Int, to: Int) {
@@ -255,11 +271,22 @@ enum class PhotoControl(val label: String) {
 }
 
 object PhotoLoader {
+    /** Finds faces in a photo; tests swap it, as the JVM has no face detector. */
+    var faces: (Picture) -> List<FaceSpot> = FaceFinder::find
+
+    /**
+     * A new session with defaults by content: one photo is searched for faces (found: crop on them, Portrait);
+     * graphics get 2 tones; anything else Shades.
+     */
+    fun session(name: String, pics: List<Picture>, delays: List<Int>): PhotoSession {
+        val found = if (pics.size == 1) faces(pics[0]) else emptyList()
+        return PhotoSession(AppGraph.profile, name, pics, delays, PhotoDots.defaults(pics[0], found), faces = found)
+    }
+
     /** Reads [source]; [progress] gets "Converting… 12 of 48 frames" as it goes. */
     suspend fun load(ctx: Context, source: MediaSource, progress: (PhotoLoad.Loading) -> Unit): PhotoSession {
-        val p = AppGraph.profile
         return when (source) {
-            is MediaSource.Pictures -> PhotoSession(p, source.name, source.pictures, List(source.pictures.size) { PhotoSession.PHOTO_FRAME_MS })
+            is MediaSource.Pictures -> session(source.name, source.pictures, List(source.pictures.size) { PhotoSession.PHOTO_FRAME_MS })
             is MediaSource.Images -> {
                 val n = source.uris.size
                 val pics = source.uris.mapIndexed { i, u ->
@@ -267,7 +294,8 @@ object PhotoLoader {
                     if (n > 1) progress(PhotoLoad.Loading("Reading ${i + 1} of $n photos…", i / n.toFloat()))
                     MediaLoader.picture(ctx, u)
                 }
-                PhotoSession(p, MediaLoader.name(ctx, source.uris[0]), pics, List(n) { PhotoSession.PHOTO_FRAME_MS })
+                if (n == 1) progress(PhotoLoad.Loading("Looking for faces…"))
+                session(MediaLoader.name(ctx, source.uris[0]), pics, List(n) { PhotoSession.PHOTO_FRAME_MS })
             }
             is MediaSource.GifFile -> {
                 val bytes = ctx.contentResolver.openInputStream(source.uri)?.use { it.readBytes() } ?: throw MediaLoader.CantRead("This GIF can't be read. Try another file.")
@@ -280,13 +308,13 @@ object PhotoLoader {
                 }
                 coroutineContext.ensureActive()
                 if (frames.isEmpty()) throw MediaLoader.CantRead("This GIF can't be read. Try another file.")
-                PhotoSession(p, MediaLoader.name(ctx, source.uri, "GIF"), frames.map { it.picture.shrunk() }, frames.map { it.delayMs.coerceIn(20, 10_000) })
+                session(MediaLoader.name(ctx, source.uri, "GIF"), frames.map { it.picture.shrunk() }, frames.map { it.delayMs.coerceIn(20, 10_000) })
             }
             is MediaSource.Video -> {
                 val ctxJob = coroutineContext
                 val frames = MediaLoader.video(ctx, source.uri) { i, n -> progress(PhotoLoad.Loading("Converting… $i of $n frames", i / n.toFloat())); ctxJob.isActiveCompat() }
                 coroutineContext.ensureActive()
-                PhotoSession(p, MediaLoader.name(ctx, source.uri, "Video"), frames.map { it.picture }, frames.map { it.delayMs })
+                session(MediaLoader.name(ctx, source.uri, "Video"), frames.map { it.picture }, frames.map { it.delayMs })
             }
         }
     }
@@ -295,7 +323,9 @@ object PhotoLoader {
     fun reopen(d: Design): PhotoSession {
         val file = d.photoFile?.let { File(AppGraph.designs.media, it) }
         val bmp = file?.takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) } ?: throw MediaLoader.CantRead("The photo for ${d.name} is missing. Open it in the editor instead.")
-        return PhotoSession(AppGraph.profile, d.name, listOf(bmp.toPicture()), listOf(PhotoSession.STILL_MS), d.photo ?: PhotoSettings(), d)
+        val pic = bmp.toPicture()
+        // faces again for the Face chip; the saved settings stay as they were
+        return PhotoSession(AppGraph.profile, d.name, listOf(pic), listOf(PhotoSession.STILL_MS), d.photo ?: PhotoDots.defaults(pic, emptyList()), d, faces = faces(pic))
     }
 
     /** Keeps [pic] in the designs' media folder; returns its file name. */
@@ -404,13 +434,14 @@ private const val CANT_READ_PHOTO = "This file can't be read."
 private fun PhotoTopBar(s: PhotoSession?, onClose: () -> Unit, glyph: Boolean = false, glyphState: PhoneState = PhoneState.OFF, onGlyph: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = Color.White) }
-        Text(s?.name ?: "Photo", style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Tokens.Tiny))
+        // the name gets the room up to the Glyph pill, on up to 2 lines
+        Text(s?.name ?: "Photo", style = MaterialTheme.typography.titleMedium.capped(), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Tokens.Tiny))
         if (s != null) {
             @Suppress("UNUSED_EXPRESSION") s.version
-            // the same order as the editor: Glyph, then Undo and Redo; here the toggle carries its word
+            // the same order and the same pill as the editor: Glyph, then Undo and Redo
             GlyphToggle(
                 on = glyph && glyphState != PhoneState.NOT_PHONE3, live = glyphState == PhoneState.ON, state = glyphState.text,
-                enabled = glyphState != PhoneState.NOT_PHONE3, labelled = true, onToggle = onGlyph,
+                enabled = glyphState != PhoneState.NOT_PHONE3, onToggle = onGlyph,
             )
             BarIcon(DfIcons.Undo, "Undo", s.canUndo) { s.undo() }
             BarIcon(DfIcons.Redo, "Redo", s.canRedo) { s.redo() }
@@ -516,7 +547,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(
             PhotoTab.FRAMES -> FramesPanel(s, result, picked) { picked = it }
         }
     }
-    Row(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = Tokens.Small), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Tiny)) {
+    Row(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = Tokens.Gutter), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Tiny)) {
         BarButton("Cancel", false, onClick = onLeave)
         if (!s.frames) BarButton("Animate", false) { animate = true }
         if (target != null) BarButton(if (s.frames) "Add ${result.frames.size} frames" else "Add as frame", true) { edit(result) }
@@ -600,6 +631,7 @@ private fun CropPanel(s: PhotoSession) {
             OptionChip("Rotate", "Rotate 90 degrees", icon = DfIcons.Rotate) { crop(c.copy(turns = c.turns + 1)) }
             OptionChip("Mirror", "Flip left-right", icon = DfIcons.FlipH, selected = c.flipH) { crop(c.copy(flipH = !c.flipH)) }
             OptionChip("Flip", "Flip top-bottom", icon = DfIcons.FlipV, selected = c.flipV) { crop(c.copy(flipV = !c.flipV)) }
+            if (s.faceCrop != null) OptionChip("Face", "Focus on the face", icon = DfIcons.Face, selected = s.settings.face) { s.face(!s.settings.face) }
             OptionChip("Fill", "Fill the circle", selected = !c.fit) { crop(c.copy(fit = false)) }
             OptionChip("Fit", "Fit the whole photo", selected = c.fit) { crop(c.copy(fit = true)) }
         }
@@ -611,16 +643,17 @@ private fun CropPanel(s: PhotoSession) {
     }
 }
 
-/** 13 live thumbnails, 80 dp, in two rows that scroll sideways: this photo in each style, names on two lines. */
+/** 14 live thumbnails, 80 dp, in two rows that scroll sideways: this photo in each style, names on two lines. */
 @Composable
 private fun StylePanel(s: PhotoSession) {
     val thumbs by produceState<Map<PhotoStyle, Frame>>(emptyMap(), s.version) {
-        value = withContext(Dispatchers.Default) { PhotoStyle.entries.associateWith { st -> s.frame(0, s.settings.copy(style = st)) } }
+        value = withContext(Dispatchers.Default) { s.styles.associateWith { st -> s.frame(0, s.settings.copy(style = st)) } }
     }
     val label = MaterialTheme.typography.labelSmall.capped()
-    val cell = THUMB + 4.dp + with(LocalDensity.current) { label.lineHeight.toDp() } * 2
+    // the thumbnail, then two full lines of name (with room for the font's own padding), so no name is cut
+    val cell = THUMB + 4.dp + with(LocalDensity.current) { label.lineHeight.toDp() } * 2 + 8.dp
     val grid = rememberLazyGridState()
-    val at = PhotoStyle.entries.indexOf(s.settings.style)
+    val at = s.styles.indexOf(s.settings.style)
     LaunchedEffect(Unit) { if (at > 3) grid.scrollToItem(at) }
     LazyHorizontalGrid(
         rows = GridCells.Fixed(2), state = grid,
@@ -628,7 +661,7 @@ private fun StylePanel(s: PhotoSession) {
         horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Tokens.Gutter),
     ) {
-        gridItems(PhotoStyle.entries.toList(), key = { it.name }) { st ->
+        gridItems(s.styles, key = { it.name }) { st ->
             val on = s.settings.style == st
             Column(
                 Modifier.width(THUMB).clickable(role = Role.RadioButton, onClickLabel = st.label) { s.set(s.settings.copy(style = st)) }
