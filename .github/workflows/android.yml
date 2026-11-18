@@ -2,14 +2,16 @@ name: Android CI
 on: [push, workflow_dispatch]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
+      # The runner image ships the Android SDK; add the platform and build tools this project compiles against.
+      - name: Install Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "platform-tools" > /dev/null
       - name: Fetch Nothing Glyph SDK (not redistributed in this repo)
         run: ./scripts/fetch-glyph-sdk.sh
       - uses: gradle/actions/setup-gradle@v4
