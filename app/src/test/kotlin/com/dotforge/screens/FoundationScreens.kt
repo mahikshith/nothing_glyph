@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToIndex
 import com.dotforge.backup.Backup
 import com.dotforge.ui.AppRoot
 import com.dotforge.ui.Nav
@@ -36,10 +37,12 @@ import java.nio.file.Files
 abstract class FoundationScreens : ScreenshotTest() {
     private val f = "foundation"
 
-    /** The real app root. Setup's one-time call screening ask is marked as done unless [ask]. */
-    private fun app(nav: Nav, ask: Boolean = false) {
-        activity.getSharedPreferences("setup", android.content.Context.MODE_PRIVATE).edit().putBoolean("screening_asked", !ask).commit()
-        show { AppRoot(nav, Setup(activity)) }
+    private lateinit var setup: Setup
+
+    /** The real app root. */
+    private fun app(nav: Nav) {
+        setup = Setup(activity)
+        show { AppRoot(nav, setup) }
     }
     private fun page(p: Page) = Nav(Tab.HOME, mapOf(Tab.HOME to listOf(p)))
 
@@ -53,16 +56,26 @@ abstract class FoundationScreens : ScreenshotTest() {
         }
     }
 
-    @Test fun tabWithTheCallScreeningAsk() {
-        app(Nav(Tab.HOME), ask = true)
-        capture(f, "05-tab-home-call-screening-ask")
+    /** Never at launch (01 has no sheet): asked in context, when a call rule turns on. */
+    @Test fun callScreeningAskInContext() {
+        app(Nav(Tab.ALERTS))
+        rule.runOnUiThread { setup.needCallScreening() }
+        capture(f, "05-call-screening-ask-in-context")
     }
 
     @Test fun profile() {
         app(page(Page.Profile))
         capture(f, "10-profile-top")
-        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Old screens"))
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Diagnostics"))
         capture(f, "11-profile-bottom")
+    }
+
+    @Test fun profileDeveloperRows() {
+        com.dotforge.ui.settings.DevMode.set(true)
+        app(page(Page.Profile))
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Hide developer rows"))
+        capture(f, "14-profile-developer-rows")
+        com.dotforge.ui.settings.DevMode.set(false)
     }
 
     private val mixed = listOf(
@@ -88,6 +101,11 @@ abstract class FoundationScreens : ScreenshotTest() {
     @Test fun backup() {
         app(page(Page.Backup))
         capture(f, "20-backup")
+    }
+
+    @Test fun backupBusy() {
+        show { BackupPage(Nav(), backingUp = true) }
+        capture(f, "20b-backup-backing-up")
     }
 
     @Test fun backupError() {
@@ -134,11 +152,14 @@ abstract class FoundationScreens : ScreenshotTest() {
     @Test fun gallery() {
         app(page(Page.Components))
         capture(f, "40-components-rows")
-        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Glyph previews 40 / 96 / 200"))
+        val list = rule.onNode(hasScrollAction())
+        list.performScrollToIndex(2)
         capture(f, "41-components-tiles-previews")
-        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Chips and segments"))
-        capture(f, "42-components-buttons-chips")
-        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Empty state"))
+        list.performScrollToIndex(4)
+        capture(f, "42-components-slider-buttons-chips")
+        list.performScrollToIndex(7)
+        capture(f, "47-components-states-loading-denied-not-phone3")
+        list.performScrollToIndex(8)
         capture(f, "43-components-sheets-empty")
         rule.onNodeWithText("Show a snackbar with Undo").performClick()
         capture(f, "44-snackbar-undo")
@@ -146,9 +167,16 @@ abstract class FoundationScreens : ScreenshotTest() {
         capture(f, "45-sheet-options")
     }
 
+    @Test fun confirmDialog() {
+        app(page(Page.Components))
+        rule.onNode(hasScrollAction()).performScrollToIndex(8)
+        rule.onNodeWithText("Open a confirm dialog").performClick()
+        capture(f, "48-confirm-dialog")
+    }
+
     @Test fun previewsWithRemoveAnimations() {
         show(reduceMotion = true) { ComponentGallery(onBack = {}) }
-        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Glyph previews 40 / 96 / 200"))
+        rule.onNode(hasScrollAction()).performScrollToIndex(3)
         capture(f, "46-previews-remove-animations")
     }
 
@@ -172,6 +200,13 @@ abstract class FoundationScreens : ScreenshotTest() {
         show { ComponentGallery(onBack = {}, timingKind = TimingKind.ANIMATION) }
         rule.onAllNodesWithText("Until I check").onFirst().performClick()
         capture(f, "58-timing-until-i-check")
+    }
+
+    @Test fun timingSecondsAndSpeed() {
+        show { ComponentGallery(onBack = {}, timingKind = TimingKind.ANIMATION) }
+        rule.onAllNodesWithText("10 s").onFirst().performClick()
+        rule.onAllNodesWithText("Fast 2x").onFirst().performClick()
+        capture(f, "59-timing-seconds-fast")
     }
 }
 

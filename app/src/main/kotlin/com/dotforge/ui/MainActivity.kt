@@ -37,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -136,7 +137,7 @@ fun AppRoot(nav: Nav, setup: Setup) {
     val lists = Tab.entries.associateWith { rememberLazyListState() }
     // keeps each tab's remembered UI state while a page is open or another tab is shown
     val saved = rememberSaveableStateHolder()
-    UndoSnackbarHost(Modifier) {
+    UndoSnackbarHost(Modifier, bottomBar = nav.page == null) {
         Box(Modifier.fillMaxSize().background(Tokens.Background)) {
             val reduce = LocalReduceMotion.current
             AnimatedContent(
@@ -162,9 +163,7 @@ fun AppRoot(nav: Nav, setup: Setup) {
 private fun Tabs(nav: Nav, setup: Setup, lists: Map<Tab, LazyListState>) {
     val scope = rememberCoroutineScope()
     val saved = rememberSaveableStateHolder()
-    val needsScreening by rememberNeedsScreening()
-    // spam protection for calls is on by default, so setup asks for call screening once, with Not now
-    LaunchedEffect(needsScreening, setup.resumes) { if (needsScreening) setup.askScreeningOnce() }
+    // call screening is never asked at launch: the setup checklist and turning on a call rule ask for it
     BackHandler(enabled = nav.tab != Tab.HOME) { nav.tab = Tab.HOME }
     Scaffold(
         containerColor = Tokens.Background,
@@ -190,7 +189,9 @@ fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
     // labels grow with the font up to 1.5x, then stay on one line ("Features" must not break mid-word)
     val fs = androidx.compose.ui.platform.LocalDensity.current.fontScale
     val labelStyle = MaterialTheme.typography.labelMedium.let { it.copy(fontSize = it.fontSize * (minOf(fs, 1.5f) / fs)) }
-    NavigationBar(containerColor = Color(0xFF0A0A0A)) {
+    Column {
+    androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
+    NavigationBar(containerColor = Tokens.Background, tonalElevation = 0.dp) {
         Tab.entries.forEach { t ->
             val on = selected == t
             NavigationBarItem(
@@ -201,12 +202,13 @@ fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Color.White,
                     selectedTextColor = Color.White,
-                    indicatorColor = Color(0xFF2A2A2A),
+                    indicatorColor = Tokens.Hairline,
                     unselectedIconColor = Tokens.Secondary,
                     unselectedTextColor = Tokens.Secondary,
                 ),
             )
         }
+    }
     }
 }
 

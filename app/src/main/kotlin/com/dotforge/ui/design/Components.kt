@@ -1,7 +1,6 @@
 package com.dotforge.ui.design
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -26,6 +25,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -43,6 +45,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,7 +54,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -83,6 +86,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,7 +118,7 @@ fun Screen(
     CompositionLocalProvider(LocalPreviewsPaused provides state.isScrollInProgress) { LazyColumn(
         modifier.fillMaxSize().background(Tokens.Background),
         state = state,
-        contentPadding = PaddingValues(start = Tokens.Gutter, end = Tokens.Gutter, bottom = Tokens.Section),
+        contentPadding = PaddingValues(start = Tokens.Gutter, end = Tokens.Gutter, bottom = listBottom()),
     ) {
         item(key = "title") {
             Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(top = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
@@ -150,13 +154,19 @@ fun Page(
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth(),
                 state = state,
-                contentPadding = PaddingValues(start = Tokens.Gutter, end = Tokens.Gutter, bottom = Tokens.Section),
+                contentPadding = PaddingValues(start = Tokens.Gutter, end = Tokens.Gutter, bottom = listBottom()),
                 content = content,
             )
         }
         bottomBar?.let { Box(Modifier.fillMaxWidth().padding(Tokens.Gutter)) { it() } }
     }
 }
+
+/** Space under a list: the section gap, plus room for the snackbar while one shows, so it never covers the last row. */
+@Composable
+private fun listBottom(): Dp = Tokens.Section + if (LocalSnacks.current?.visible == true) SNACKBAR_ROOM else 0.dp
+
+private val SNACKBAR_ROOM = 72.dp
 
 /** A 64 dp bar: back (or close), a title, actions. */
 @Composable
@@ -228,7 +238,7 @@ fun ListRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
     ) {
-        leading?.invoke()
+        leading?.let { Box(Modifier.size(Tokens.Avatar), contentAlignment = Alignment.Center) { it() } }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
             subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = subtitleLines, overflow = TextOverflow.Ellipsis) }
@@ -236,6 +246,17 @@ fun ListRow(
         trailing?.invoke()
     }
 }
+
+/**
+ * The divider between rows in a [RowGroup]. It starts where the row text starts: 16 dp in, or 72 dp when the
+ * rows have a leading preview, avatar or icon ([leading]).
+ */
+@Composable
+fun RowDivider(leading: Boolean = false) =
+    androidx.compose.material3.HorizontalDivider(Modifier.padding(start = if (leading) TEXT_AFTER_ICON else Tokens.Gutter), color = Tokens.Hairline)
+
+/** Where text starts after a 40 dp leading slot: 16 + 40 + 16. */
+val TEXT_AFTER_ICON = 72.dp
 
 /** A row whose whole surface toggles a switch; TalkBack reads it as one switch. A light tick on change. */
 @Composable
@@ -258,7 +279,7 @@ fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
     ) {
-        leading?.invoke()
+        leading?.let { Box(Modifier.size(Tokens.Avatar), contentAlignment = Alignment.Center) { it() } }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary) }
@@ -288,6 +309,13 @@ fun Avatar(letter: String, modifier: Modifier = Modifier) =
         Text(letter.take(1).uppercase(), style = MaterialTheme.typography.titleMedium)
     }
 
+/** The account avatar: a person icon in a 40 dp circle (no initials until there is an account). */
+@Composable
+fun PersonAvatar(modifier: Modifier = Modifier, size: Dp = Tokens.Avatar) =
+    Box(modifier.size(size).background(Tokens.Raised, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(Icons.Filled.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(size * 0.6f))
+    }
+
 /** "+ Add an app": a row with a round plus. */
 @Composable
 fun AddRow(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) =
@@ -304,10 +332,11 @@ fun AddRow(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) =
 // ---------------------------------------------------------------- tiles
 
 /**
- * An equal tile for a 2-column grid: an optional icon, a name, one status line and an optional switch. With a
- * switch the tile has two targets: the switch (top right) toggles, the rest of the tile opens [onOpen] (shown by
- * a chevron after the name); TalkBack also gets an "Open settings" action on the switch. Heights are minimums,
- * so a 2x font grows the tile instead of clipping it.
+ * An equal tile for a 2-column grid. Every tile in a grid has the same fixed height ([height]: 104 dp for Home
+ * tiles, 120 dp for Features cards, grown evenly with the font scale) and the same slots: a top row with the icon
+ * on the left and the switch on the right (either may be empty), then a one-line name and a one-line status, both
+ * ending in "…" when they don't fit. With a switch the tile has two targets: the switch toggles, the rest of the
+ * tile opens [onOpen]; TalkBack also gets an "Open settings" action on the switch.
  */
 @Composable
 fun EqualTile(
@@ -322,17 +351,17 @@ fun EqualTile(
     onOpen: (() -> Unit)? = null,
 ) {
     val haptic = rememberHaptics()
-    Surface(
-        color = Tokens.Card, shape = Tokens.CardShape,
-        modifier = modifier.heightIn(min = height).then(if (enabled || onOpen != null) Modifier else Modifier.alpha(0.5f)),
-    ) {
+    val fs = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    // one height for every tile at this font scale: the two text lines grow, the top row doesn't
+    val h = height + TILE_TEXT_LINES * (fs - 1f).coerceAtLeast(0f)
+    Surface(color = Tokens.Card, shape = Tokens.CardShape, modifier = modifier.height(h)) {
         Column(
-            Modifier.heightIn(min = height)
+            Modifier.fillMaxSize()
                 .then(if (onOpen != null) Modifier.clickable(onClickLabel = "Open settings", role = Role.Button, onClick = onOpen) else Modifier)
-                .padding(start = Tokens.Gutter, end = Tokens.Small, bottom = 14.dp),
+                .padding(start = Tokens.Gutter, end = Tokens.Tiny, bottom = Tokens.Gap),
         ) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f).padding(top = 14.dp)) { icon?.invoke() }
+            Row(Modifier.fillMaxWidth().height(Tokens.Target), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f).then(if (enabled) Modifier else Modifier.alpha(0.5f))) { icon?.invoke() }
                 if (checked != null) {
                     Box(
                         Modifier.size(width = 64.dp, height = Tokens.Target)
@@ -345,23 +374,22 @@ fun EqualTile(
                     ) { Switch(checked = checked, onCheckedChange = null, enabled = enabled, colors = switchColors()) }
                 }
             }
-            Row(Modifier.padding(top = Tokens.Tiny, end = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
-                // long names ("Music visualiser") shrink a little at large font sizes instead of breaking mid-word
-                val style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold, color = Tokens.Text)
-                androidx.compose.foundation.text.BasicText(
-                    title, Modifier.weight(1f, fill = false).then(if (enabled) Modifier else Modifier.alpha(0.6f)),
-                    style = style, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 11.sp, maxFontSize = style.fontSize),
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.padding(end = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
+                // one size for every tile; a long name ends in "…" rather than shrinking one tile's text
+                Text(
+                    title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (enabled) Tokens.Text else Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (onOpen != null) Chevron()
             }
-            Text(
-                status, Modifier.padding(top = Tokens.Tiny, end = Tokens.Small),
-                style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 3, overflow = TextOverflow.Ellipsis,
-            )
+            Text(status, Modifier.padding(end = Tokens.Small), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
+
+/** How much a tile grows per 1x of extra font scale: its two text lines. */
+private val TILE_TEXT_LINES = 40.dp
 
 /** Two equal tiles side by side, 12 dp apart; a lone tile keeps half the width. */
 @Composable
@@ -463,8 +491,10 @@ fun DotMatrix(pixels: IntArray?, profile: DeviceProfile, modifier: Modifier = Mo
 // ---------------------------------------------------------------- sheets
 
 /**
- * The one sheet: full width, tall, 28 dp top corners, a drag handle and a header with [title] and Done (or
- * [confirm]). The content scrolls inside; swipe down, the scrim and back all dismiss.
+ * The one sheet: full width, 28 dp top corners, a drag handle and a header with [title] and Done (or [confirm]).
+ * Everything inside keeps one 16 dp margin; the header's button text ends on the same line as the content. The
+ * content scrolls inside; [pinned] (a live preview, say) stays under the header with a divider. [half] opens it
+ * at half height (it can be dragged up). Swipe down, the scrim and back all dismiss.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -476,18 +506,22 @@ fun FullSheet(
     confirmEnabled: Boolean = true,
     onConfirm: (() -> Unit)? = null,
     scrolls: Boolean = true,
+    half: Boolean = false,
+    pinned: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = !half),
         containerColor = Tokens.Sheet,
+        tonalElevation = 0.dp,
         shape = Tokens.SheetShape,
         contentWindowInsets = { WindowInsets(0) },
     ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
             if (title != null) {
-                Row(Modifier.fillMaxWidth().padding(start = Tokens.Gutter + Tokens.Tiny, end = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
+                // the text button has 12 dp of its own padding: 4 + 12 puts its text 16 dp from the edge
+                Row(Modifier.fillMaxWidth().padding(start = Tokens.Gutter, end = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(vertical = Tokens.Tiny)) {
                         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                         subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary) }
@@ -496,6 +530,10 @@ fun FullSheet(
                         Text(confirm, style = MaterialTheme.typography.labelLarge, color = if (confirmEnabled) Color.White else Tokens.Secondary)
                     }
                 }
+            }
+            if (pinned != null) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = Tokens.Gutter, vertical = Tokens.Small), content = pinned)
+                androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
             }
             Column(
                 (if (scrolls) Modifier.verticalScroll(rememberScrollState()) else Modifier)
@@ -507,7 +545,75 @@ fun FullSheet(
 }
 
 /**
- * A sheet option: at least 76 dp, a 48 dp preview, a 17 sp title, a description that wraps, a chevron (or a
+ * A centred confirm dialog for something that can't be undone: 312 dp wide, #1F1F1F, 28 dp corners over a 60%
+ * black scrim. Cancel is a text button; [confirm] is filled red. The two sit right-aligned on one line, or stack
+ * (confirm on top) when they don't fit.
+ */
+@Composable
+fun ConfirmDialog(title: String, text: String, confirm: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        val view = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.SideEffect {
+            val w = ((view as? androidx.compose.ui.window.DialogWindowProvider) ?: (view.parent as? androidx.compose.ui.window.DialogWindowProvider))?.window
+            w?.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            w?.setDimAmount(SCRIM_ALPHA)
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Surface(color = Tokens.Raised, shape = RoundedCornerShape(28.dp), modifier = Modifier.width(312.dp)) {
+                Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = Tokens.Gutter)) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+                    Text(text, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Gutter))
+                    DialogButtons(
+                        Modifier.fillMaxWidth().padding(top = Tokens.Section),
+                        cancel = {
+                            TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = Tokens.Target)) {
+                                Text("Cancel", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            }
+                        },
+                        confirm = {
+                            Button(
+                                onClick = onConfirm, modifier = Modifier.heightIn(min = Tokens.Target),
+                                colors = ButtonDefaults.buttonColors(containerColor = Tokens.Accent, contentColor = Color.White),
+                            ) { Text(confirm, style = MaterialTheme.typography.labelLarge) }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A dialog's two buttons, right-aligned: Cancel then the confirm button on one line when both fit; otherwise
+ * stacked, the confirm button on top.
+ */
+@Composable
+private fun DialogButtons(modifier: Modifier, cancel: @Composable () -> Unit, confirm: @Composable () -> Unit) =
+    androidx.compose.ui.layout.Layout(contents = listOf(cancel, confirm), modifier = modifier) { (c, k), constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val pc = c.first().measure(loose)
+        val pk = k.first().measure(loose)
+        val gap = Tokens.Small.roundToPx()
+        val w = constraints.maxWidth
+        if (pc.width + gap + pk.width <= w) {
+            val h = maxOf(pc.height, pk.height)
+            layout(w, h) {
+                pk.place(w - pk.width, (h - pk.height) / 2)
+                pc.place(w - pk.width - gap - pc.width, (h - pc.height) / 2)
+            }
+        } else {
+            layout(w, pk.height + gap + pc.height) {
+                pk.place(w - pk.width, 0)
+                pc.place(w - pc.width, pk.height + gap)
+            }
+        }
+    }
+
+/** How dark the scrim behind a dialog is. */
+const val SCRIM_ALPHA = 0.6f
+
+/**
+ * A sheet option: at least 76 dp, a 40 dp preview (title at 72 dp from the screen edge), a 17 sp title, a description that wraps, a chevron (or a
  * check when [selected]). [destructive] titles are red.
  */
 @Composable
@@ -523,11 +629,11 @@ fun OptionRow(
     Row(
         modifier.fillMaxWidth().heightIn(min = Tokens.OptionRow)
             .combinedClickableCompat(onClick)
-            .padding(horizontal = Tokens.Gutter, vertical = Tokens.Gap),
+            .padding(vertical = Tokens.Gap),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
     ) {
-        preview?.let { Box(Modifier.size(Tokens.Target), contentAlignment = Alignment.Center) { it() } }
+        preview?.let { Box(Modifier.size(Tokens.Avatar), contentAlignment = Alignment.Center) { it() } }
         Column(Modifier.weight(1f)) {
             Text(
                 title, style = MaterialTheme.typography.titleMedium.copy(fontSize = MaterialTheme.typography.titleMedium.fontSize * 1.0625f),
@@ -556,39 +662,39 @@ fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean 
         colors = ButtonDefaults.buttonColors(containerColor = Tokens.Accent, contentColor = Color.White),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 
-/** A secondary button: dark grey, fully rounded, 52 dp. */
+/** A secondary button: dark grey, fully rounded, 48 dp. */
 @Composable
 fun SecondaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) =
     Button(
-        onClick = onClick, enabled = enabled, modifier = modifier.heightIn(min = 52.dp),
+        onClick = onClick, enabled = enabled, modifier = modifier.heightIn(min = Tokens.Target),
         colors = ButtonDefaults.buttonColors(containerColor = Tokens.Raised, contentColor = Color.White),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 
-/** An outlined white button for actions on a card. */
-@Composable
-fun OutlineButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) =
-    OutlinedButton(
-        onClick = onClick, modifier = modifier.heightIn(min = Tokens.Target),
-        border = BorderStroke(1.dp, Color.White),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-    ) { Text(text, style = MaterialTheme.typography.labelLarge) }
-
-/** A 36 dp chip (48 dp touch target); selected is white on black text. */
+/**
+ * A 36 dp chip, 44 dp tall in layout (at least 48 wide) so wrapped rows sit 8 dp apart; selected is white with
+ * black text.
+ */
 @Composable
 fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        selected = selected,
-        shape = RoundedCornerShape(18.dp),
-        color = if (selected) Color.White else Tokens.Raised,
-        contentColor = if (selected) Color.Black else Color.White,
-        modifier = modifier.heightIn(min = Tokens.Target).padding(vertical = 6.dp),
-    ) {
-        Box(Modifier.heightIn(min = 36.dp).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-            Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+    CompositionLocalProvider(androidx.compose.material3.LocalMinimumInteractiveComponentSize provides 0.dp) {
+        Box(modifier.heightIn(min = CHIP_ROW).widthIn(min = Tokens.Target), contentAlignment = Alignment.Center) {
+            Surface(
+                onClick = onClick,
+                selected = selected,
+                shape = RoundedCornerShape(18.dp),
+                color = if (selected) Color.White else Tokens.Raised,
+                contentColor = if (selected) Color.Black else Color.White,
+            ) {
+                Box(Modifier.heightIn(min = 36.dp).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                }
+            }
         }
     }
 }
+
+/** A chip's height in layout: 36 visual + 4 above and below. */
+private val CHIP_ROW = 44.dp
 
 /** A segmented control: equal segments, the selected one white. */
 @Composable
@@ -613,6 +719,94 @@ fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifie
     }
 }
 
+// ---------------------------------------------------------------- sliders
+
+/**
+ * The app's slider: a white active track, a #616161 inactive track, a 20 dp round thumb and a 48 dp touch
+ * height. [mark] draws a small tick at that value (1x on a speed slider). TalkBack reads [label] and [readout].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DotSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    steps: Int = 0,
+    readout: String? = null,
+    mark: Float? = null,
+    onChange: (Float) -> Unit,
+) {
+    val colors = androidx.compose.material3.SliderDefaults.colors(
+        thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = SLIDER_TRACK,
+        activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent,
+    )
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    androidx.compose.material3.Slider(
+        value = value.coerceIn(range), onValueChange = onChange, valueRange = range, steps = steps,
+        interactionSource = interaction,
+        modifier = modifier.fillMaxWidth().heightIn(min = Tokens.Target).semantics {
+            contentDescription = label
+            readout?.let { stateDescription = it }
+        },
+        colors = colors,
+        thumb = { Box(Modifier.size(20.dp).background(Color.White, CircleShape)) },
+        track = { state ->
+            Box(Modifier.fillMaxWidth().height(20.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                    val f = ((state.value - state.valueRange.start) / (state.valueRange.endInclusive - state.valueRange.start)).coerceIn(0f, 1f)
+                    val y = size.height / 2
+                    val r = size.height / 2
+                    drawLine(SLIDER_TRACK, Offset(r, y), Offset(size.width - r, y), strokeWidth = size.height, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawLine(Color.White, Offset(r, y), Offset(r + (size.width - 2 * r) * f, y), strokeWidth = size.height, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+                if (mark != null) Canvas(Modifier.fillMaxWidth().height(14.dp)) {
+                    val f = ((mark - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+                    val x = 2.dp.toPx() + (size.width - 4.dp.toPx()) * f
+                    drawLine(Tokens.Secondary, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
+                }
+            }
+        },
+    )
+}
+
+/** A slider's inactive track: light enough to see on a card or a sheet. */
+val SLIDER_TRACK = Color(0xFF616161)
+
+// ---------------------------------------------------------------- states
+
+/**
+ * A warning card for a state the user must fix or know about: an icon and words (never colour alone), and one
+ * button. Used for "Alerts are off", "Needs Phone (3)" and the like.
+ */
+@Composable
+fun StatusBanner(text: String, modifier: Modifier = Modifier, button: String? = null, onClick: () -> Unit = {}) =
+    Surface(color = Tokens.Raised, shape = Tokens.CardShape, modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = Tokens.Gutter, end = Tokens.Small, top = Tokens.Small, bottom = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Warning, contentDescription = "Warning", tint = Color.White, modifier = Modifier.size(Tokens.Icon))
+            Text(text, Modifier.weight(1f).padding(horizontal = Tokens.Gutter, vertical = Tokens.Small), style = MaterialTheme.typography.bodyMedium)
+            if (button != null) TextButton(onClick = onClick, modifier = Modifier.heightIn(min = Tokens.Target)) {
+                Text(button, style = MaterialTheme.typography.labelLarge, color = Color.White)
+            }
+        }
+    }
+
+/** Grey placeholder rows while a list loads (a skeleton, so the page doesn't jump when it arrives). */
+@Composable
+fun LoadingRows(count: Int = 4, modifier: Modifier = Modifier) =
+    RowGroup(modifier.semantics { contentDescription = "Loading" }) {
+        repeat(count) { i ->
+            if (i > 0) RowDivider(leading = true)
+            Row(Modifier.fillMaxWidth().height(Tokens.RowTall).padding(horizontal = Tokens.Gutter), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(Tokens.Avatar).background(Tokens.Raised, CircleShape))
+                Column(Modifier.padding(start = Tokens.Gutter).weight(1f)) {
+                    Box(Modifier.fillMaxWidth(0.5f).height(14.dp).background(Tokens.Raised, RoundedCornerShape(7.dp)))
+                    Box(Modifier.padding(top = Tokens.Small).fillMaxWidth(0.8f).height(12.dp).background(Tokens.Raised, RoundedCornerShape(6.dp)))
+                }
+            }
+        }
+    }
+
 // ---------------------------------------------------------------- empty state
 
 /** A dot illustration, one line, at most one button. */
@@ -633,6 +827,9 @@ fun EmptyState(line: String, button: String? = null, glyph: String = "dot", modi
  * asking first.
  */
 class Snacks(private val host: SnackbarHostState, private val scope: CoroutineScope, private val timeoutMs: Long = UNDO_MS) {
+    /** True while a snackbar shows: lists add room under their last row ([Screen], [Page]). */
+    val visible: Boolean get() = host.currentSnackbarData != null
+
     fun show(message: String, undo: (() -> Unit)? = null) {
         scope.launch {
             host.currentSnackbarData?.dismiss()
@@ -659,9 +856,12 @@ class Snacks(private val host: SnackbarHostState, private val scope: CoroutineSc
 
 val LocalSnacks = compositionLocalOf<Snacks?> { null }
 
-/** Provides [LocalSnacks] to [content] and shows the snackbars above the bottom bar. */
+/**
+ * Provides [LocalSnacks] to [content] and shows the snackbars 16 dp from the sides and the bottom, above the
+ * bottom bar when [bottomBar] is showing.
+ */
 @Composable
-fun UndoSnackbarHost(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun UndoSnackbarHost(modifier: Modifier = Modifier, bottomBar: Boolean = false, content: @Composable () -> Unit) {
     val host = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -669,7 +869,7 @@ fun UndoSnackbarHost(modifier: Modifier = Modifier, content: @Composable () -> U
     CompositionLocalProvider(LocalSnacks provides snacks) {
         Box(Modifier.fillMaxSize()) {
             content()
-            SnackbarHost(host, modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = Tokens.BottomBar + Tokens.Small)) { data ->
+            SnackbarHost(host, modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = (if (bottomBar) Tokens.BottomBar else 0.dp) + Tokens.Gutter)) { data ->
                 androidx.compose.material3.Snackbar(
                     data,
                     containerColor = Color.White,

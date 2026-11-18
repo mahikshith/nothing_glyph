@@ -11,6 +11,6 @@ import com.dotforge.ui.design.Screen
 @Composable
 fun AlertsScreen(nav: Nav, setup: Setup, state: LazyListState) {
     Screen("Alerts", state = state) {
-        item { Hint("Alerts are being rebuilt.") }
+        item { Hint("Coming in the next update.") }
     }
 }

@@ -16,6 +16,7 @@ import com.dotforge.ui.design.FullSheet
 import com.dotforge.ui.design.Hint
 import com.dotforge.ui.design.ListRow
 import com.dotforge.ui.design.RowGroup
+import com.dotforge.ui.design.RowDivider
 import com.dotforge.ui.design.Tokens
 import com.dotforge.ui.design.Page as PageLayout
 
@@ -55,7 +56,10 @@ fun LicencesPage(nav: Nav) {
         item {
             Hint("DotForge is built on these. Tap one to read it.")
             RowGroup {
-                LICENCES.forEachIndexed { i, l -> ListRow(l.title, subtitle = l.subtitle, trailing = { Chevron() }) { open = i } }
+                LICENCES.forEachIndexed { i, l ->
+                    if (i > 0) RowDivider()
+                    ListRow(l.title, subtitle = l.subtitle, trailing = { Chevron() }) { open = i }
+                }
             }
         }
     }

@@ -24,6 +24,6 @@ object Drafts {
 @Composable
 fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav) {
     Page("Editor", onBack = nav::pop) {
-        item { Hint("The editor is being rebuilt.") }
+        item { Hint("Coming in the next update.") }
     }
 }

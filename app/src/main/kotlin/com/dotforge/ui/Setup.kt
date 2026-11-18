@@ -424,6 +424,7 @@ fun SetupSheets(setup: Setup) {
     }
 }
 
+/** A permission sheet in the design system: 16 dp margins, the red main button, and a full-width Not now. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Sheet(
@@ -436,16 +437,19 @@ private fun Sheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Surface1,
+        containerColor = com.dotforge.ui.design.Tokens.Sheet,
+        tonalElevation = 0.dp,
+        shape = com.dotforge.ui.design.Tokens.SheetShape,
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp).navigationBarsPadding()) {
-            Text(title, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-            Text(body, color = Muted, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
-            PrimaryButton(primary.first, Modifier.fillMaxWidth(), onClick = primary.second)
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = onDismiss) { Text("Not now", color = Color.White) }
-                secondary?.let { (label, action) -> TextButton(onClick = action) { Text(label, color = Color.White) } }
-            }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp).navigationBarsPadding()) {
+            Text(title, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
+            Text(
+                body, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, color = com.dotforge.ui.design.Tokens.Secondary,
+                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
+            )
+            com.dotforge.ui.design.PrimaryButton(primary.first, Modifier.fillMaxWidth(), onClick = primary.second)
+            secondary?.let { (label, action) -> com.dotforge.ui.design.SecondaryButton(label, Modifier.fillMaxWidth().padding(top = 8.dp), onClick = action) }
+            com.dotforge.ui.design.SecondaryButton("Not now", Modifier.fillMaxWidth().padding(top = 8.dp), onClick = onDismiss)
         }
     }
 }

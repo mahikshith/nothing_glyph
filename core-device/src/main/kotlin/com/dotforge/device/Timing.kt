@@ -43,7 +43,8 @@ data class Timing(
     val remindMinutes: Int = 0,
     /**
      * For an animation shown [ShowFor.UNTIL_CHECKED]: play 3 loops, then hold the first frame (moving again
-     * once a minute) instead of moving all the time. Saves battery and stops flicker on the desk.
+     * once a minute) instead of moving all the time. Saves battery and stops flicker on the desk. Built in: the
+     * panel doesn't offer it (How it works explains it).
      */
     val rest: Boolean = true,
 ) {
@@ -72,7 +73,9 @@ data class Timing(
         val SPEED_NAMES = listOf("Slow", "Normal", "Fast")
         val SECONDS_CHIPS = listOf(5, 10, 30)
         val REMIND_CHIPS = listOf(1, 5, 15)
-        val BRIGHTNESS_CHIPS = listOf(25, 50, 100)
+        val BRIGHTNESS_CHIPS = listOf(25, 50, 75, 100)
+        /** The speed slider's stops: even steps on a log scale, so 1x sits in the middle. */
+        val SPEED_STOPS = listOf(0.25f, 0.35f, 0.5f, 0.7f, 0.85f, 1f, 1.25f, 1.5f, 2f, 3f, 4f)
     }
 }
 

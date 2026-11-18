@@ -9,7 +9,7 @@ import androidx.compose.ui.semantics.semantics
 import com.dotforge.ui.Nav
 import com.dotforge.ui.Page
 import com.dotforge.ui.Setup
-import com.dotforge.ui.design.Avatar
+import com.dotforge.ui.design.PersonAvatar
 import com.dotforge.ui.design.Hint
 import com.dotforge.ui.design.Screen
 
@@ -17,11 +17,11 @@ import com.dotforge.ui.design.Screen
 @Composable
 fun HomeScreen(nav: Nav, setup: Setup, state: LazyListState) {
     Screen("DotForge", state = state, actions = { ProfileButton { nav.push(Page.Profile) } }) {
-        item { Hint("Home is being rebuilt.") }
+        item { Hint("Coming in the next update.") }
     }
 }
 
 /** The round profile avatar at the top right of Home. */
 @Composable
 fun ProfileButton(onClick: () -> Unit) =
-    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = "Profile and settings" }) { Avatar("D") }
+    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = "Profile and settings" }) { PersonAvatar() }

@@ -9,6 +9,6 @@ import com.dotforge.ui.design.Page
 @Composable
 fun LibraryScreen(nav: Nav) {
     Page("Library", onBack = nav::pop) {
-        item { Hint("The library is being rebuilt.") }
+        item { Hint("Coming in the next update.") }
     }
 }

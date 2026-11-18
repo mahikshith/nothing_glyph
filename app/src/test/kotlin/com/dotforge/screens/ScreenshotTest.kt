@@ -74,10 +74,14 @@ abstract class ScreenshotTest {
                 // Robolectric leaves a centred dialog window at 0,0: centre it the way the window manager would
                 val lp = v.layoutParams as? android.view.WindowManager.LayoutParams
                 if (lp != null && v !== base && (lp.gravity and android.view.Gravity.VERTICAL_GRAVITY_MASK) != android.view.Gravity.BOTTOM &&
-                    v.height < base.height && at[1] == origin[1]
+                    v.height < base.height
                 ) {
                     at[0] = origin[0] + (base.width - v.width) / 2
                     at[1] = origin[1] + (base.height - v.height) / 2
+                }
+                // the window manager dims everything under a window that asks for it (dialogs): draw that scrim
+                if (lp != null && v !== base && lp.flags and android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND != 0) {
+                    canvas.drawColor(android.graphics.Color.argb((lp.dimAmount.coerceIn(0f, 1f) * 255).toInt(), 0, 0, 0))
                 }
                 canvas.save()
                 canvas.translate((at[0] - origin[0]).toFloat(), (at[1] - origin[1]).toFloat())

@@ -10,6 +10,6 @@ import com.dotforge.ui.design.Screen
 @Composable
 fun StudioScreen(nav: Nav, state: LazyListState) {
     Screen("Studio", state = state) {
-        item { Hint("Studio is being rebuilt.") }
+        item { Hint("Coming in the next update.") }
     }
 }

@@ -105,6 +105,9 @@ object BackupStore {
         return size
     }
 
+    /** About how big a backup would be now (it is zipped, so usually smaller): for "Back up now · 12 KB". */
+    fun estimateBytes(ctx: Context): Long = Backup.write(ctx.filesDir, settings(ctx), java.io.OutputStream.nullOutputStream())
+
     fun read(input: InputStream): Backup.Contents = input.use { Backup.read(it) }
 
     /** Restores [c], then restarts the app so every list loads the restored files. */

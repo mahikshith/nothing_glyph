@@ -7,6 +7,7 @@ import com.dotforge.ui.design.Chevron
 import com.dotforge.ui.design.Hint
 import com.dotforge.ui.design.ListRow
 import com.dotforge.ui.design.RowGroup
+import com.dotforge.ui.design.RowDivider
 import com.dotforge.ui.design.Page as PageLayout
 
 /** Temporary: every screen from before the redesign, so nothing is lost until each is rebuilt. */
@@ -31,7 +32,12 @@ fun OldScreensPage(nav: Nav) {
     PageLayout("Old screens", onBack = nav::pop) {
         item {
             Hint("These go away as the new screens replace them.")
-            RowGroup { rows.forEach { (title, page) -> ListRow(title, trailing = { Chevron() }) { nav.push(page) } } }
+            RowGroup {
+                rows.forEachIndexed { i, (title, page) ->
+                    if (i > 0) RowDivider()
+                    ListRow(title, trailing = { Chevron() }) { nav.push(page) }
+                }
+            }
         }
     }
 }
