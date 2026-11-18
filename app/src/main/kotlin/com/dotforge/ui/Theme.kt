@@ -32,13 +32,41 @@ import com.dotforge.device.Frame
 import com.dotforge.device.PixelFont
 import kotlinx.coroutines.delay
 
-val NothingRed = Color(0xFFD71921)
+/** App skins: the accent colour on pure black. All free. */
+enum class Skin(val label: String, val accent: Color) {
+    RED("Nothing red", Color(0xFFD71921)),
+    WHITE("Mono", Color(0xFFF2F2F2)),
+    GREEN("Signal green", Color(0xFF2BD96B)),
+    AMBER("Amber", Color(0xFFFFB000)),
+    BLUE("Ice blue", Color(0xFF5AB8FF)),
+}
+
+/** The chosen skin; changing it recolours the app at once. */
+object Skins {
+    private const val KEY = "skin"
+    private var prefs: android.content.SharedPreferences? = null
+    var current by mutableStateOf(Skin.RED)
+        private set
+
+    fun init(p: android.content.SharedPreferences) {
+        prefs = p
+        current = Skin.entries.firstOrNull { it.name == p.getString(KEY, null) } ?: Skin.RED
+    }
+
+    fun set(s: Skin) {
+        prefs?.edit()?.putString(KEY, s.name)?.apply()
+        current = s
+    }
+}
+
+/** The accent colour (named for the default skin). */
+val NothingRed: Color get() = Skins.current.accent
 val Muted = Color(0xFF9A9A9A)
 val Surface1 = Color(0xFF121212)
 val Surface2 = Color(0xFF1E1E1E)
 private val DotOff = Color(0xFF262626)
 
-private val Scheme = darkColorScheme(
+private fun scheme() = darkColorScheme(
     primary = Color.White,
     onPrimary = Color.Black,
     secondary = Color.White,
@@ -72,7 +100,7 @@ val MonoSmall = TextStyle(fontFamily = Mono, fontSize = 12.sp)
 
 @Composable
 fun DotForgeTheme(content: @Composable () -> Unit) =
-    MaterialTheme(colorScheme = Scheme, typography = AppTypography, content = content)
+    MaterialTheme(colorScheme = scheme(), typography = AppTypography, content = content)
 
 /** Dot-matrix title drawn with the matrix's own 5x5 font. */
 @Composable

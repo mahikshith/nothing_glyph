@@ -25,6 +25,7 @@ import com.dotforge.notify.FaceDownSensor
 import com.dotforge.notify.MediaRingSettings
 import com.dotforge.system.SystemGlyphSettings
 import com.dotforge.system.SystemGlyphs
+import com.dotforge.ui.Skins
 import com.dotforge.ringtones.RingtoneLibrary
 import com.dotforge.rules.FiltersRepository
 import com.dotforge.rules.LogEntry
@@ -145,6 +146,7 @@ object AppGraph {
 
     internal fun init(app: Application) {
         prefs = app.getSharedPreferences("dotforge", Context.MODE_PRIVATE)
+        Skins.init(prefs)
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
         device = MatrixDevices.create(app, Channel.APP)
         filters = FiltersRepository(File(app.filesDir, "filters.json"), legacySpam = File(app.filesDir, "spam.json"))

@@ -122,6 +122,16 @@ fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             }
         }
 
+        GroupTitle("SKIN")
+        Skin.entries.chunked(2).forEach { row ->
+            TileRow {
+                row.forEach { s ->
+                    ChoiceCard(s.label, if (s == Skin.RED) "The default" else "Accent colour", s == Skins.current, Modifier.weight(1f)) { Skins.set(s) }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+
         GroupTitle("ABOUT")
         ValueRow("DotForge", ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName.orEmpty())
         Text("Everything runs on this phone. No account, no ads, no tracking.", color = Muted, fontSize = 13.sp)
