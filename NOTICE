@@ -33,11 +33,27 @@ Code adapted from Apache-2.0 licensed projects:
      non-call, re-posts updated in place, never preempting what is playing, and the per-conversation
      re-post cooldown (from PlaybackQueue.kt and the cooldown in its GlyphNotificationListener.kt).
      Changed: hold-until-read / until-unlock alerts, cycle-boundary switching, no staleness expiry.
-   - app/.../rules/Rules.kt (RuleEngine.match, RuleEngine.regex): match by specificity tier rather than list
-     order, and the compiled-regex cache (from rules/RuleMatcher.kt). Changed: contact tier, manual
-     priority tiebreak, any/all/none keyword modes, match explanations.
+   - app/.../rules/Rules.kt (RuleEngine.decide, RuleEngine.regex): match by specificity tier rather than list
+     order, and the compiled-regex cache (from rules/RuleMatcher.kt). Changed: person and caller tiers, allow
+     and blocking rules decided before showing ones, manual priority tiebreak, match explanations.
    - app/.../notify/GlyphNotificationListener.kt: ringing calls posted as group summaries are kept (from its
      GlyphNotificationListener.kt).
+
+Data and approaches (no code copied):
+
+6. CallShield - https://github.com/SysAdminDoc/CallShield
+   MIT License, Copyright (c) SysAdminDoc. The weekly spam list (app/.../calls/SpamListStore.kt) downloads
+   its data/spam_numbers.txt at run time (it is not bundled): "#" header lines with the database version and
+   date, then one E.164 number per line. CallShield builds it from US FCC and FTC public complaint data and
+   community reports. Its .sig signatures are not checked.
+
+7. SpamBlocker - https://github.com/aj3423/SpamBlocker (MIT) and Corta-Spam -
+   https://github.com/cpinan/Corta-Spam (MIT): references for call screening behaviour (repeated callers let
+   through, failed caller ID verification, number prefix rules, allow rules before blocking ones).
+
+8. libphonenumber metadata - https://github.com/google/libphonenumber (Apache License 2.0), read through
+   python-phonenumbers 9.0.43: the country calling codes and national trunk prefixes in
+   app/.../calls/PhoneNumbers.kt were generated from it.
 
 Not included in this repository:
 
