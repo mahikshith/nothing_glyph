@@ -55,6 +55,14 @@ Data and approaches (no code copied):
    python-phonenumbers 9.0.43: the country calling codes and national trunk prefixes in
    app/.../calls/PhoneNumbers.kt were generated from it.
 
+9. Locale / Tasker plugin interface - https://www.twofortyfouram.com (Locale Developer Platform documentation):
+   app/.../automation/ follows its public EDIT_SETTING / FIRE_SETTING intents and extras. No code from the
+   plugin libraries (Apache-2.0) or any GPL plugin is used.
+
+10. Community Glyph Toys on the Toys page (catalog/toys.json): each listed repository is MIT or Apache-2.0
+   licensed (checked again at run time). DotForge links to their GitHub Releases and installs the APK the
+   user picks; no toy code or APK is bundled.
+
 Not included in this repository:
 
 - Nothing Glyph Matrix SDK (glyph-matrix-sdk-2.0.aar), (c) Nothing Technology Limited, from

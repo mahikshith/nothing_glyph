@@ -1,7 +1,8 @@
 # DotForge
 
 A private, personal Android app for the Nothing Phone (3) Glyph Matrix (25x25 grid, 489 round LEDs):
-notification glyphs with rules and filters, call screening and a spam filter for calls and messages, progress rings, Glyph Toys, a pixel editor and a torch, plus a
+notification glyphs with rules and filters, call screening and a spam filter for calls and messages, progress rings, Glyph Toys (its own and
+community toys from GitHub), automation from other apps and Tasker, a pixel editor and a torch, plus a
 Diagnostics bench for checking the hardware. Package `com.dotforge`.
 
 ## Screens
@@ -11,8 +12,33 @@ Three tabs; detail pages open full screen with a back arrow.
 - **Glyph**: live matrix preview and brightness, then feature tiles. *Notifications*, *Calls* and *Spam filter*
   open their pages (below).
   *Live*: Progress rings, Torch and Music visualiser (switches; hold Music visualiser to pick Bars, Ring pulse
-  or Radial spectrum). *Toys*: tap for how to add it in Glyph Toys, hold for its
-  settings. *Customise*: Ringtones (below); Essential Key, App integrations and Import are marked Coming soon.
+  or Radial spectrum). *Toys*: All toys opens the Toys page (below); each DF toy: tap for how to add it in
+  Glyph Toys, hold for its settings. *Customise*: Ringtones and App integrations (below); Essential Key is
+  marked Coming soon (no supported route yet, see *Essential Key and Glyph Button*); Import is Coming soon.
+- **Toys** page: *Installed* lists every Glyph Toy on the phone, from any app (services answering
+  `com.nothing.glyph.TOY`), with its name, image and summary from its meta-data and its app; Open Nothing's toy
+  settings opens Nothing's toy manager (`com.nothing.glyph.TOYS_MANAGER`, then its activity by name, then
+  Glyph Interface settings, then Settings). *Get toys*: toys their makers publish as APKs in GitHub Releases,
+  from a curated list (`catalog/toys.json`, bundled in the app and refreshed from this repository's raw copy)
+  that keeps only MIT and Apache-2.0 repositories; the licence is checked again with GitHub's licence API. Each
+  row shows the latest release's version, APK size and licence; Install downloads the APK for this phone
+  (another phone's APK is never picked) and installs it with a PackageInstaller session. "Install unknown
+  apps" is asked then, with Not now; Android confirms each install, and Nothing's toy manager opens afterwards
+  so the toy can be switched on. Toys are linked, not bundled; DotForge doesn't vet their code. *Playground*
+  opens Nothing Playground in the browser.
+- **Integrations** page (Glyph > App integrations):
+  - *Media*: Media progress ring (off by default): while music or a video plays, its position fills the outer
+    ring; option Only when locked or face down. Sessions come from MediaSessionManager through the notification
+    listener, so it needs notification access only.
+  - *Progress bars*: the Progress rings switch, and the "Show progress" rules that pick which apps' progress
+    bars (classic `setProgress` or Android 16 ProgressStyle / Live Updates, ongoing or not) reach the ring. The
+    preset "Progress bars" rule covers any app; edit it or add rules to choose apps.
+  - *Tasker*: a Locale / Tasker action plugin (Tasker, MacroDroid, Automate: Plugin > DotForge) for the same
+    actions as the automation API. Its saved settings are signed with a key kept on the phone, so only actions
+    made on DotForge's own plugin screen run; the switch turns the plugin off.
+  - *Allow apps*: apps that sent the automation API a command (below), each with a switch; nothing runs until
+    it is on. *For app makers* lists the actions and extras; the last command and its result show here.
+
 - **Notifications** page, top to bottom:
   - *Rules* (the ones that show a glyph): each reads as a sentence, "When [WhatsApp] and [sender starts with
     "+44"], show [Pulse] until [read] with [no sound] [no vibration]"; every part is a chip to tap. Preset
@@ -100,6 +126,38 @@ Three tabs; detail pages open full screen with a back arrow.
 Permissions are asked when a feature first needs them, always with "Not now". Notification access for a
 sideloaded app is blocked by Android 13+ restricted settings: if access is still missing after the settings
 page, the app shows the unlock steps (App info > menu > Allow restricted settings) with a button to App info.
+
+## Automation API
+
+Broadcasts to `com.dotforge/.automation.AutomationReceiver`, which requires the normal-level permission
+`com.dotforge.permission.AUTOMATE` (the sender declares `<uses-permission>`). DotForge obeys only apps the
+user allowed on the Integrations page; an app shows there after its first command. The sender is the package
+Android reports (Android 14+, when the sender shares its identity with `BroadcastOptions`), otherwise the
+creator of a PendingIntent the sender puts in the extra `caller`; a broadcast with neither is ignored.
+
+| Action | Extras |
+| --- | --- |
+| `com.dotforge.action.PLAY_COMPOSITION` | `composition`: a saved composition's title or content URI (sound at media volume, lights at 30 fps) |
+| `com.dotforge.action.SHOW_GLYPH` | `glyph`: a style (Pulse, Ring chase, Flash, Sparkle, Comet, ...) or a saved design's name, or `text` (up to 64 letters, scrolls); `seconds` 1-60, default 5 |
+| `com.dotforge.action.VISUALISER` | `on`: true / false |
+| `com.dotforge.action.SET_RULE` | `rule`: a rule's name or id; `on`: true / false |
+
+Booleans and numbers may be strings ("on", "off", "1", "10"). Starting the visualiser from the background can
+be refused by Android (microphone foreground-service rules); the result line on the Integrations page says so.
+
+## Essential Key and Glyph Button
+
+Deferred: there is no clean route yet. Findings (Phone (3) firmware notes and the Glyph Matrix SDK):
+
+- **Glyph Button**: the firmware reads it through an internal event channel (`nt_glyph_touch`, handled by
+  `NtGlyphImpl`) and passes presses only to the active Glyph Toy (`action_down`, `action_up`, `change` over
+  the toy's Messenger). The SDK has no other button API. DotForge already uses that route: its DF toys
+  handle short, long and double presses. Nothing else can listen without hooking system code.
+- **Essential Key**: no Glyph or SDK code is tied to it (`com.nothing.feature.essential.key`), and Nothing
+  documents no intent or API for it. The routes community apps use are an accessibility service watching key
+  events (taps can be counted, but a single press still opens Essential Space) plus disabling Nothing's
+  Essential Space app over ADB or Shizuku. Both are workarounds the brief rules out, so the tile stays Coming soon until Nothing offers a
+  supported way.
 
 ## Modules
 
@@ -231,9 +289,22 @@ Install the APK and open DotForge.
    Not now). The matrix should follow the music within a second and go back when it stops; hold the tile for
    the styles. If the notification says it uses the microphone, Android gave no music data on this phone.
    Try the Music on Glyph Quick Settings tile, and add DF Music in Glyph Toys (long press changes style).
-11. **Diagnostics (Settings > Advanced).** Driver test bench, Nothing settings keys, ringtone reader and toy
+11. **Toys page.** Glyph > All toys: Installed lists DF toys and any other toys with their images; Open
+   Nothing's toy settings lands in Nothing's toy manager. Get toys: rows show version, size and licence; tap
+   Install on one (Install unknown apps is asked once, with Not now), confirm Android's dialog, and check the
+   toy manager opens and the new toy appears under Installed. Playground opens in the browser.
+12. **Integrations.** Glyph > App integrations. Switch on Media progress ring and play music: the outer ring
+   fills as the track plays and goes dark on pause; with Only when locked or face down it shows only then.
+   Progress bars: a download fills the ring; edit the Progress bars rule to one app and check others stop.
+   Tasker: add an action Plugin > DotForge, pick Show a glyph (or text), run it: the matrix shows it. Edit the
+   action again and it opens with the saved choice. Automation API: from adb,
+   `adb shell am broadcast -a com.dotforge.action.SHOW_GLYPH --es text hi -n com.dotforge/.automation.AutomationReceiver`
+   is not delivered (the shell doesn't hold the permission).
+   A test app that declares the permission and adds a `caller` PendingIntent shows under Allow apps; switch it
+   on and its commands run.
+13. **Diagnostics (Settings > Advanced).** Driver test bench, Nothing settings keys, ringtone reader and toy
    event log.
-12. **Firmware overlap.** While a rule or the torch shows, trigger a call / Nothing notification glyph; the
+14. **Firmware overlap.** While a rule or the torch shows, trigger a call / Nothing notification glyph; the
    DotForge frame should come back about 1.5 s after the notification and on unlock. Turn Glyph off and set a
    bedtime: notifications should stop lighting (if the settings are readable).
 
@@ -244,3 +315,6 @@ Install the APK and open DotForge.
 - Code adapted from MIT- and Apache-2.0-licensed projects is listed in `NOTICE` (Apache licence text in
   `licenses/`).
 - Nothing setting key names and formats come from inspecting Phone (3) firmware behaviour; no Nothing code is included.
+- The Tasker / Locale plugin is written from Locale's public plugin documentation (the EDIT_SETTING /
+  FIRE_SETTING intents and their extras); no plugin library code is used.
+- Toys on the Toys page are other people's apps, linked from their GitHub Releases at run time, not bundled.

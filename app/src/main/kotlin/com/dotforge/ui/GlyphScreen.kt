@@ -186,7 +186,7 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
 
         GroupTitle("CUSTOMISE")
         TileRow {
-            FeatureTile("Essential Key", "Remap the side key", Modifier.weight(1f), comingSoon = true)
+            FeatureTile("Essential Key", "No supported way yet", Modifier.weight(1f), comingSoon = true)
             FeatureTile("Ringtones", "Import, make and edit glyph ringtones", Modifier.weight(1f), onClick = { nav.push(Page.Ringtones) })
         }
         TileRow {

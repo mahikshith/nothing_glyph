@@ -108,5 +108,12 @@ fun IntegrationsPage(nav: Nav, setup: Setup) {
                 style = MonoSmall, color = Muted,
             )
         }
+
+        GroupTitle("ESSENTIAL KEY")
+        Text(
+            "Nothing gives apps no supported way to use the Essential Key yet, so DotForge leaves it alone. " +
+                "The Glyph Button reaches Glyph Toys only; DotForge's toys use it.",
+            color = Muted, fontSize = 13.sp,
+        )
     }
 }
