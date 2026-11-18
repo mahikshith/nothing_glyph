@@ -45,9 +45,18 @@ abstract class ScreenshotTest {
     abstract val fontScale: Float
 
     private val out: File? = System.getProperty("screens.out")?.let(::File)
+    private var shown = false
 
     /** Shows [content] under the app theme at this test's font scale. */
     fun show(reduceMotion: Boolean = false, content: @Composable () -> Unit) {
+        // a second show in one test: clear the first, so its sheets and menus (their own windows) close
+        if (shown) {
+            scenario!!.onActivity { it.setContent { } }
+            rule.waitForIdle()
+            rule.mainClock.advanceTimeBy(1_000)
+            rule.waitForIdle()
+        }
+        shown = true
         scenario!!.onActivity {
             it.setContent { DotForgeTheme { CompositionLocalProvider(LocalReduceMotion provides reduceMotion) { content() } } }
         }
