@@ -97,3 +97,14 @@ Animation library (core-device/.../library, assets in core-device/src/main/resou
 - Some effect generators are re-implemented in Kotlin from the effect descriptions of "Glyph" by Spandan Kumar
   (MIT, Copyright (c) 2026 Spandan Kumar) and from the Perlin-noise cloud idea of FunkyClouds by Stefan Petrick
   (MIT); no source code was copied.
+
+Test photos (core-device/src/test/resources/photos, used only by tests and screenshots, not shipped in the app):
+
+- face.jpg: "Sally Ride (1984)", NASA official portrait, public domain (work of the US federal government).
+  https://commons.wikimedia.org/wiki/File:Sally_Ride_(1984).jpg
+- pet.jpg: "Smithfield dog, NZ", CC0 1.0. https://commons.wikimedia.org/wiki/File:Smithfield_dog,_NZ.jpg
+- logo.jpg: "MUTCD R1-1" (STOP sign), Federal Highway Administration, public domain (US federal government).
+  https://commons.wikimedia.org/wiki/File:MUTCD_R1-1.svg
+- landscape.jpg: "Landscape-mountains-nature-clouds (24326664915)", CC0 1.0.
+  https://commons.wikimedia.org/wiki/File:Landscape-mountains-nature-clouds_(24326664915).jpg
+All four were scaled down (at most 400 px, JPEG) from the Wikimedia Commons 500 px thumbnails.

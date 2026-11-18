@@ -36,6 +36,8 @@ android {
     }
     // NOTICE and licenses/ ship in the app (Profile > About > Licences); copied, never duplicated in src/
     sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/notices"))
+    // the CC0 / public-domain test photos live with core-device's tests; the Photo screenshots use them too
+    sourceSets["test"].resources.srcDir("../core-device/src/test/resources")
 }
 
 val copyNotices by tasks.registering(Sync::class) {

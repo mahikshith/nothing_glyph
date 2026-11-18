@@ -16,3 +16,9 @@ dependencies {
     api(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }
+
+// Photo-style contact sheets (PhotoStyleSheets) are written only with -Pscreens=<folder>, like the app's screenshots.
+tasks.withType<Test>().configureEach {
+    (project.findProperty("screens") as String?)?.let { systemProperty("screens.out", it) }
+    systemProperty("java.awt.headless", "true")
+}

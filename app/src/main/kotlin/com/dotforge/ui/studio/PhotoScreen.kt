@@ -5,6 +5,20 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.dotforge.ui.design.GlyphToggle
+import com.dotforge.ui.design.LoadFailed
+import com.dotforge.ui.design.Supported
+import com.dotforge.ui.design.edgeFade
+import com.dotforge.ui.editor.PhoneState
+import com.dotforge.ui.editor.rememberGlyphState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -121,17 +135,24 @@ import kotlin.math.roundToInt
 class PhotoSession(
     val profile: DeviceProfile,
     val name: String,
-    val pictures: List<Picture>,
+    pictures: List<Picture>,
     /** Each picture's time as a frame (several photos: 500 ms; a GIF or video: its own). */
-    val delays: List<Int>,
+    delays: List<Int>,
     start: PhotoSettings = PhotoSettings(),
     /** The saved photo design being re-tuned, or null. */
     val existing: Design? = null,
 ) {
+    /** One undo step: the settings and the frame list (several photos can be moved and removed). */
+    private data class Step(val settings: PhotoSettings, val pictures: List<Picture>, val delays: List<Int>)
+
     var settings by mutableStateOf(start)
         private set
-    private val undos = ArrayList<PhotoSettings>()
-    private val redos = ArrayList<PhotoSettings>()
+    var pictures by mutableStateOf(pictures.toList())
+        private set
+    var delays by mutableStateOf(delays.toList())
+        private set
+    private val undos = ArrayList<Step>()
+    private val redos = ArrayList<Step>()
     private var lastKey: String? = null
     var version by mutableIntStateOf(0)
         private set
@@ -141,46 +162,73 @@ class PhotoSession(
     val canRedo: Boolean get() = redos.isNotEmpty()
     val changed: Boolean get() = undos.isNotEmpty()
 
+    private fun now() = Step(settings, pictures, delays)
+    private fun apply(st: Step) { settings = st.settings; pictures = st.pictures; delays = st.delays }
+    private fun push(key: String?) {
+        if (key == null || key != lastKey) { undos += now(); if (undos.size > 100) undos.removeAt(0) }
+        redos.clear()
+        lastKey = key
+    }
+
     /** A change; [key] names the control so one drag of one slider is one undo step. */
     fun set(s: PhotoSettings, key: String? = null) {
         val next = s.clamped()
         if (next == settings) return
-        if (key == null || key != lastKey) { undos += settings; if (undos.size > 100) undos.removeAt(0) }
-        redos.clear()
-        lastKey = key
+        push(key)
         settings = next
+        version++
+    }
+
+    /** Several photos: moves frame [from] to [to] (0-based). */
+    fun move(from: Int, to: Int) {
+        if (from == to || from !in pictures.indices || to !in pictures.indices) return
+        push(null)
+        pictures = pictures.toMutableList().apply { add(to, removeAt(from)) }
+        delays = delays.toMutableList().apply { add(to, removeAt(from)) }
+        version++
+    }
+
+    /** Several photos: takes frame [i] out; the last one always stays. */
+    fun remove(i: Int) {
+        if (pictures.size <= 1 || i !in pictures.indices) return
+        push(null)
+        pictures = pictures.toMutableList().apply { removeAt(i) }
+        delays = delays.toMutableList().apply { removeAt(i) }
         version++
     }
 
     fun undo() {
         val prev = undos.removeLastOrNull() ?: return
-        redos += settings
-        settings = prev
+        redos += now()
+        apply(prev)
         lastKey = null
         version++
     }
 
     fun redo() {
         val next = redos.removeLastOrNull() ?: return
-        undos += settings
-        settings = next
+        undos += now()
+        apply(next)
         lastKey = null
         version++
     }
 
-    // samples depend only on the crop: kept per picture so style and adjust changes are instant
-    private val samples = HashMap<Int, Pair<PhotoCrop, DoubleArray>>()
+    // samples depend only on the picture and the crop: kept per picture so style and adjust changes are instant
+    private val samples = java.util.IdentityHashMap<Picture, Pair<PhotoCrop, DoubleArray>>()
 
-    private fun samplesOf(i: Int, crop: PhotoCrop): DoubleArray = synchronized(samples) {
-        samples[i]?.takeIf { it.first == crop }?.second ?: PhotoDots.sample(profile, pictures[i], crop).also { samples[i] = crop to it }
+    private fun samplesOf(pic: Picture, crop: PhotoCrop): DoubleArray = synchronized(samples) {
+        samples[pic]?.takeIf { it.first == crop }?.second ?: PhotoDots.sample(profile, pic, crop).also { samples[pic] = crop to it }
     }
 
-    fun frame(i: Int = 0, s: PhotoSettings = settings): Frame = PhotoDots.render(profile, samplesOf(i, s.crop), s)
+    fun frame(i: Int = 0, s: PhotoSettings = settings): Frame = PhotoDots.render(profile, samplesOf(pictures[i], s.crop), s)
 
     /** What it becomes: one frame, or a frame per picture. */
-    fun render(s: PhotoSettings = settings): Animation =
-        if (!frames) Animation.single(frame(0, s), STILL_MS)
-        else Animation(profile, pictures.indices.map { i -> AnimFrame(frame(i, s), delays[i]) })
+    fun render(s: PhotoSettings = settings): Animation {
+        val pics = pictures
+        val ds = delays
+        return if (pics.size <= 1) Animation.single(PhotoDots.render(profile, samplesOf(pics[0], s.crop), s), STILL_MS)
+        else Animation(profile, pics.indices.map { i -> AnimFrame(PhotoDots.render(profile, samplesOf(pics[i], s.crop), s), ds[i]) })
+    }
 
     fun motion(m: PhotoMotion, count: Int, frameMs: Int): Animation = PhotoDots.motion(profile, pictures[0], settings, m, count, frameMs)
 
@@ -198,7 +246,7 @@ sealed interface PhotoLoad {
 }
 
 /** The Photo screen's tabs, and what a test opens it on. */
-enum class PhotoTab(val label: String) { CROP("Crop"), STYLE("Style"), ADJUST("Adjust") }
+enum class PhotoTab(val label: String) { CROP("Crop"), STYLE("Style"), ADJUST("Adjust"), FRAMES("Frames") }
 
 /** The Adjust tab's controls: one is shown at a time so the screen never scrolls. */
 enum class PhotoControl(val label: String) {
@@ -288,25 +336,41 @@ fun PhotoScreen(
     target: PhotoTarget? = null,
 ) {
     val ctx = LocalContext.current
-    val state by produceState(startLoad ?: PhotoLoad.Loading("Reading the photo…")) {
-        if (startLoad != null) return@produceState
+    // "Choose another photo" swaps the source and reads again
+    var src by remember { mutableStateOf(key) }
+    var reopen by remember { mutableStateOf(designId) }
+    var tries by remember { mutableIntStateOf(0) }
+    var unusable by remember { mutableStateOf<String?>(null) }
+    val state by produceState(startLoad ?: PhotoLoad.Loading("Reading the photo…"), tries) {
+        if (startLoad != null && tries == 0) return@produceState
+        unusable?.let { value = PhotoLoad.Failed(it); return@produceState }
+        value = PhotoLoad.Loading("Reading the photo…")
         value = try {
-            val d = AppGraph.designs.get(designId)
+            val d = AppGraph.designs.get(reopen)
             val s = if (d != null) withContext(Dispatchers.IO) { PhotoLoader.reopen(d) }
             else {
-                val src = MediaDrafts.get(key) ?: throw MediaLoader.CantRead(Picked.CANT_READ)
-                withContext(Dispatchers.IO) { PhotoLoader.load(ctx, src) { value = it } }
+                val m = MediaDrafts.get(src) ?: throw MediaLoader.CantRead(Picked.CANT_READ)
+                withContext(Dispatchers.IO) { PhotoLoader.load(ctx, m) { value = it } }
             }
             PhotoLoad.Ready(s)
         } catch (e: MediaLoader.CantRead) {
-            PhotoLoad.Failed(e.message ?: Picked.CANT_READ)
+            PhotoLoad.Failed(e.message?.takeIf { it != Picked.CANT_READ } ?: CANT_READ_PHOTO)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (t: Throwable) {
-            PhotoLoad.Failed(Picked.CANT_READ)
+            PhotoLoad.Failed(CANT_READ_PHOTO)
         }
     }
-    fun leave() { MediaDrafts.drop(key); if (target != null) target.onClose() else nav.pop() }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val m = Picked.media(ctx, uris)
+        MediaDrafts.drop(src)
+        reopen = null
+        if (m == null) { unusable = "Pick several photos to make frames, or one GIF or video."; src = null }
+        else { unusable = null; src = MediaDrafts.put(m) }
+        tries++
+    }
+    fun leave() { MediaDrafts.drop(src); if (target != null) target.onClose() else nav.pop() }
     BackHandler(onBack = ::leave)
     UndoSnackbarHost {
         Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -322,32 +386,34 @@ fun PhotoScreen(
                 }
                 is PhotoLoad.Failed -> {
                     PhotoTopBar(null, onClose = ::leave)
-                    Column(Modifier.weight(1f).fillMaxWidth().padding(Tokens.Gutter), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(DfIcons.Photo, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(48.dp))
-                        Text(st.text, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Tokens.Gap))
-                        SecondaryButton("Close", Modifier.padding(top = Tokens.Section), onClick = ::leave)
-                    }
+                    LoadFailed(
+                        DfIcons.Photo, st.text, Supported.PHOTOS, "Choose another photo",
+                        onChoose = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                        onClose = ::leave, modifier = Modifier.weight(1f),
+                    )
                 }
-                is PhotoLoad.Ready -> PhotoEditor(st.session, nav, startTab, startAnimate, target, onLeave = ::leave, onDone = { MediaDrafts.drop(key) })
+                is PhotoLoad.Ready -> PhotoEditor(st.session, nav, startTab, startAnimate, target, onLeave = ::leave, onDone = { MediaDrafts.drop(src) })
             }
         }
     }
 }
 
+private const val CANT_READ_PHOTO = "This file can't be read."
+
 @Composable
-private fun PhotoTopBar(s: PhotoSession?, onClose: () -> Unit, glyph: Boolean = false, onGlyph: () -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
+private fun PhotoTopBar(s: PhotoSession?, onClose: () -> Unit, glyph: Boolean = false, glyphState: PhoneState = PhoneState.OFF, onGlyph: () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = Color.White) }
         Text(s?.name ?: "Photo", style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Tokens.Tiny))
         if (s != null) {
             @Suppress("UNUSED_EXPRESSION") s.version
+            // the same order as the editor: Glyph, then Undo and Redo; here the toggle carries its word
+            GlyphToggle(
+                on = glyph && glyphState != PhoneState.NOT_PHONE3, live = glyphState == PhoneState.ON, state = glyphState.text,
+                enabled = glyphState != PhoneState.NOT_PHONE3, labelled = true, onToggle = onGlyph,
+            )
             BarIcon(DfIcons.Undo, "Undo", s.canUndo) { s.undo() }
             BarIcon(DfIcons.Redo, "Redo", s.canRedo) { s.redo() }
-            IconButton(onClick = onGlyph, modifier = Modifier.semantics { contentDescription = "Preview on Glyph"; stateDescription = if (glyph) "On" else "Off" }) {
-                Box(Modifier.size(36.dp).background(if (glyph) Color.White else Color.Transparent, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
-                    Icon(DfIcons.OnPhone, contentDescription = null, tint = if (glyph) Color.Black else Color.White, modifier = Modifier.size(22.dp))
-                }
-            }
         }
     }
 }
@@ -365,9 +431,14 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(
     var tab by remember { mutableStateOf(startTab) }
     var control by remember { mutableStateOf(PhotoControl.BRIGHTNESS) }
     var glyph by remember { mutableStateOf(true) }
+    val glyphState = rememberGlyphState(glyph)
     var animate by remember { mutableStateOf(startAnimate) }
+    var picked by remember { mutableIntStateOf(0) }
     val p = s.profile
-    val result by produceState(remember { s.render() }, s.settings) {
+    // the Frames tab is there while there are several photos
+    val tabs = if (s.frames) PhotoTab.entries.toList() else PhotoTab.entries - PhotoTab.FRAMES
+    val shown = if (tab in tabs) tab else PhotoTab.STYLE
+    val result by produceState(remember { s.render() }, s.version) {
         delay(16)
         value = withContext(Dispatchers.Default) { s.render() }
     }
@@ -398,12 +469,14 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(
         nav.push(Page.Editor(null, a.frames.size > 1, Drafts.put(s.name, a)))
     }
 
-    PhotoTopBar(s, onClose = onLeave, glyph = glyph) { glyph = !glyph }
+    PhotoTopBar(s, onClose = onLeave, glyph = glyph, glyphState = glyphState) { glyph = !glyph }
     // the preview takes what the pinned rows leave
     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-        val side = minOf(maxWidth - Tokens.Gutter * 2, maxHeight - 24.dp, 360.dp)
+        val side = minOf(maxWidth - Tokens.Gutter * 2, maxHeight - 24.dp, 360.dp).coerceAtLeast(48.dp)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val cropping = tab == PhotoTab.CROP
+            val cropping = shown == PhotoTab.CROP
+            val listing = shown == PhotoTab.FRAMES
+            val one = picked.coerceIn(0, (result.frames.size - 1).coerceAtLeast(0))
             val sidePx = with(LocalDensity.current) { side.toPx() }
             Box(
                 Modifier.size(side).then(
@@ -416,12 +489,14 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(
                     } else Modifier,
                 ),
             ) {
-                if (s.frames) GlyphPreview(result, s.name, Modifier.fillMaxSize(), userPlay = true)
-                else DotMatrix(result.frames[0].frame.pixels, p, Modifier.fillMaxSize().semantics { contentDescription = "${s.name} as dots" })
+                // the Frames tab shows the frame picked in the list; otherwise frames play
+                if (s.frames && !listing) GlyphPreview(result, s.name, Modifier.fillMaxSize(), userPlay = true)
+                else DotMatrix(result.frames[if (listing) one else 0].frame.pixels, p, Modifier.fillMaxSize().semantics { contentDescription = "${s.name} as dots" })
             }
             Text(
                 when {
                     cropping && !s.frames -> "Pinch and drag to frame it"
+                    listing -> "Frame ${one + 1} of ${result.frames.size} · ${StudioText.duration(result.frames[one].durationMs)}"
                     target != null -> if (s.frames) "${result.frames.size} frames go in after frame ${target.after + 1}" else "Goes in after frame ${target.after + 1}"
                     s.frames -> "${result.frames.size} frames · ${StudioText.seconds(result.totalMs)}"
                     else -> s.settings.style.label
@@ -431,13 +506,14 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(
         }
     }
     Box(Modifier.padding(horizontal = Tokens.Gutter)) {
-        Segmented(PhotoTab.entries.map { it.label }, tab.ordinal) { tab = PhotoTab.entries[it] }
+        Segmented(tabs.map { it.label }, tabs.indexOf(shown)) { tab = tabs[it] }
     }
-    Box(Modifier.fillMaxWidth().height(PANEL)) {
-        when (tab) {
+    Box(Modifier.fillMaxWidth().then(if (shown == PhotoTab.CROP || shown == PhotoTab.ADJUST) Modifier.height(PANEL) else Modifier)) {
+        when (shown) {
             PhotoTab.CROP -> CropPanel(s)
             PhotoTab.STYLE -> StylePanel(s)
             PhotoTab.ADJUST -> AdjustPanel(s, control) { control = it }
+            PhotoTab.FRAMES -> FramesPanel(s, result, picked) { picked = it }
         }
     }
     Row(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = Tokens.Small), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Tiny)) {
@@ -450,6 +526,53 @@ private fun androidx.compose.foundation.layout.ColumnScope.PhotoEditor(
         }
     }
     if (animate) AnimateSheet(s, onDismiss = { animate = false }, adding = target != null, onEdit = { a -> animate = false; edit(a) })
+}
+
+/**
+ * Several photos: each is a frame. Pick one to see it, move it left or right, or remove it. Animate (one photo
+ * moving) is off while there are several, and the panel says so.
+ */
+@Composable
+private fun FramesPanel(s: PhotoSession, a: Animation, picked: Int, onPick: (Int) -> Unit) {
+    val n = s.pictures.size
+    val one = picked.coerceIn(0, n - 1)
+    val list = rememberLazyListState()
+    LaunchedEffect(one) { list.animateScrollToItem(one) }
+    Column(Modifier.fillMaxWidth().padding(top = Tokens.Small)) {
+        LazyRow(
+            state = list, modifier = Modifier.fillMaxWidth().edgeFade(list.canScrollBackward, list.canScrollForward),
+            horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Tokens.Gutter),
+        ) {
+            items(n) { i ->
+                val on = i == one
+                Box(
+                    Modifier.size(64.dp).border(if (on) 2.dp else 1.dp, if (on) Color.White else Tokens.Hairline, RoundedCornerShape(12.dp))
+                        .clickable(role = Role.RadioButton) { onPick(i) }
+                        .semantics { contentDescription = "Frame ${i + 1} of $n"; stateDescription = if (on) "Selected" else "" }
+                        .padding(5.dp),
+                ) {
+                    DotMatrix(a.frames.getOrNull(i)?.frame?.pixels, s.profile, Modifier.fillMaxSize())
+                    Text(
+                        "${i + 1}", color = if (on) Color.Black else Color.White, style = MaterialTheme.typography.labelSmall.capped(1f),
+                        modifier = Modifier.align(Alignment.TopStart).background(if (on) Color.White else Tokens.Raised, RoundedCornerShape(6.dp)).padding(horizontal = 4.dp),
+                    )
+                }
+            }
+        }
+        val fade = rememberScrollState()
+        Row(
+            Modifier.fillMaxWidth().edgeFade(fade).horizontalScroll(fade).padding(horizontal = Tokens.Gutter, vertical = Tokens.Small),
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Small),
+        ) {
+            OptionChip("‹ Move left", "Move frame ${one + 1} left", enabled = one > 0) { s.move(one, one - 1); onPick(one - 1) }
+            OptionChip("Move right ›", "Move frame ${one + 1} right", enabled = one < n - 1) { s.move(one, one + 1); onPick(one + 1) }
+            OptionChip("Remove", "Remove frame ${one + 1}", icon = DfIcons.Clear, enabled = n > 1) { s.remove(one); onPick((one - 1).coerceAtLeast(0)) }
+        }
+        Text(
+            "Each photo is a frame. Animate moves a single photo, so it's off while there are several.",
+            style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, modifier = Modifier.padding(horizontal = Tokens.Gutter).padding(bottom = Tokens.Small),
+        )
+    }
 }
 
 private const val PHONE_ID = "photo"
@@ -472,10 +595,11 @@ private fun CropPanel(s: PhotoSession) {
     val c = s.settings.crop
     fun crop(n: PhotoCrop) = s.set(s.settings.copy(crop = n))
     Column(Modifier.fillMaxSize().padding(top = Tokens.Small)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Tokens.Gutter), horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
+        val chips = rememberScrollState()
+        Row(Modifier.fillMaxWidth().edgeFade(chips).horizontalScroll(chips).padding(horizontal = Tokens.Gutter), horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
             OptionChip("Rotate", "Rotate 90 degrees", icon = DfIcons.Rotate) { crop(c.copy(turns = c.turns + 1)) }
-            OptionChip(null, "Flip left-right", icon = DfIcons.FlipH, selected = c.flipH) { crop(c.copy(flipH = !c.flipH)) }
-            OptionChip(null, "Flip top-bottom", icon = DfIcons.FlipV, selected = c.flipV) { crop(c.copy(flipV = !c.flipV)) }
+            OptionChip("Mirror", "Flip left-right", icon = DfIcons.FlipH, selected = c.flipH) { crop(c.copy(flipH = !c.flipH)) }
+            OptionChip("Flip", "Flip top-bottom", icon = DfIcons.FlipV, selected = c.flipV) { crop(c.copy(flipV = !c.flipV)) }
             OptionChip("Fill", "Fill the circle", selected = !c.fit) { crop(c.copy(fit = false)) }
             OptionChip("Fit", "Fit the whole photo", selected = c.fit) { crop(c.copy(fit = true)) }
         }
@@ -487,33 +611,43 @@ private fun CropPanel(s: PhotoSession) {
     }
 }
 
-/** 13 live thumbnails: this photo in each style. */
+/** 13 live thumbnails, 80 dp, in two rows that scroll sideways: this photo in each style, names on two lines. */
 @Composable
 private fun StylePanel(s: PhotoSession) {
-    val thumbs by produceState<Map<PhotoStyle, Frame>>(emptyMap(), s.settings.crop, s.settings.copy(style = PhotoStyle.SHADES)) {
+    val thumbs by produceState<Map<PhotoStyle, Frame>>(emptyMap(), s.version) {
         value = withContext(Dispatchers.Default) { PhotoStyle.entries.associateWith { st -> s.frame(0, s.settings.copy(style = st)) } }
     }
-    LazyRow(
-        Modifier.fillMaxSize().padding(top = Tokens.Small), horizontalArrangement = Arrangement.spacedBy(Tokens.Small),
+    val label = MaterialTheme.typography.labelSmall.capped()
+    val cell = THUMB + 4.dp + with(LocalDensity.current) { label.lineHeight.toDp() } * 2
+    val grid = rememberLazyGridState()
+    val at = PhotoStyle.entries.indexOf(s.settings.style)
+    LaunchedEffect(Unit) { if (at > 3) grid.scrollToItem(at) }
+    LazyHorizontalGrid(
+        rows = GridCells.Fixed(2), state = grid,
+        modifier = Modifier.fillMaxWidth().padding(vertical = Tokens.Small).height(cell * 2 + Tokens.Small).edgeFade(grid.canScrollBackward, grid.canScrollForward),
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Tokens.Gutter),
     ) {
-        items(PhotoStyle.entries.toList(), key = { it.name }) { st ->
+        gridItems(PhotoStyle.entries.toList(), key = { it.name }) { st ->
             val on = s.settings.style == st
             Column(
-                Modifier.width(80.dp).clickable(role = Role.RadioButton, onClickLabel = st.label) { s.set(s.settings.copy(style = st)) }
+                Modifier.width(THUMB).clickable(role = Role.RadioButton, onClickLabel = st.label) { s.set(s.settings.copy(style = st)) }
                     .semantics { stateDescription = if (on) "Selected" else "" },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.size(76.dp).border(if (on) 2.dp else 1.dp, if (on) Color.White else Tokens.Hairline, RoundedCornerShape(14.dp)).padding(6.dp)) {
+                Box(Modifier.size(THUMB).border(if (on) 2.dp else 1.dp, if (on) Color.White else Tokens.Hairline, RoundedCornerShape(14.dp)).padding(5.dp)) {
                     DotMatrix(thumbs[st]?.pixels, s.profile, Modifier.fillMaxSize())
                 }
-                val fs = LocalDensity.current.fontScale
-                val style = MaterialTheme.typography.labelSmall.let { it.copy(fontSize = it.fontSize * (minOf(fs, 1.3f) / fs)) }
-                Text(st.label, style = style, color = if (on) Color.White else Tokens.Secondary, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                Text(
+                    st.label, style = label, color = if (on) Color.White else Tokens.Secondary, minLines = 2, maxLines = 2, textAlign = TextAlign.Center,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }
 }
+
+private val THUMB = 80.dp
 
 /** One control at a time: pick it from the chips, then its slider (or chips) and Reset. */
 @Composable
@@ -521,7 +655,8 @@ private fun AdjustPanel(s: PhotoSession, control: PhotoControl, onControl: (Phot
     val st = s.settings
     val d = PhotoSettings()
     Column(Modifier.fillMaxSize().padding(top = Tokens.Small)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Tokens.Gutter), horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
+        val chips = rememberScrollState()
+        Row(Modifier.fillMaxWidth().edgeFade(chips).horizontalScroll(chips).padding(horizontal = Tokens.Gutter), horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
             PhotoControl.entries.forEach { c ->
                 val changed = when (c) {
                     PhotoControl.BRIGHTNESS -> st.brightness != d.brightness; PhotoControl.CONTRAST -> st.contrast != d.contrast

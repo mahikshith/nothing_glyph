@@ -125,6 +125,28 @@ class StudioFlowTest {
         assertEquals(12, one.motion(PhotoMotion.ZOOM, 12, 80).frames.size)
     }
 
+    @Test fun severalPhotosCanBeReorderedAndRemovedWithUndo() {
+        val pics = listOf(PhotoDots.samplePicture(100, 80), PhotoDots.samplePicture(120, 90), PhotoDots.samplePicture(140, 100))
+        val s = PhotoSession(p, "Trip", pics, listOf(400, 500, 600))
+        val firstFrame = s.render().frames[0].frame.pixels.toList()
+        s.move(0, 2)
+        assertEquals(listOf(pics[1], pics[2], pics[0]), s.pictures)
+        assertEquals(listOf(500, 600, 400), s.delays)
+        assertEquals(firstFrame, s.render().frames[2].frame.pixels.toList()) // the frame went with its photo
+        s.remove(1)
+        assertEquals(listOf(pics[1], pics[0]), s.pictures)
+        assertEquals(900, s.render().totalMs)
+        s.remove(0)
+        assertFalse(s.frames) // one photo left: a still again, so Animate is back
+        s.remove(0)
+        assertEquals(1, s.pictures.size) // the last photo always stays
+        s.undo(); s.undo(); s.undo()
+        assertEquals(pics, s.pictures)
+        assertEquals(listOf(400, 500, 600), s.delays)
+        s.redo()
+        assertEquals(listOf(pics[1], pics[2], pics[0]), s.pictures)
+    }
+
     @Test fun textIsSavedAsTextWithItsBackgroundAsLayers() {
         val t = TextDraft.open(null, "ON MY WAY")
         assertEquals("ON MY WAY", t.name)
