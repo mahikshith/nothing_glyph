@@ -50,6 +50,7 @@ sealed interface Page {
     data object Spam : Page
     data object Toys : Page
     data object Integrations : Page
+    data object SystemGlyphs : Page
     data class ToySettings(val toy: Toy) : Page
     data class DesignEditor(val designId: String?, val animated: Boolean) : Page
     data object Diagnostics : Page
@@ -65,6 +66,7 @@ private fun Page.encode(): String = when (this) {
     Page.Spam -> "spam"
     Page.Toys -> "toys"
     Page.Integrations -> "integrations"
+    Page.SystemGlyphs -> "system"
     Page.Diagnostics -> "diagnostics"
     Page.Ringtones -> "ringtones"
     Page.RingtoneEdit -> "ringedit"
@@ -82,6 +84,7 @@ private fun decode(s: String): Page? {
         "spam" -> Page.Spam
         "toys" -> Page.Toys
         "integrations" -> Page.Integrations
+        "system" -> Page.SystemGlyphs
         "diagnostics" -> Page.Diagnostics
         "ringtones" -> Page.Ringtones
         "ringedit" -> Page.RingtoneEdit

@@ -173,6 +173,7 @@ private fun PageContent(page: Page, nav: Nav, setup: Setup) {
         Page.Spam -> SpamPage(nav, setup)
         Page.Toys -> ToysPage(nav, setup)
         Page.Integrations -> IntegrationsPage(nav, setup)
+        Page.SystemGlyphs -> SystemGlyphsPage(nav)
         is Page.ToySettings -> ToySettingsPage(page.toy, nav)
         is Page.DesignEditor -> DesignEditorPage(page.designId, page.animated, onClose = nav::pop)
         Page.Ringtones -> RingtonesPage(nav)

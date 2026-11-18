@@ -23,6 +23,8 @@ import com.dotforge.engine.Priority
 import com.dotforge.filter.Field
 import com.dotforge.notify.FaceDownSensor
 import com.dotforge.notify.MediaRingSettings
+import com.dotforge.system.SystemGlyphSettings
+import com.dotforge.system.SystemGlyphs
 import com.dotforge.ringtones.RingtoneLibrary
 import com.dotforge.rules.FiltersRepository
 import com.dotforge.rules.LogEntry
@@ -75,6 +77,8 @@ object AppGraph {
     lateinit var automation: AutomationSettings
         private set
     lateinit var media: MediaRingSettings
+        private set
+    lateinit var system: SystemGlyphSettings
         private set
     private lateinit var prefs: SharedPreferences
 
@@ -163,6 +167,9 @@ object AppGraph {
         calls = CallsRepository(File(app.filesDir, "calls.json"))
         spamList = SpamListStore(File(app.filesDir, "spam-list"))
         automation = AutomationSettings(app.getSharedPreferences("automation", Context.MODE_PRIVATE))
+        system = SystemGlyphSettings(app.getSharedPreferences("system_glyphs", Context.MODE_PRIVATE))
+        val systemGlyphs = SystemGlyphs(app, system).also { it.start() }
+        MainScope().launch { system.wiggle.collect { systemGlyphs.refresh() } }
         // the spam list is fetched (and refreshed weekly) only while a rule uses it
         MainScope().launch {
             rules.rules.map { list -> list.any { r -> r.enabled && r.match.allConditions.any { it.field == Field.SPAM_LIST } } }.distinctUntilChanged().collect { on ->
