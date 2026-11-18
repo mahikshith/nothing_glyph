@@ -154,6 +154,56 @@ class AlertsModelTest {
         assertEquals(HistoryFilter.BLOCKED, HistoryFilter.of("blocked"))
         assertEquals("Yesterday", HistoryText.dayTitle(now - day, LocalDate.of(2026, 11, 18), ZoneOffset.UTC))
     }
+
+    // ---- people win, and blocking a sender from an app's sheet
+
+    @Test fun aPersonBeatsAnAppEvenWhenTheAppNamesThem() {
+        val momOnly = SimpleRules.withPeople(wa, listOf("Mom")).copy(id = "wa-mom")
+        fun s(who: String) = Subject(isCall = false, app = "com.whatsapp", appLabel = "WhatsApp", sender = who, title = who, text = "hi", fromPerson = true, at = LocalDateTime.of(2026, 11, 18, 10, 0))
+        for (rules in listOf(listOf(wa, mom), listOf(mom, wa), listOf(momOnly, mom), listOf(wa, momOnly, mom))) {
+            assertEquals(mom.id, RuleEngine.decide(s("Mom"), rules).show?.rule?.id)
+        }
+        // someone else still gets the app's glyph
+        assertEquals(wa.id, RuleEngine.decide(s("Sam"), listOf(wa, mom)).show?.rule?.id)
+    }
+
+    @Test fun blockingASenderOrGroupInAnApp() {
+        val r = SimpleRules.blockSender("com.whatsapp", "AX-LOANS")
+        val p = SimpleRules.pattern(r)!!
+        assertEquals(PatternType.IS, p.type)
+        assertEquals(setOf(Where.WHATSAPP), p.where)
+        assertEquals("Exactly AX-LOANS", r.name)
+        assertEquals(r, SimpleRules.senderBlock(listOf(wa, r), "com.whatsapp", "ax-loans"))
+        assertNull(SimpleRules.senderBlock(listOf(r), "org.telegram.messenger", "AX-LOANS"))
+        val at = LocalDateTime.of(2026, 11, 18, 10, 0)
+        fun s(sender: String, title: String, app: String = "com.whatsapp") = Subject(isCall = false, app = app, sender = sender, title = title, text = "x", fromPerson = true, at = at)
+        assertTrue(RuleEngine.decide(s("AX-LOANS", "AX-LOANS"), listOf(wa, r)).blocked)
+        assertFalse(RuleEngine.decide(s("AX-LOANS", "AX-LOANS", app = "org.telegram.messenger"), listOf(r)).blocked)
+        // a group by its name
+        val family = SimpleRules.blockSender("com.whatsapp", "Family")
+        assertTrue(RuleEngine.decide(s("Mom", "Family"), listOf(wa, family)).blocked)
+        assertFalse(RuleEngine.decide(s("Mom", "Mom"), listOf(wa, family)).blocked)
+        // another app gets its own chip
+        val tg = SimpleRules.pattern(SimpleRules.blockSender("org.telegram.messenger", "Spammer"))!!
+        assertEquals(listOf("org.telegram.messenger"), tg.apps)
+        // "Exactly" takes a name as well as a number
+        assertNull(SimpleRules.problem(BlockPattern(PatternType.IS, "AX-LOANS", setOf(Where.SMS))))
+        assertEquals("Type at least 3 digits", SimpleRules.problem(BlockPattern(PatternType.STARTS, "14", setOf(Where.SMS))))
+    }
+
+    @Test fun recentSendersAndChatsFromHistory() {
+        val h = listOf(
+            HistoryEntry("1", 5, Outcome.LIT, packageName = "com.whatsapp", title = "Family", sender = "Mom"),
+            HistoryEntry("2", 4, Outcome.LIT, packageName = "com.whatsapp", title = "Sam", sender = "Sam"),
+            HistoryEntry("3", 3, Outcome.LIT, packageName = "org.telegram.messenger", title = "Ann", sender = "Ann"),
+            HistoryEntry("4", 2, Outcome.LIT, packageName = "com.whatsapp", title = "mom", sender = "mom"),
+            HistoryEntry("5", 1, Outcome.BLOCKED, packageName = "", title = "+91 140", number = "+91140", call = true),
+        )
+        val wa = HistoryRepository.recentSenders(h, "com.whatsapp")
+        assertEquals(listOf(RecentSender("Mom", false), RecentSender("Family", true), RecentSender("Sam", false)), wa)
+        assertEquals(listOf("Mom", "Family", "Sam", "Ann"), HistoryRepository.recentSenders(h, null).map { it.name })
+    }
+
 }
 
 class QuietTextTest {
@@ -180,7 +230,15 @@ class QuietTextTest {
         assertEquals("app icon, change glyph", words[2].spoken)
         val heart = SimpleRules.withShowFor(SimpleRules.withPeople(SimpleRules.withGlyph(wa, GlyphChoice.icon("heart")), listOf("Ann")), 10)
         assertEquals("When WhatsApp sends something from Ann, the Heart glyph shows for 10 s. Sound: app's own sound.", AlertSentence.text(heart, "WhatsApp"))
-        assertEquals("Ann · Heart glyph · For 10 s", AlertSentence.summary(heart))
+        assertEquals("Ann · Heart glyph · 10 s", AlertSentence.summary(heart))
+        // a row says only what differs: no "Everyone"; where it listens when that isn't one app
+        assertEquals("App icon", AlertSentence.summary(wa))
+        val otp = RuleEngine.presets().first { it.id == "preset-otp" }
+        assertEquals("Any app · Flash · 5 s", AlertSentence.summary(otp))
+        assertEquals("Chat apps · Their name", AlertSentence.summary(RuleEngine.presets().first { it.id == "preset-messages" }))
+        assertEquals("Phone glyph, then name", AlertSentence.summary(SimpleRules.phoneCalls()))
+        // the app icon is named only when it can really be drawn
+        assertEquals("When WhatsApp sends something from everyone, the Chat bubble glyph shows until you check. Sound: app's own sound.", AlertSentence.text(wa, "WhatsApp", hasIcon = { false }))
         assertEquals("When a call rings, the Phone glyph shows, then the caller's name scrolls, while it rings.", AlertSentence.text(SimpleRules.phoneCalls(), "Phone"))
         val unlock = SimpleRules.moments().first()
         assertEquals("When you unlock the phone, the Lock glyph shows for 5 s.", AlertSentence.text(unlock, ""))

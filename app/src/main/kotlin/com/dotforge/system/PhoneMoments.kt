@@ -14,7 +14,6 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.CalendarContract
@@ -34,7 +33,7 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 
 /**
- * Alerts > Apps > This phone: the six phone moments (unlock, shake, camera, alarm, call live, headphones), and
+ * Alerts > Apps > Phone moments: the five moments (unlock, shake, camera, alarm, headphones), and
  * the approaching ring before the next calendar event or alarm (Reminders & to-dos). Each source is listened
  * to only while its row is on. None needs a new permission (the calendar is read only when already allowed).
  */
@@ -78,9 +77,6 @@ class PhoneMoments(private val ctx: Context) {
         fun changed(m: Moment) = (m in now) != (m in was)
         if (changed(Moment.HEADPHONES)) if (Moment.HEADPHONES in now) audio.registerAudioDeviceCallback(devices, main) else audio.unregisterAudioDeviceCallback(devices)
         if (changed(Moment.ALARM)) if (Moment.ALARM in now) audio.registerAudioPlaybackCallback(playback, main) else audio.unregisterAudioPlaybackCallback(playback)
-        if (changed(Moment.CALL) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (Moment.CALL in now) audio.addOnModeChangedListener(ctx.mainExecutor, mode) else audio.removeOnModeChangedListener(mode)
-        }
         if (changed(Moment.CAMERA)) {
             val cm = ctx.getSystemService(CameraManager::class.java)
             if (Moment.CAMERA in now) cm.registerAvailabilityCallback(camera, main) else cm.unregisterAvailabilityCallback(camera)
@@ -106,10 +102,6 @@ class PhoneMoments(private val ctx: Context) {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
             fire(Moment.ALARM, configs.any { it.audioAttributes.usage == AudioAttributes.USAGE_ALARM })
         }
-    }
-
-    private val mode = AudioManager.OnModeChangedListener { m ->
-        fire(Moment.CALL, m == AudioManager.MODE_IN_CALL || m == AudioManager.MODE_IN_COMMUNICATION)
     }
 
     private val camera = object : CameraManager.AvailabilityCallback() {

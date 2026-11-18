@@ -62,7 +62,6 @@ enum class Moment(val label: String, val sentence: String, val hint: String, val
     SHAKE("Shake", "you shake the phone", "Two quick shakes", lasts = false),
     CAMERA("Camera", "the camera is open", "While any app uses the camera", lasts = true),
     ALARM("Alarm or timer", "an alarm rings", "While an alarm or timer rings", lasts = true),
-    CALL("Call live", "a call is live", "While you're on a call", lasts = true),
     HEADPHONES("Headphones", "headphones connect", "When wired or Bluetooth headphones connect", lasts = false),
 }
 
@@ -228,6 +227,8 @@ object RuleEngine {
     private fun order(rules: List<IndexedValue<Rule>>) = rules.sortedWith(
         compareBy<IndexedValue<Rule>>(
             { tier(it.value) },
+            // People win over apps: Mom's glyph shows, not WhatsApp's, even when the WhatsApp row names her too
+            { if (SimpleRules.isPersonRule(it.value)) 0 else 1 },
             { if (it.value.action == Action.ALLOW) 0 else 1 },
             { -it.value.priority },
             { if (it.value.match.allConditions.any { c -> c.field in timed }) 0 else 1 },

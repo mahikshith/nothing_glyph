@@ -18,11 +18,18 @@ class CallerLookup(private val context: Context) {
     fun canRead(): Boolean =
         context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
-    /** The phone's two-letter region (network, then SIM, then locale). */
+    /** The phone's two-letter region: the SIM's country, then the network's (roaming), then the locale's. */
     fun region(): String? {
         val tm = context.getSystemService(TelephonyManager::class.java)
-        return listOfNotNull(tm?.networkCountryIso, tm?.simCountryIso, Locale.getDefault().country)
+        return listOfNotNull(tm?.simCountryIso, tm?.networkCountryIso, Locale.getDefault().country)
             .firstOrNull { it.length == 2 }?.uppercase()
+    }
+
+    /** [raw] as the phone shows numbers in its region ("+91 140 555 0101" style), else as it came. */
+    fun display(raw: String): String {
+        val region = region() ?: return raw
+        val e164 = PhoneNumbers.e164(raw, region) ?: return raw
+        return runCatching { PhoneNumberUtils.formatNumber(e164, "ZZ") }.getOrNull()?.takeIf { it.isNotBlank() } ?: e164
     }
 
     /** [raw] in E.164 (Android's own formatter first, then ours), else its digits. */

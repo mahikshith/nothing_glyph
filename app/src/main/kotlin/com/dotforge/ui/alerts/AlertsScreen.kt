@@ -44,6 +44,9 @@ import com.dotforge.ui.Page
 import com.dotforge.ui.Setup
 import com.dotforge.ui.design.AddRow
 import com.dotforge.ui.design.Avatar
+import com.dotforge.ui.design.Chevron
+import com.dotforge.ui.design.IconCircle
+import androidx.compose.material.icons.filled.Settings
 import com.dotforge.ui.design.EmptyState
 import com.dotforge.ui.design.FullSheet
 import com.dotforge.ui.design.GlyphPreview
@@ -64,7 +67,8 @@ import com.dotforge.ui.rememberNeedsScreening
 
 /** What sheet is open over Alerts. */
 sealed interface AlertSheet {
-    data class RuleOf(val id: String, val advanced: Boolean = false) : AlertSheet
+    /** A rule's one sheet; [picker] and [block] open one of its stacked sheets too (links and screenshots). */
+    data class RuleOf(val id: String, val advanced: Boolean = false, val picker: com.dotforge.rules.WordKind? = null, val block: Boolean = false) : AlertSheet
     data class AddBlock(val editId: String? = null, val where: Set<Where> = setOf(Where.CALLS, Where.SMS), val pkg: String? = null) : AlertSheet
     data class Entry(val key: String) : AlertSheet
     data object AddPerson : AlertSheet
@@ -72,6 +76,7 @@ sealed interface AlertSheet {
     data object HowItWorks : AlertSheet
     data object HowBlocking : AlertSheet
     data object DoubleLights : AlertSheet
+    data object AllowList : AlertSheet
 }
 
 /** The segments: Apps · People · Spam · History (row 52, row 91). */
@@ -104,6 +109,8 @@ fun AlertsScreen(
             "spam" -> { segment = Segment.SPAM; spamApp = arg }
             "people" -> segment = Segment.PEOPLE
             "apps" -> segment = Segment.APPS
+            // "rule:<id>": a rule's sheet, over Apps (Add an app opens the new app's sheet this way)
+            "rule" -> if (arg != null) { segment = Segment.APPS; sheet = AlertSheet.RuleOf(arg) }
         }
         nav.alertsRequest = null
     }
@@ -142,7 +149,7 @@ fun AlertsScreen(
             Segment.APPS -> appsItems(rules, label, b, nav, open = { sheet = it })
             Segment.PEOPLE -> peopleItems(rules, open = { sheet = it })
             Segment.SPAM -> spamItems(rules, history, setup, spamApp, label, clearApp = { spamApp = null }, open = { sheet = it })
-            Segment.HISTORY -> historyItems(history, historyFilter, label, onFilter = { historyFilter = it }, open = { sheet = it })
+            Segment.HISTORY -> historyItems(history, historyFilter, label, onFilter = { historyFilter = it }, open = { sheet = it }, toApps = { segment = Segment.APPS })
         }
     }
 
@@ -152,6 +159,8 @@ fun AlertsScreen(
             onSpamRules = { pkg -> sheet = null; spamApp = pkg; segment = Segment.SPAM },
             onDoubleLights = { sheet = AlertSheet.DoubleLights },
             startAdvanced = s.advanced,
+            startPicker = s.picker,
+            startBlock = s.block,
         )
         is AlertSheet.AddBlock -> AddRuleSheet(s, onDismiss = { sheet = null })
         is AlertSheet.Entry -> HistorySheet(s.key, label, onDismiss = { sheet = null }, open = { sheet = it })
@@ -160,6 +169,7 @@ fun AlertsScreen(
         AlertSheet.HowItWorks -> HowItWorksSheet(onDismiss = { sheet = null })
         AlertSheet.HowBlocking -> HowBlockingSheet(onDismiss = { sheet = null })
         AlertSheet.DoubleLights -> DoubleLightsSheet(onDismiss = { sheet = null })
+        AlertSheet.AllowList -> AllowListSheet(onDismiss = { sheet = null })
         null -> Unit
     }
 }
@@ -190,48 +200,54 @@ private fun LazyListScope.appsItems(rules: List<Rule>, label: (String) -> String
     val apps = rules.filter(SimpleRules::isAppRule)
     item(key = "apps") {
         RowGroup {
+            // every row the same way: where it listens on the left, the glyph it lights and its switch on the right
             if (calls != null) {
-                RuleRow(calls, "Phone calls", if (b.ringtoneLights && calls.enabled) "To show names, set ringtone lights to Sound only" else AlertSentence.summary(calls), open) {
-                    GlyphPreview(com.dotforge.notify.AlertRuntime.previewCall("Mom", calls.callShow, previewAnimation(calls, "Phone")), "Phone calls")
-                }
+                val ringtone = b.ringtoneLights && calls.enabled && calls.callShow != com.dotforge.rules.CallShow.GLYPH
+                RuleRow(calls, "Phone calls", if (ringtone) "Names need ringtone lights set to Sound only" else AlertSentence.summary(calls, hasIcon = ::hasAppIcon), open)
             }
             apps.forEach { r ->
                 RowDivider(leading = true)
                 val title = ruleTitle(r, label)
-                val pkg = r.packages.singleOrNull()
-                val warn = b.doubleLights && r.enabled && pkg != null
-                RuleRow(r, title, if (warn) "Nothing lights it too · Fix" else AlertSentence.summary(r), open, preview = pkg != null) {
-                    if (pkg != null) AppIcon(pkg, title) else GlyphPreview(stillOf(previewAnimation(r, title)), title)
-                }
+                val warn = b.doubleLights && r.enabled && r.packages.size == 1
+                RuleRow(r, title, if (warn) "Nothing lights it too · Fix" else AlertSentence.summary(r, hasIcon = ::hasAppIcon), open)
             }
             RowDivider(leading = true)
             AddRow("Add an app") { nav.push(Page.AlertApps("app")) }
         }
     }
-    if (apps.isEmpty()) item(key = "apps-empty") { Hint("Add the apps you care about. Each lights with its own icon until you check.") }
+    if (apps.isEmpty()) item(key = "apps-empty") { Hint("Add the apps you care about. Each lights with its own glyph until you check.") }
     item(key = "phone-label") { SectionLabel("This phone") }
     item(key = "phone") {
         RowGroup {
-            val reminders = rules.firstOrNull { it.id == SimpleRules.REMINDERS }
-            val moments = rules.filter { it.moment != null }.sortedBy { it.moment!!.ordinal }
-            (listOfNotNull(reminders) + moments).forEachIndexed { i, r ->
-                if (i > 0) RowDivider(leading = true)
-                val hint = r.moment?.hint ?: "Tasks, Keep, Calendar and more"
-                RuleRow(r, r.name, if (r.enabled) AlertSentence.summary(r) else hint, open) { GlyphPreview(previewAnimation(r, r.name), r.name) }
+            rules.firstOrNull { it.id == SimpleRules.REMINDERS }?.let { r ->
+                RuleRow(r, r.name, if (r.enabled) AlertSentence.summary(r) else "Tasks, Keep, Calendar and more", open)
+                RowDivider(leading = true)
             }
+            val moments = rules.filter { it.moment != null }
+            ListRow(
+                "Phone moments", subtitle = momentsText(moments), leading = { IconCircle(Icons.Filled.Settings) }, subtitleLines = 3,
+                trailing = { Chevron() },
+            ) { nav.push(Page.PhoneMoments) }
         }
     }
 }
 
-/** A rule row: leading icon or preview, name, one line, and its own switch. The row opens the sheet. */
+/** "Unlock, Shake" when some are on, else "Unlock, shake, camera and more · all off". */
+fun momentsText(moments: List<Rule>): String {
+    val on = moments.filter { it.enabled }.sortedBy { it.moment!!.ordinal }
+    return if (on.isEmpty()) "Unlock, shake, camera and more · all off" else on.joinToString(", ") { it.name }
+}
+
+/** A rule row: where it listens, its name and line, then its glyph (40 dp still) and its own switch. The row opens the sheet. */
 @Composable
-private fun RuleRow(r: Rule, title: String, subtitle: String, open: (AlertSheet) -> Unit, preview: Boolean = false, leading: @Composable () -> Unit) {
+private fun RuleRow(r: Rule, title: String, subtitle: String, open: (AlertSheet) -> Unit) {
     ListRow(
-        title, subtitle = subtitle, leading = leading, subtitleLines = 3,
+        title, subtitle = subtitle, leading = { SourceIcon(r, title) }, subtitleLines = 3,
         trailing = {
-            // an app row shows its icon and, beside the switch, the glyph it lights (40 dp)
-            if (preview) GlyphPreview(stillOf(previewAnimation(r, title)), "${AlertSentence.glyphWord(r)} for $title")
-            RowSwitch(r.enabled, title) { AppGraph.rules.upsert(r.copy(enabled = it)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RulePoster(r, title)
+                RowSwitch(r.enabled, title) { AppGraph.rules.upsert(r.copy(enabled = it)) }
+            }
         },
     ) { open(AlertSheet.RuleOf(r.id)) }
 }
@@ -250,7 +266,7 @@ private fun LazyListScope.peopleItems(rules: List<Rule>, open: (AlertSheet) -> U
         RowGroup {
             people.forEachIndexed { i, r ->
                 if (i > 0) RowDivider(leading = true)
-                RuleRow(r, r.name, AlertSentence.summary(r), open) { Avatar(r.name) }
+                RuleRow(r, r.name, AlertSentence.summary(r), open)
             }
             RowDivider(leading = true)
             AddRow("Add a person") { open(AlertSheet.AddPerson) }
@@ -260,52 +276,35 @@ private fun LazyListScope.peopleItems(rules: List<Rule>, open: (AlertSheet) -> U
 }
 
 /**
- * "+ Add a person" (row 57): Contacts is asked for here, in context. Without it, a name and a number can be
- * typed; calls match every number, messages match the name the app shows.
+ * "+ Add a person" (row 57): people who wrote recently first, then Contacts (asked for here, in context), with
+ * a search; a name and a number can always be typed. Calls match every number, messages the name apps show.
  */
 @Composable
 fun AddPersonSheet(setup: Setup, onDismiss: () -> Unit, onAdded: (Rule) -> Unit) {
     var name by remember { mutableStateOf("") }
     var number by remember { mutableStateOf("") }
-    val ctx = LocalContext.current
-    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickContact()) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        val found = runCatching { contactOf(ctx, uri) }.getOrNull() ?: return@rememberLauncherForActivityResult
-        val r = SimpleRules.newPerson(found.first, found.second)
+    val history by AppGraph.history.entries.collectAsStateWithLifecycle()
+    val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
+    val have = rules.filter(SimpleRules::isPersonRule).map { it.name.lowercase() }.toSet()
+    val recent = remember(history) { com.dotforge.rules.HistoryRepository.recentSenders(history, null).filterNot { it.chat }.map { it.name } }
+        .filterNot { it.lowercase() in have }
+    val contacts = if (setup.contacts) rememberContacts() else null
+    fun add(n: String, numbers: List<String>) {
+        val r = SimpleRules.newPerson(n.trim(), numbers)
         AppGraph.rules.upsert(r)
         onAdded(r)
     }
     FullSheet(onDismiss, "Add a person", confirm = "Add", confirmEnabled = name.isNotBlank(), onConfirm = {
-        val r = SimpleRules.newPerson(name.trim(), listOfNotNull(number.trim().takeIf { it.isNotEmpty() }))
-        AppGraph.rules.upsert(r)
-        onAdded(r)
+        add(name, listOfNotNull(number.trim().takeIf { it.isNotEmpty() }))
     }) {
-        if (setup.contacts) {
-            PrimaryButton("Pick from Contacts", Modifier.fillMaxWidth()) { pick.launch(null) }
-            Hint("Or type them in:", Modifier.padding(top = Tokens.Small))
-        } else {
-            StatusBanner("Contacts is off, so type a name and number.", button = "Allow contacts") { setup.needContacts() }
-        }
-        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth().padding(top = Tokens.Small), label = { Text("Name, as apps show it") }, singleLine = true)
-        OutlinedTextField(
-            number, { number = it }, Modifier.fillMaxWidth().padding(top = Tokens.Small), label = { Text("Type a number") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-        )
-        Hint("Calls match every number on the contact. Messages match the contact's name in the notification.")
+        PeoplePicker(
+            recent, contacts, picked = emptySet(), multi = false, recentTitle = "Wrote recently",
+            onAllowContacts = if (setup.contacts) null else ({ setup.needContacts() }),
+        ) { n, numbers -> add(n, numbers) }
+        SectionLabel("Or type them in")
+        LabeledField("Name", name, { name = it }, placeholder = "As apps show it, like Mom")
+        LabeledField("Number", number, { number = it }, placeholder = "Optional", keyboard = KeyboardType.Phone, helper = "Calls match every number on the contact.")
     }
-}
-
-/** A picked contact's name and every number. */
-private fun contactOf(ctx: android.content.Context, uri: android.net.Uri): Pair<String, List<String>>? {
-    val cr = ctx.contentResolver
-    val (id, name) = cr.query(uri, arrayOf(android.provider.ContactsContract.Contacts._ID, android.provider.ContactsContract.Contacts.DISPLAY_NAME), null, null, null)?.use { c ->
-        if (c.moveToFirst()) c.getLong(0) to c.getString(1) else null
-    } ?: return null
-    val numbers = cr.query(
-        android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER),
-        "${android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?", arrayOf(id.toString()), null,
-    )?.use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }.orEmpty()
-    return name to numbers.distinct()
 }
 
 // ---------------------------------------------------------------- explainers
@@ -329,7 +328,7 @@ fun HowBlockingSheet(onDismiss: () -> Unit) = FullSheet(onDismiss, "What blockin
 @Composable
 fun DoubleLightsSheet(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
-    FullSheet(onDismiss, "Stop double lights") {
+    FullSheet(onDismiss, "Stop double lights", confirm = null) {
         Para(null, "Nothing lights its own glyph for notifications, on top of DotForge's. Set it to Sound only:")
         Para(null, "Settings > Glyph Interface > Notifications > Sound only")
         PrimaryButton("Open Glyph settings", Modifier.fillMaxWidth().padding(top = Tokens.Small)) {

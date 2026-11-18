@@ -3,7 +3,10 @@ package com.dotforge.screens
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
@@ -23,13 +26,15 @@ import com.dotforge.ui.Nav
 import com.dotforge.ui.Setup
 import com.dotforge.ui.Tab
 import com.dotforge.ui.alerts.AlertAppsPage
+import com.dotforge.ui.AppRoot
 import com.dotforge.ui.alerts.AlertBanners
+import com.dotforge.ui.alerts.ContactEntry
+import com.dotforge.ui.alerts.LocalContacts
 import com.dotforge.ui.alerts.AlertSettingsPage
 import com.dotforge.ui.alerts.AlertSheet
 import com.dotforge.ui.alerts.AlertsScreen
 import com.dotforge.ui.alerts.DeviceState
 import com.dotforge.ui.alerts.QuietPage
-import com.dotforge.ui.alerts.RuleSheet
 import com.dotforge.ui.alerts.TryItSheet
 import com.dotforge.ui.alerts.WhoWinsPage
 import com.dotforge.ui.design.UndoSnackbarHost
@@ -43,10 +48,36 @@ abstract class AlertsScreens : ScreenshotTest() {
     private val f = "alerts"
     private val ok = AlertBanners(device = DeviceState.PHONE3, access = true, doubleLights = false, ringtoneLights = false)
 
-    private fun alerts(nav: Nav = Nav(Tab.ALERTS), banners: AlertBanners = ok, start: AlertSheet? = null, request: String? = null) {
+    private val contacts = listOf(
+        ContactEntry("Aarav", listOf("+91 98100 11111")), ContactEntry("Dad", listOf("+44 7700 900456")),
+        ContactEntry("Meera", listOf("+91 98100 22222")), ContactEntry("Mom", listOf("+44 7700 900123")),
+        ContactEntry("Priya", listOf("+91 98100 33333")), ContactEntry("Rohan", listOf("+91 98100 44444")),
+    )
+
+    /** A SIM from India, so numbers read +91 (row 45). */
+    private fun indianSim() {
+        val tm = activity.getSystemService(android.telephony.TelephonyManager::class.java)
+        org.robolectric.Shadows.shadowOf(tm).setSimCountryIso("in")
+    }
+
+    private fun setup(contactsOn: Boolean = false): Setup {
+        if (contactsOn) org.robolectric.Shadows.shadowOf(activity.application).grantPermissions(android.Manifest.permission.READ_CONTACTS)
+        return Setup(activity)
+    }
+
+    private fun alerts(
+        nav: Nav = Nav(Tab.ALERTS), banners: AlertBanners = ok, start: AlertSheet? = null, request: String? = null,
+        contactsOn: Boolean = false, over: (@androidx.compose.runtime.Composable () -> Unit)? = null,
+    ) {
+        indianSim()
         nav.alertsRequest = request
-        val setup = Setup(activity)
-        show { UndoSnackbarHost(bottomBar = true) { AlertsScreen(nav, setup, rememberLazyListState(), banners, start) } }
+        val setup = setup(contactsOn)
+        show {
+            androidx.compose.runtime.CompositionLocalProvider(LocalContacts provides contacts) {
+                UndoSnackbarHost(bottomBar = true) { AlertsScreen(nav, setup, rememberLazyListState(), banners, start) }
+                over?.invoke()
+            }
+        }
     }
 
     private val now = System.currentTimeMillis()
@@ -75,20 +106,25 @@ abstract class AlertsScreens : ScreenshotTest() {
     private fun history() {
         val h = AppGraph.history
         val min = 60_000L
-        h.add(HistoryEntry("e1", now - 5 * min, Outcome.LIT, "App icon · until checked", "WhatsApp", "com.whatsapp", "Mom", "Are you home?", sender = "Mom", ruleId = "wa"))
+        h.add(HistoryEntry("e1", now - 5 * min, Outcome.LIT, "App icon · until you check", "WhatsApp", "com.whatsapp", "Ravi", "Are you home?", sender = "Ravi", ruleId = "wa"))
         h.add(HistoryEntry("e2", now - 30 * min, Outcome.BLOCKED, "starts with 140", "Phone", "", "+91 140 555 0101", number = "+911405550101", call = true, ruleId = "block-140", rule = "Starts with 140"))
         h.add(HistoryEntry("e3", now - 50 * min, Outcome.SKIPPED, "Quiet", "Gmail", "com.google.android.gm", "Bank", "Your statement is ready", sender = "Bank", ruleId = "gmail"))
         h.add(HistoryEntry("e4", now - 70 * min, Outcome.SKIPPED, "phone face down", "Telegram", "org.telegram.messenger", "Sam", "lol", sender = "Sam", ruleId = "tg"))
+        h.add(HistoryEntry("e7", now - 90 * min, Outcome.LIT, "App icon · until you check", "WhatsApp", "com.whatsapp", "Family", "Dinner at 8", sender = "Aunt Lata", ruleId = "wa"))
+        h.add(HistoryEntry("e8", now - 100 * min, Outcome.LIT, "App icon · until you check", "WhatsApp", "com.whatsapp", "AX-LOANS", "Pre-approved loan of 5 lakh", sender = "AX-LOANS", ruleId = "wa"))
         h.add(HistoryEntry("e5", now - 26 * 60 * min, Outcome.BLOCKED, "mentions “loan, lottery”", "Messages", "com.google.android.apps.messaging", "AX-LOANS", "Pre-approved loan", ruleId = "block-loan"))
-        h.add(HistoryEntry("e6", now - 27 * 60 * min, Outcome.LIT, "Heart glyph · until checked", "WhatsApp", "com.whatsapp", "Mom", "Call me", sender = "Mom", ruleId = "person-mom"))
+        h.add(HistoryEntry("e6", now - 27 * 60 * min, Outcome.LIT, "Heart glyph · until you check", "WhatsApp", "com.whatsapp", "Mom", "Call me", sender = "Mom", ruleId = "person-mom"))
     }
+
+    private fun sheet(id: String, banners: AlertBanners = ok, advanced: Boolean = false, picker: WordKind? = null, block: Boolean = false, request: String? = null, contactsOn: Boolean = false) =
+        alerts(banners = banners, start = AlertSheet.RuleOf(id, advanced, picker, block), request = request, contactsOn = contactsOn)
 
     // ---------------------------------------------------------------- Apps
 
     @Test fun apps() {
         alerts()
         capture(f, "01-apps")
-        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Headphones"))
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Phone moments"))
         capture(f, "02-apps-this-phone")
     }
 
@@ -120,6 +156,23 @@ abstract class AlertsScreens : ScreenshotTest() {
         capture(f, "07-banner-glyph-off")
     }
 
+    /** The real app: Alerts with the bottom bar. */
+    @Test fun bottomBar() {
+        manyApps()
+        indianSim()
+        val setup = Setup(activity)
+        show { AppRoot(Nav(Tab.ALERTS), setup) }
+        capture(f, "08-tab-with-bottom-bar")
+    }
+
+    @Test fun removeAppUndo() {
+        manyApps()
+        sheet("wa")
+        rule.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText("Remove WhatsApp"))
+        rule.onNodeWithText("Remove WhatsApp").performClick()
+        capture(f, "09-app-removed-undo")
+    }
+
     // ---------------------------------------------------------------- People
 
     @Test fun peopleEmpty() {
@@ -138,13 +191,15 @@ abstract class AlertsScreens : ScreenshotTest() {
         capture(f, "12-add-person-contacts-denied")
     }
 
-    // ---------------------------------------------------------------- the one sheet
-
-    private fun sheet(id: String, banners: AlertBanners = ok, advanced: Boolean = false, picker: WordKind? = null) {
-        val nav = Nav(Tab.ALERTS)
-        val setup = Setup(activity)
-        show { UndoSnackbarHost(bottomBar = true) { RuleSheet(id, nav, setup, banners, onDismiss = {}, startAdvanced = advanced, startPicker = picker) } }
+    @Test fun addPersonContacts() {
+        history()
+        alerts(request = "people", start = AlertSheet.AddPerson, contactsOn = true)
+        capture(f, "13-add-person-contacts")
+        rule.onNode(hasSetTextAction() and hasContentDescription("Search or type a name")).performTextInput("ro")
+        capture(f, "14-add-person-search")
     }
+
+    // ---------------------------------------------------------------- the one sheet
 
     @Test fun sheetApp() {
         manyApps()
@@ -177,7 +232,7 @@ abstract class AlertsScreens : ScreenshotTest() {
 
     @Test fun sheetPerson() {
         people()
-        sheet("person-mom")
+        sheet("person-mom", request = "people")
         capture(f, "26-sheet-person")
     }
 
@@ -189,6 +244,13 @@ abstract class AlertsScreens : ScreenshotTest() {
     @Test fun sheetMoment() {
         sheet("moment-alarm")
         capture(f, "28-sheet-moment-alarm")
+    }
+
+    /** "When Dad calls" needs Call screening for his Glyph ringtone. */
+    @Test fun sheetPersonNeedsScreening() {
+        people()
+        sheet("person-dad", request = "people")
+        capture(f, "29-sheet-person-needs-call-screening")
     }
 
     @Test fun pickerGlyph() {
@@ -210,22 +272,44 @@ abstract class AlertsScreens : ScreenshotTest() {
     }
 
     @Test fun pickerWho() {
+        history()
         AppGraph.rules.upsert(SimpleRules.withPeople(wa, listOf("Mom", "Sam")))
-        sheet("wa", picker = WordKind.WHO)
+        sheet("wa", picker = WordKind.WHO, contactsOn = true)
         capture(f, "33-picker-from")
     }
 
     @Test fun tryItCountdown() {
         AppGraph.rules.upsert(wa)
         rule.mainClock.autoAdvance = false
-        show { TryItSheet(wa, "WhatsApp", DeviceState.PHONE3, onDismiss = {}) }
+        alerts(over = { TryItSheet(wa, "WhatsApp", DeviceState.PHONE3, onDismiss = {}) })
         rule.mainClock.advanceTimeBy(500)
         capture(f, "34-try-it-countdown")
     }
 
     @Test fun tryItNotPhone3() {
-        show { TryItSheet(mom, "Mom", DeviceState.OTHER, onDismiss = {}, startAt = 0) }
+        alerts(request = "people", over = { TryItSheet(mom, "Mom", DeviceState.OTHER, onDismiss = {}, startAt = 0) })
         capture(f, "35-try-it-on-screen-only")
+    }
+
+    @Test fun tryItFaceDown() {
+        AppGraph.rules.upsert(wa)
+        alerts(over = { TryItSheet(wa, "WhatsApp", DeviceState.PHONE3, onDismiss = {}, startAt = 0, faceDownNow = true) })
+        capture(f, "36-try-it-face-down")
+    }
+
+    @Test fun tryItBusy() {
+        AppGraph.rules.upsert(wa)
+        alerts(over = { TryItSheet(wa, "WhatsApp", DeviceState.PHONE3, onDismiss = {}, startAt = 0, busyNow = "a call") })
+        capture(f, "37-try-it-glyph-busy")
+    }
+
+    @Test fun blockSenders() {
+        manyApps()
+        history()
+        sheet("wa", block = true)
+        capture(f, "38-block-sender-or-group")
+        rule.onAllNodes(hasText("AX-LOANS")).onFirst().performClick()
+        capture(f, "39-block-sender-undo")
     }
 
     // ---------------------------------------------------------------- Spam
@@ -238,6 +322,7 @@ abstract class AlertsScreens : ScreenshotTest() {
     @Test fun spamRules() {
         blockRules()
         history()
+        AppGraph.rules.addToList(com.dotforge.rules.RuleEngine.ALLOWED, "+919810055555")
         alerts(request = "spam")
         capture(f, "41-spam-rules-counts")
         rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("What blocking does"))
@@ -253,6 +338,8 @@ abstract class AlertsScreens : ScreenshotTest() {
     @Test fun addRule() {
         alerts(request = "spam", start = AlertSheet.AddBlock())
         capture(f, "44-add-rule-empty")
+        rule.onNode(hasSetTextAction()).performTextInput("14")
+        capture(f, "44b-add-rule-typed-short")
     }
 
     @Test fun addRuleValid() {
@@ -270,6 +357,13 @@ abstract class AlertsScreens : ScreenshotTest() {
     @Test fun howBlocking() {
         alerts(request = "spam", start = AlertSheet.HowBlocking)
         capture(f, "47-what-blocking-does")
+    }
+
+    @Test fun letThrough() {
+        AppGraph.rules.addToList(com.dotforge.rules.RuleEngine.ALLOWED, "+919810055555")
+        AppGraph.rules.addToList(com.dotforge.rules.RuleEngine.ALLOWED, "HDFC-BANK")
+        alerts(request = "spam", start = AlertSheet.AllowList)
+        capture(f, "48-let-through-list")
     }
 
     // ---------------------------------------------------------------- History
@@ -302,6 +396,8 @@ abstract class AlertsScreens : ScreenshotTest() {
         history()
         alerts(request = "history", start = AlertSheet.Entry("e1"))
         capture(f, "54-history-entry-lit")
+        rule.onNodeWithText("Block Ravi").performClick()
+        capture(f, "54b-history-blocked-undo")
     }
 
     @Test fun historyMenu() {
@@ -310,6 +406,8 @@ abstract class AlertsScreens : ScreenshotTest() {
         rule.onNodeWithText("History").assertExists()
         rule.onAllNodes(androidx.compose.ui.test.hasContentDescription("More options")).onFirst().performClick()
         capture(f, "55-history-menu-clear")
+        rule.onNodeWithText("Clear history").performClick()
+        capture(f, "56-history-cleared-undo")
     }
 
     // ---------------------------------------------------------------- pages and sheets
@@ -334,9 +432,9 @@ abstract class AlertsScreens : ScreenshotTest() {
         capture(f, "61-add-app")
     }
 
-    @Test fun addAppNoMatch() {
-        show { AlertAppsPage("app", Nav(Tab.ALERTS), preset = emptyList()) }
-        capture(f, "62-add-app-none")
+    @Test fun addAppNone() {
+        show { AlertAppsPage("app", Nav(Tab.ALERTS), preset = emptyList(), loading = true) }
+        capture(f, "62-add-app-couldnt-list")
     }
 
     @Test fun alertSettings() {
@@ -350,6 +448,13 @@ abstract class AlertsScreens : ScreenshotTest() {
         capture(f, "64-quiet")
         rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Repeat callers"))
         capture(f, "65-quiet-bottom")
+    }
+
+    @Test fun quietTimePicker() {
+        AppGraph.filters.updateFilters { it.copy(quiet = it.quiet.copy(enabled = true, start = 23 * 60, end = 7 * 60)) }
+        show { QuietPage(Nav(Tab.ALERTS)) }
+        rule.onNodeWithText("From").performClick()
+        capture(f, "64b-quiet-time-picker")
     }
 
     @Test fun whoWins() {
@@ -367,6 +472,13 @@ abstract class AlertsScreens : ScreenshotTest() {
     @Test fun doubleLights() {
         alerts(start = AlertSheet.DoubleLights)
         capture(f, "68-stop-double-lights")
+    }
+
+    @Test fun phoneMoments() {
+        AppGraph.rules.rules.value.firstOrNull { it.id == "moment-unlock" }?.let { AppGraph.rules.upsert(it.copy(enabled = true)) }
+        val setup = Setup(activity)
+        show { com.dotforge.ui.alerts.PhoneMomentsPage(Nav(Tab.ALERTS), setup, ok) }
+        capture(f, "69-phone-moments")
     }
 }
 

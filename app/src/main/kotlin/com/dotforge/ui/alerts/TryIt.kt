@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,19 +41,26 @@ import kotlinx.coroutines.delay
 /**
  * Try it on the Glyph (row 48): the exact alert (design, timing, remind) after a 3 s countdown that says "Flip
  * your phone over"; Play now skips it; any tap stops. Face down it says the firmware hides app lights; on a
- * phone that isn't a Phone (3) it plays on screen only. [startAt] is for screenshots (0 = playing).
+ * phone that isn't a Phone (3) it plays on screen only. While a call or the torch holds the Glyph, it says it
+ * plays once that ends. [startAt], [faceDownNow] and [busyNow] are for screenshots (0 = playing).
  */
 @Composable
-fun TryItSheet(r: Rule, title: String, device: DeviceState, onDismiss: () -> Unit, startAt: Int = COUNTDOWN) {
+fun TryItSheet(
+    r: Rule, title: String, device: DeviceState, onDismiss: () -> Unit, startAt: Int = COUNTDOWN,
+    faceDownNow: Boolean? = null, busyNow: String? = null,
+) {
     var left by remember { mutableIntStateOf(startAt) }
     val alert = remember(r) {
         val info = NotificationInfo("tryit", r.packages.firstOrNull().orEmpty(), title, "Mom", "", 0, sender = "Mom")
         RuleEngine.alert(r, info, AppGraph.profile, AppGraph::designAnimation, AppGraph::designTiming, appIcon = AlertRuntime::appIcon)
     }
     val anim = remember(r) {
-        if (r.id == SimpleRules.PHONE_CALLS) AlertRuntime.previewCall("Mom", r.callShow, alert.item.animation) else alert.item.animation
+        if (r.id == SimpleRules.PHONE_CALLS) AlertRuntime.previewCall(SAMPLE_NAME, r.callShow, alert.item.animation) else alert.item.animation
     }
-    val faceDown = AppGraph.faceDown.faceDown == true
+    val faceDown = faceDownNow ?: (AppGraph.faceDown.faceDown == true)
+    // something above Try it holds the Glyph: a ringing call, the torch
+    val active by AppGraph.arbiter.active.collectAsStateWithLifecycle()
+    val busy = busyNow ?: active.firstOrNull { it.priority > Priority.STUDIO_PREVIEW && it.id != TRY_ID }?.let { if (it.priority >= Priority.CALL) "a call" else "the torch" }
     val onPhone = device == DeviceState.PHONE3
     LaunchedEffect(left) {
         if (left > 0) {
@@ -73,11 +81,12 @@ fun TryItSheet(r: Rule, title: String, device: DeviceState, onDismiss: () -> Uni
             Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, indication = null, onClickLabel = "Stop") { onDismiss() },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            GlyphPreview(anim, title, size = PreviewSize.LARGE, playing = left == 0)
+            GlyphPreview(anim, title, size = PreviewSize.LARGE, playing = left == 0, posterFrame = remember(r) { posterOf(r, title) })
             val line = when {
                 left > 0 -> "Flip your phone over · $left"
                 !onPhone -> "Playing on screen. The Glyph needs Phone (3)."
-                faceDown -> "Nothing hides app lights face down. Try it face up."
+                busy != null -> "The Glyph is busy with $busy. It plays here on screen until that ends."
+                faceDown -> "Face down, Nothing hides app lights. Turn the phone face up to see it."
                 else -> "Playing on the Glyph"
             }
             Text(

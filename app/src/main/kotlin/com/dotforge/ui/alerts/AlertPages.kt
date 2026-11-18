@@ -56,15 +56,17 @@ import com.dotforge.ui.rememberAppLabel
 private fun filters(f: (FilterSettings) -> FilterSettings) = AppGraph.filters.updateFilters(f)
 
 /**
- * Add an app (row 56): search, "Sent notifications this week" first, a skeleton while the list builds, a check
- * on apps already added. [mode]: "app" adds an app row; "reminders" picks Reminders & to-dos apps;
- * "change:<rule id>" moves a row to another app. [preset] stands in for the installed apps (screenshots).
+ * Add an app (row 56): search, "Sent notifications this week" first, a skeleton while the list builds. One tap
+ * adds the app and opens its sheet; apps already added say "Added" and open theirs. [mode]: "app" adds an app
+ * row; "reminders" picks Reminders & to-dos apps (several); "change:<rule id>" moves a row to another app.
+ * [preset] stands in for the installed apps (screenshots).
  */
 @Composable
 fun AlertAppsPage(mode: String, nav: Nav, preset: List<AppEntry>? = null, loading: Boolean = false) {
     val ctx = LocalContext.current
     var apps by remember { mutableStateOf(preset) }
-    LaunchedEffect(Unit) { if (apps == null && !loading) apps = launcherApps(ctx) }
+    var attempt by remember { mutableStateOf(0) }
+    LaunchedEffect(attempt) { if ((apps == null || attempt > 0) && !loading) apps = runCatching { launcherApps(ctx) }.getOrDefault(emptyList()) }
     var query by rememberSaveable { mutableStateOf("") }
     val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
     val history by AppGraph.history.entries.collectAsStateWithLifecycle()
@@ -91,11 +93,16 @@ fun AlertAppsPage(mode: String, nav: Nav, preset: List<AppEntry>? = null, loadin
                 AppGraph.rules.upsert(changing.copy(packages = listOf(e.packageName), name = e.label))
                 nav.pop()
             }
-            e.packageName in added -> nav.pop()
-            else -> {
-                AppGraph.rules.upsert(SimpleRules.newApp(e.packageName, e.label))
+            e.packageName in added -> {
+                rules.firstOrNull { SimpleRules.isAppRule(it) && it.packages == listOf(e.packageName) }?.let { nav.alertsRequest = "rule:${it.id}" }
                 nav.pop()
-                snacks?.show("${e.label} added. It lights with its icon until you check.")
+            }
+            else -> {
+                val r = SimpleRules.newApp(e.packageName, e.label)
+                AppGraph.rules.upsert(r)
+                // straight to its sheet, to pick its glyph
+                nav.alertsRequest = "rule:${r.id}"
+                nav.pop()
             }
         }
     }
@@ -116,23 +123,30 @@ fun AlertAppsPage(mode: String, nav: Nav, preset: List<AppEntry>? = null, loadin
         val sent = recent.mapNotNull { byPkg[it] }.filter(::matches)
         if (sent.isNotEmpty()) {
             item(key = "sent-label") { SectionLabel("Sent notifications this week") }
-            item(key = "sent") { AppList(sent, added, ::pick) }
+            item(key = "sent") { AppList(sent, added, mode == "reminders", ::pick) }
         }
         val rest = all.filter(::matches).filterNot { a -> sent.any { it.packageName == a.packageName } }
         item(key = "all-label") { SectionLabel(if (sent.isEmpty()) "All apps" else "Other apps") }
-        if (rest.isEmpty()) item(key = "none") { Hint(if (query.isBlank()) "No apps found." else "No app called “$query”.") }
-        else item(key = "all") { AppList(rest, added, ::pick) }
+        if (all.isEmpty()) item(key = "none") {
+            // an empty list means the apps couldn't be read, not that there are none
+            com.dotforge.ui.design.EmptyState("Couldn't list your apps. Android may still be starting up.", "Retry", glyph = "dot") { apps = null; attempt++ }
+        } else if (rest.isEmpty()) item(key = "none") { Hint("No app called “$query”.") }
+        else item(key = "all") { AppList(rest, added, mode == "reminders", ::pick) }
     }
 }
 
+/** Apps to pick: "Added" on apps already there; ticks only where several can be picked ([multi]). */
 @Composable
-private fun AppList(apps: List<AppEntry>, added: Set<String>, pick: (AppEntry) -> Unit) = RowGroup {
+private fun AppList(apps: List<AppEntry>, added: Set<String>, multi: Boolean, pick: (AppEntry) -> Unit) = RowGroup {
     apps.forEachIndexed { i, e ->
         if (i > 0) RowDivider(leading = true)
         val on = e.packageName in added
         ListRow(
             e.label, leading = { AppIcon(e.packageName, e.label) },
-            trailing = { if (on) Icon(Icons.Filled.Check, contentDescription = "Added", tint = androidx.compose.ui.graphics.Color.White) },
+            trailing = {
+                if (on && multi) Icon(Icons.Filled.Check, contentDescription = "Picked", tint = androidx.compose.ui.graphics.Color.White)
+                else if (on) Text("Added", style = MaterialTheme.typography.labelLarge, color = Tokens.Secondary)
+            },
         ) { pick(e) }
     }
 }
@@ -197,18 +211,12 @@ fun QuietPage(nav: Nav) {
                 }
             }
             if (f.quiet.enabled) {
-                Text("From ${hh(f.quiet.start)}", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Gap))
-                DotSlider("From", f.quiet.start / 30f, 0f..47f, steps = 46, readout = hh(f.quiet.start)) { v -> filters { it.copy(quiet = it.quiet.copy(start = v.toInt() * 30)) } }
-                Text("To ${hh(f.quiet.end)}", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
-                DotSlider("To", f.quiet.end / 30f, 0f..47f, steps = 46, readout = hh(f.quiet.end)) { v -> filters { it.copy(quiet = it.quiet.copy(end = v.toInt() * 30)) } }
-                FlowRow(Modifier.padding(top = Tokens.Small), horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
-                    listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEachIndexed { i, d ->
-                        val day = i + 1
-                        Chip(d, day in f.quiet.days) {
-                            filters { s -> s.copy(quiet = s.quiet.copy(days = if (day in s.quiet.days) s.quiet.days - day else (s.quiet.days + day).sorted())) }
-                        }
-                    }
+                RowGroup(Modifier.padding(top = Tokens.Small)) {
+                    TimeRow("From", f.quiet.start) { m -> filters { it.copy(quiet = it.quiet.copy(start = m)) } }
+                    RowDivider()
+                    TimeRow("To", f.quiet.end) { m -> filters { it.copy(quiet = it.quiet.copy(end = m)) } }
                 }
+                DayToggles(f.quiet.days, Modifier.padding(top = Tokens.Small)) { d -> filters { s -> s.copy(quiet = s.quiet.copy(days = d)) } }
             }
         }
         item(key = "also-label") { SectionLabel("Also quiet") }
@@ -270,4 +278,33 @@ fun WhoWinsPage(nav: Nav) {
             }
         }
     }
+}
+
+/**
+ * Alerts > Apps > Phone moments: unlock, shake, camera, alarm or timer and headphones, each its glyph, a
+ * line, and a switch; the row opens the one sheet. All off until turned on.
+ */
+@Composable
+fun PhoneMomentsPage(nav: Nav, setup: com.dotforge.ui.Setup, banners: AlertBanners? = null) {
+    val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
+    val needsScreening by com.dotforge.ui.rememberNeedsScreening()
+    val b = banners ?: rememberAlertBanners(setup, needsScreening)
+    var open by remember { mutableStateOf<String?>(null) }
+    val moments = rules.filter { it.moment != null }.sortedBy { it.moment!!.ordinal }
+    com.dotforge.ui.design.Page("Phone moments", onBack = nav::pop) {
+        item(key = "hint") { Hint("The Glyph shows something when these happen on the phone.") }
+        item(key = "moments") {
+            RowGroup {
+                moments.forEachIndexed { i, r ->
+                    if (i > 0) RowDivider(leading = true)
+                    ListRow(
+                        r.name, subtitle = if (r.enabled) com.dotforge.rules.AlertSentence.summary(r) else r.moment!!.hint, subtitleLines = 3,
+                        leading = { RulePoster(r, r.name) },
+                        trailing = { RowSwitch(r.enabled, r.name) { AppGraph.rules.upsert(r.copy(enabled = it)) } },
+                    ) { open = r.id }
+                }
+            }
+        }
+    }
+    open?.let { id -> RuleSheet(id, nav, setup, b, onDismiss = { open = null }) }
 }

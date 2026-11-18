@@ -19,12 +19,20 @@ fun rememberAppLabel(): (String) -> String {
         val label: (String) -> String = { pkg ->
             cache.getOrPut(pkg) {
                 runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }
-                    .getOrDefault(pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() })
+                    .getOrDefault(KNOWN_LABELS[pkg] ?: pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() })
             }
         }
         label
     }
 }
+
+/** Names of well-known apps, for when the app isn't installed (a rule restored from a backup). */
+private val KNOWN_LABELS = mapOf(
+    "com.whatsapp" to "WhatsApp", "com.whatsapp.w4b" to "WhatsApp Business", "org.telegram.messenger" to "Telegram",
+    "com.google.android.gm" to "Gmail", "com.google.android.apps.messaging" to "Messages", "com.instagram.android" to "Instagram",
+    "org.thoughtcrime.securesms" to "Signal", "com.slack" to "Slack", "com.google.android.calendar" to "Calendar",
+    "com.google.android.keep" to "Keep", "com.google.android.apps.tasks" to "Tasks", "com.google.android.dialer" to "Phone",
+)
 
 /** Apps with a launcher icon (visible through the manifest's <queries>), sorted by name. */
 suspend fun launcherApps(ctx: Context): List<AppEntry> = withContext(Dispatchers.IO) {

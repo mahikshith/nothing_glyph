@@ -208,7 +208,8 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
                     version == 3 -> withAlerts(withSpamOn(withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element)))).also(::write)
                     version == 4 -> withAlerts(withSpamOn(json.decodeFromJsonElement(RulesFile.serializer(), element))).also(::write)
                     version == 5 -> withAlerts(json.decodeFromJsonElement(RulesFile.serializer(), element)).also(::write)
-                    else -> json.decodeFromJsonElement(RulesFile.serializer(), element)
+                    // "Call live" was a phone moment for a while before release: Phone calls covers it
+                    else -> json.decodeFromJsonElement(RulesFile.serializer(), element).let { f -> f.copy(rules = f.rules.filterNot { it.id == "moment-call" }) }
                 }
             }
         }.getOrNull() ?: return fresh()

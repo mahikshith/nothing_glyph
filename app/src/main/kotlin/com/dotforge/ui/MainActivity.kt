@@ -224,6 +224,7 @@ fun PageContent(page: Page, nav: Nav, setup: Setup) {
         Page.AlertSettings -> com.dotforge.ui.alerts.AlertSettingsPage(nav)
         Page.Quiet -> com.dotforge.ui.alerts.QuietPage(nav)
         Page.WhoWins -> com.dotforge.ui.alerts.WhoWinsPage(nav)
+        Page.PhoneMoments -> com.dotforge.ui.alerts.PhoneMomentsPage(nav, setup)
         Page.Library -> LibraryScreen(nav)
         is Page.Editor -> EditorScreen(page.designId, page.animated, page.draft, nav)
         is Page.Feature -> FeaturePage(page.key, nav, setup)

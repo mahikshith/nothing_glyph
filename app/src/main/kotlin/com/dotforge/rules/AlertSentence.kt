@@ -21,10 +21,13 @@ sealed interface SentencePart {
  * People, Phone calls, Reminders and the phone moments each read their own way.
  */
 object AlertSentence {
-    /** "the Heart glyph", "the app icon", "their name", "your design Sunrise". */
-    fun glyphWord(r: Rule, designName: (String?) -> String? = { null }): String = when (r.glyph) {
+    /**
+     * "Heart glyph", "app icon", "their name", "your design Sunrise". The app icon is named only when it can
+     * really be drawn ([hasIcon]); otherwise the Chat bubble glyph stands in, and the words say so.
+     */
+    fun glyphWord(r: Rule, designName: (String?) -> String? = { null }, hasIcon: (String) -> Boolean = { true }): String = when (r.glyph) {
         GlyphStyle.ICON -> (com.dotforge.device.GlyphLibrary.get(r.designId)?.name ?: "Dot") + " glyph"
-        GlyphStyle.APP_ICON -> "app icon"
+        GlyphStyle.APP_ICON -> if (r.packages.size == 1 && hasIcon(r.packages[0])) "app icon" else CHAT_BUBBLE
         GlyphStyle.NAME -> "their name"
         GlyphStyle.DESIGN -> designName(r.designId) ?: "your design"
         GlyphStyle.BELL -> "bell"
@@ -41,10 +44,13 @@ object AlertSentence {
         }
     }
 
-    fun parts(r: Rule, appName: String, designName: (String?) -> String? = { null }): List<SentencePart> {
+    /** What the app icon falls back to when the app's icon can't be read. */
+    const val CHAT_BUBBLE = "Chat bubble glyph"
+
+    fun parts(r: Rule, appName: String, designName: (String?) -> String? = { null }, hasIcon: (String) -> Boolean = { true }): List<SentencePart> {
         fun t(s: String) = SentencePart.Text(s)
         fun w(s: String, k: WordKind) = SentencePart.Word(s, k)
-        val glyph = glyphWord(r, designName)
+        val glyph = glyphWord(r, designName, hasIcon)
         val show = SimpleRules.showText(r)
         val sound = listOf(t(". Sound: "), w(r.sound.label.replaceFirstChar { it.lowercase() }.let { if (r.sound == SoundMode.CUSTOM) r.soundName ?: "custom tune" else it }, WordKind.SOUND), t("."))
         return when {
@@ -54,26 +60,40 @@ object AlertSentence {
                 CallShow.BOTH -> listOf(t("When a call rings, the "), w(glyph, WordKind.GLYPH), t(" shows, then the caller's name scrolls, while it rings."))
             }
             r.moment != null -> listOf(t("When ${r.moment.sentence}, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR), t("."))
-            r.id == SimpleRules.REMINDERS -> listOf(t("When a reminder, event or alarm arrives, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
+            r.id == SimpleRules.REMINDERS -> listOf(t("When a reminder or event arrives, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
             SimpleRules.isPersonRule(r) -> listOf(t("When "), t(r.name), t(" messages, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
             else -> listOf(t("When "), w(appName, WordKind.APP), t(" sends something from "), w(whoWord(r), WordKind.WHO), t(", the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
         }
     }
 
     /** The whole sentence as plain text (for a row's summary and for tests). */
-    fun text(r: Rule, appName: String, designName: (String?) -> String? = { null }): String =
-        parts(r, appName, designName).joinToString("") { p -> if (p is SentencePart.Text) p.text else (p as SentencePart.Word).text }
+    fun text(r: Rule, appName: String, designName: (String?) -> String? = { null }, hasIcon: (String) -> Boolean = { true }): String =
+        parts(r, appName, designName, hasIcon).joinToString("") { p -> if (p is SentencePart.Text) p.text else (p as SentencePart.Word).text }
 
-    /** A row's one line: "Everyone · App icon · Until you check". */
-    fun summary(r: Rule, designName: (String?) -> String? = { null }): String {
+    /**
+     * A row's line, with only what tells rows apart: where it listens when that isn't one app ("Any app",
+     * "Chat apps"), who when it isn't everyone, the glyph, and how long unless it waits until you check.
+     * "App icon", "Any app · Flash · 5 s", or "Off".
+     */
+    fun summary(r: Rule, designName: (String?) -> String? = { null }, hasIcon: (String) -> Boolean = { true }): String {
         if (!r.enabled) return "Off"
-        val glyph = glyphWord(r, designName).removePrefix("the ").replaceFirstChar { it.uppercase() }
-        val show = SimpleRules.showText(r).replaceFirstChar { it.uppercase() }
+        val glyph = glyphWord(r, designName, hasIcon).replaceFirstChar { it.uppercase() }
+        // "until you check" is how alerts work unless told otherwise: only a time or another end is said
+        val show = SimpleRules.showText(r).takeUnless { it == "until you check" && r.moment == null }?.removePrefix("for ")?.replaceFirstChar { it.uppercase() }
         return when {
-            r.id == SimpleRules.PHONE_CALLS -> "${when (r.callShow) { CallShow.NAME -> "Name"; CallShow.GLYPH -> glyph; CallShow.BOTH -> "$glyph, then name" }} · Everyone"
-            r.moment != null -> "$glyph · $show"
-            SimpleRules.isPersonRule(r) -> "$glyph · $show · " + if (r.callRingtone != null) "Glyph ringtone for calls" else "Messages and calls"
-            else -> "${whoWord(r).replaceFirstChar { it.uppercase() }} · $glyph · $show"
+            r.id == SimpleRules.PHONE_CALLS -> when (r.callShow) { CallShow.NAME -> "Their name"; CallShow.GLYPH -> glyph; CallShow.BOTH -> "$glyph, then name" }
+            r.moment != null -> listOfNotNull(glyph, show).joinToString(" · ")
+            SimpleRules.isPersonRule(r) -> listOfNotNull(glyph, show, "Glyph ringtone for calls".takeIf { r.callRingtone != null }).joinToString(" · ")
+            else -> listOfNotNull(sourceWord(r), whoWord(r).takeIf { it != "everyone" }, glyph, show).joinToString(" · ")
         }
+    }
+
+    /** Where a rule listens, when it isn't a single app: "Any app", "Chat apps", "4 apps"; null for one app. */
+    fun sourceWord(r: Rule): String? = when {
+        r.id == SimpleRules.REMINDERS || r.id == SimpleRules.PHONE_CALLS || r.moment != null || SimpleRules.isPersonRule(r) -> null
+        r.packages.isEmpty() -> "Any app"
+        r.packages.size == 1 -> null
+        r.packages.all { it in RuleEngine.MESSAGE_APPS } -> "Chat apps"
+        else -> "${r.packages.size} apps"
     }
 }

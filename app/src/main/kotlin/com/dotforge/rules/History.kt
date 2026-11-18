@@ -48,7 +48,7 @@ data class HistoryEntry(
     val senderKey: String get() = number.ifBlank { sender.ifBlank { title } }.trim()
 
     /** "Lit · Chat glyph · 30 s", "Blocked · starts with 140", "Skipped · Quiet". */
-    val line: String get() = if (detail.isBlank()) outcome.label else "${outcome.label} · $detail"
+    val line: String get() = if (detail.isBlank()) outcome.label else "${outcome.label} · ${detail.replace("until checked", "until you check")}"
 }
 
 /** History filter chips. */
@@ -60,12 +60,18 @@ enum class HistoryFilter(val label: String, val outcome: Outcome?) {
     }
 }
 
+/** Someone who wrote recently: a sender, or a chat or group by its name ([chat]). */
+data class RecentSender(val name: String, val chat: Boolean, val number: String = "")
+
 /** A spam rule's count for its row: "Blocked 12 · last today 09:14". */
 data class RuleCount(val blocked: Int, val lastAt: Long?)
 
 object HistoryText {
     private val time = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
     private val day = DateTimeFormatter.ofPattern("d MMM", Locale.ROOT)
+
+    /** "09:14": the time alone, under a day's header. */
+    fun timeText(at: Long, zone: ZoneId = ZoneId.systemDefault()): String = time.format(Instant.ofEpochMilli(at).atZone(zone))
 
     /** "09:14", "Yesterday 21:02", "12 Nov 08:30". */
     fun whenText(at: Long, today: LocalDate = LocalDate.now(), zone: ZoneId = ZoneId.systemDefault()): String {
@@ -106,10 +112,10 @@ object HistoryText {
     fun blockedDetail(rule: Rule): String =
         SimpleRules.pattern(rule)?.label?.replaceFirstChar { it.lowercase() } ?: rule.name.replaceFirstChar { it.lowercase() }
 
-    /** The detail for an alert that lit: "Chat glyph · 30 s", "Chat glyph · until checked". */
+    /** The detail for an alert that lit: "Chat glyph · 30 s", "Chat glyph · until you check". */
     fun litDetail(glyphName: String, rule: Rule): String {
         val secs = SimpleRules.showSeconds(rule)
-        return "$glyphName · " + if (secs == null) "until checked" else "$secs s"
+        return "$glyphName · " + if (secs == null) "until you check" else "$secs s"
     }
 }
 
@@ -185,6 +191,25 @@ class HistoryRepository(private val file: File, legacy: List<SpamCatch> = emptyL
             appLabel = c.appLabel, packageName = c.packageName, title = c.title, text = c.text, sender = c.sender, number = c.number,
             call = c.call, rule = c.rule, action = c.action,
         )
+
+        /**
+         * Who wrote recently in [pkg] (any app when null), newest first: each sender, and each chat or group
+         * whose name isn't the sender's ([RecentSender.chat]). Calls are left out.
+         */
+        fun recentSenders(entries: List<HistoryEntry>, pkg: String?, limit: Int = 12): List<RecentSender> {
+            val out = LinkedHashMap<String, RecentSender>()
+            for (e in entries) {
+                if (e.call || (pkg != null && e.packageName != pkg)) continue
+                val sender = e.sender.trim()
+                if (sender.isNotEmpty()) out.putIfAbsent(sender.lowercase(), RecentSender(sender, chat = false, number = e.number))
+                val title = e.title.trim()
+                if (sender.isNotEmpty() && title.isNotEmpty() && !title.equals(sender, ignoreCase = true) && !title.startsWith(sender, ignoreCase = true)) {
+                    out.putIfAbsent(title.lowercase(), RecentSender(title, chat = true))
+                }
+                if (out.size >= limit) break
+            }
+            return out.values.take(limit)
+        }
 
         /** How many calls and messages were blocked in the week before [nowMs] (Home's spam line). */
         fun blockedThisWeek(entries: List<HistoryEntry>, nowMs: Long): Int =

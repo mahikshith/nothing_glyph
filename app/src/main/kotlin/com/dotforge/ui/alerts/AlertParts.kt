@@ -46,6 +46,17 @@ import com.dotforge.rules.SentencePart
 import com.dotforge.system.NothingSettings
 import com.dotforge.ui.Setup
 import com.dotforge.ui.design.Avatar
+import com.dotforge.ui.design.IconCircle
+import com.dotforge.device.Posters
+import com.dotforge.rules.AlertSentence
+import com.dotforge.rules.CallShow
+import com.dotforge.rules.GlyphStyle
+import com.dotforge.rules.SimpleRules
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Notifications
 import com.dotforge.ui.design.Tokens
 import com.dotforge.ui.design.rememberHaptics
 import com.dotforge.ui.design.switchColors
@@ -110,14 +121,57 @@ fun AppIcon(pkg: String, label: String, modifier: Modifier = Modifier) {
     else Avatar(label.ifBlank { "?" }, modifier)
 }
 
-/** The fullest frame of [a]: a still for 40 dp row previews (the first frame of a fade-in is dark). */
-fun stillOf(a: Animation): com.dotforge.device.Frame = a.frames.maxBy { f -> f.frame.pixels.sum() }.frame
+/** The poster of [a]: what 40 dp row previews and picker tiles show (only the 96 dp preview moves). */
+fun stillOf(a: Animation): com.dotforge.device.Frame = Posters.of(a)
+
+/** The sample sender previews use for "their name" and the caller's name. */
+const val SAMPLE_NAME = "Mom"
 
 /** The animation a rule shows, for previews (a sample sender stands in for "their name"). */
-fun previewAnimation(r: Rule, appLabel: String, sender: String = "Mom"): Animation {
+fun previewAnimation(r: Rule, appLabel: String, sender: String = SAMPLE_NAME): Animation {
     val pkg = r.packages.firstOrNull().orEmpty()
     val info = NotificationInfo("preview", pkg, appLabel, sender, "", 0, sender = sender)
     return RuleEngine.animation(r, info, AppGraph.profile, AppGraph::designAnimation, AlertRuntime::appIcon)
+}
+
+/**
+ * A rule's poster: its glyph centred and whole; "their name" and the caller's name as a name that has
+ * scrolled in ("MOM"), not the first column of the scroll.
+ */
+fun posterOf(r: Rule, appLabel: String): com.dotforge.device.Frame {
+    val name = if (r.id == SimpleRules.PHONE_CALLS) r.callShow == CallShow.NAME else r.glyph == GlyphStyle.NAME
+    return if (name) Posters.text(AppGraph.profile, SAMPLE_NAME) else Posters.of(previewAnimation(r, appLabel))
+}
+
+/** The big preview's animation: for Phone calls, the glyph then the name, as it rings. */
+fun sheetAnimation(r: Rule, title: String): Animation =
+    if (r.id == SimpleRules.PHONE_CALLS) AlertRuntime.previewCall(SAMPLE_NAME, r.callShow, previewAnimation(r, title)) else previewAnimation(r, title)
+
+/** True when [pkg]'s own icon can be drawn in dots (else the Chat bubble glyph stands in). */
+fun hasAppIcon(pkg: String): Boolean = AlertRuntime.appIcon(pkg) != null
+
+/** A rule's glyph as a 40 dp still, for the end of its row. */
+@Composable
+fun RulePoster(r: Rule, title: String) {
+    val frame = remember(r) { posterOf(r, title) }
+    com.dotforge.ui.design.GlyphPreview(frame, "${AlertSentence.glyphWord(r, hasIcon = ::hasAppIcon)} for $title")
+}
+
+/**
+ * The leading slot of a rule row: the app's icon, or what stands for where it listens (a phone for calls, a
+ * bell for any app, an envelope for several chat apps, a calendar for reminders, a letter for a person).
+ */
+@Composable
+fun SourceIcon(r: Rule, title: String) {
+    val pkg = r.packages.singleOrNull()
+    when {
+        r.id == SimpleRules.PHONE_CALLS -> IconCircle(Icons.Filled.Call)
+        r.id == SimpleRules.REMINDERS -> IconCircle(Icons.Filled.DateRange)
+        SimpleRules.isPersonRule(r) -> Avatar(r.name)
+        pkg != null -> AppIcon(pkg, title)
+        r.packages.isEmpty() -> IconCircle(Icons.Filled.Notifications)
+        else -> IconCircle(Icons.Filled.Email)
+    }
 }
 
 /**
@@ -128,23 +182,32 @@ fun previewAnimation(r: Rule, appLabel: String, sender: String = "Mom"): Animati
 @Composable
 fun Sentence(parts: List<SentencePart>, modifier: Modifier = Modifier, onWord: (SentencePart.Word) -> Unit) {
     val style = MaterialTheme.typography.titleLarge
-    // punctuation right after a word stays on its line: it is drawn after the word's chevron
+    // Each piece ends with the space after it, so a line never starts with a space; punctuation right after a
+    // word is drawn against the word's chevron ("everyone⌄,"), so it never starts a line either.
     val pieces = ArrayList<Pair<SentencePart, String>>()
     parts.forEach { p ->
         val last = pieces.lastOrNull()
         if (p is SentencePart.Text && last?.first is SentencePart.Word) {
             val punct = p.text.takeWhile { it in ".,:;" }
-            if (punct.isNotEmpty()) pieces[pieces.size - 1] = last.first to last.second + punct
             val rest = p.text.drop(punct.length)
-            if (rest.isNotEmpty()) pieces += SentencePart.Text(rest) to ""
+            val space = rest.takeWhile { it == ' ' }
+            pieces[pieces.size - 1] = last.first to last.second + punct + space
+            rest.drop(space.length).split(Regex("(?<= )")).filter { it.isNotEmpty() }.forEach { pieces += SentencePart.Text(it) to "" }
+        } else if (p is SentencePart.Text) {
+            p.text.split(Regex("(?<= )")).filter { it.isNotEmpty() }.forEach { piece ->
+                val prev = pieces.lastOrNull()
+                // a bare space joins the end of what came before (the space between "Mom" and "messages")
+                if (piece.isBlank() && prev != null) {
+                    val (part, suffix) = prev
+                    pieces[pieces.size - 1] = if (part is SentencePart.Text) SentencePart.Text(part.text + piece) to suffix else part to suffix + piece
+                } else if (piece.isNotBlank()) pieces += SentencePart.Text(piece) to ""
+            }
         } else pieces += p to ""
     }
     FlowRow(modifier, verticalArrangement = Arrangement.Center, itemVerticalAlignment = Alignment.CenterVertically) {
         pieces.forEach { (p, suffix) ->
             when (p) {
-                is SentencePart.Text -> p.text.split(Regex("(?<= )")).forEach { piece ->
-                    if (piece.isNotEmpty()) Text(piece, style = style, modifier = Modifier.heightIn(min = Tokens.Target).padding(top = 10.dp))
-                }
+                is SentencePart.Text -> Text(p.text, style = style, modifier = Modifier.heightIn(min = Tokens.Target).padding(top = 10.dp))
                 is SentencePart.Word -> WordButton(p.text, suffix, p.spoken, style) { onWord(p) }
             }
         }
@@ -172,7 +235,8 @@ private fun WordButton(text: String, suffix: String, spoken: String, style: Text
         )
         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(20.dp))
     }
-    if (suffix.isNotEmpty()) Text(suffix, style = style)
+    // the chevron's box has 3 dp of empty space on its right: punctuation sits against the arrow itself
+    if (suffix.isNotEmpty()) Text(suffix, style = style, modifier = Modifier.offset(x = (-3).dp))
 }
 
 /** A switch on its own 48 dp target, for the end of a row whose body opens something else. */

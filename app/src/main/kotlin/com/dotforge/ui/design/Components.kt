@@ -227,6 +227,7 @@ fun ListRow(
     enabled: Boolean = true,
     inset: Dp = Tokens.Gutter,
     subtitleLines: Int = 2,
+    titleLines: Int = 2,
     onLongClick: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
@@ -244,7 +245,7 @@ fun ListRow(
     ) {
         leading?.let { Box(Modifier.size(Tokens.Avatar), contentAlignment = Alignment.Center) { it() } }
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = titleLines, overflow = TextOverflow.Ellipsis)
             subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = subtitleLines, overflow = TextOverflow.Ellipsis) }
         }
         trailing?.invoke()
@@ -444,16 +445,20 @@ fun GlyphPreview(
     size: PreviewSize = PreviewSize.SMALL,
     playing: Boolean = true,
     userPlay: Boolean = false,
+    posterFrame: Frame? = null,
 ) {
     val reduce = LocalReduceMotion.current
     val paused = LocalPreviewsPaused.current
     var tapped by remember(animation) { mutableStateOf(false) }
     val animated = (animation?.frames?.size ?: 0) > 1
     val run = animated && playing && !paused && (!reduce || tapped || userPlay)
-    var frame by remember(animation) { mutableStateOf(animation?.frames?.firstOrNull()?.frame) }
+    val poster = remember(animation, posterFrame) { posterFrame ?: animation?.let(com.dotforge.device.Posters::of) }
+    var frame by remember(animation) { mutableStateOf(poster) }
     LaunchedEffect(animation, run, userPlay || tapped) {
         val frames = animation?.frames ?: return@LaunchedEffect
-        if (!run) return@LaunchedEffect
+        if (!run) { frame = poster; return@LaunchedEffect }
+        // the poster first, so a preview never opens on a blank or half-drawn frame
+        if (!userPlay && !tapped) delay(POSTER_HOLD_MS)
         val min = if (userPlay || tapped) Animation.MIN_FRAME_MS else PREVIEW_MIN_FRAME_MS
         while (true) for (f in frames) {
             frame = f.frame
@@ -471,18 +476,29 @@ fun GlyphPreview(
     }
 }
 
+/** How long a playing preview shows its poster before it moves. */
+const val POSTER_HOLD_MS = 1_200L
+
 /** A still preview of [frame]. */
 @Composable
 fun GlyphPreview(frame: Frame?, name: String, modifier: Modifier = Modifier, size: PreviewSize = PreviewSize.SMALL) =
     DotMatrix(frame?.pixels, frame?.profile ?: DeviceProfile.Phone3, modifier.size(size.dp).semantics { contentDescription = name })
 
-/** A library glyph by id, playing if it is animated. */
+/** A library glyph by id, playing if it is animated ([still]: its poster, for rows and picker tiles). */
 @Composable
-fun LibraryGlyph(id: String, modifier: Modifier = Modifier, size: PreviewSize = PreviewSize.SMALL) {
+fun LibraryGlyph(id: String, modifier: Modifier = Modifier, size: PreviewSize = PreviewSize.SMALL, still: Boolean = false) {
     val g = remember(id) { GlyphLibrary.get(id) }
     val anim = remember(id) { g?.animation(DeviceProfile.Phone3) }
-    GlyphPreview(anim, g?.name ?: id, modifier, size)
+    if (still) GlyphPreview(remember(anim) { anim?.let(com.dotforge.device.Posters::of) }, g?.name ?: id, modifier, size)
+    else GlyphPreview(anim, g?.name ?: id, modifier, size)
 }
+
+/** A 40 dp circle with an icon: the leading slot of a row that has no app icon (Phone calls, Any app, a block). */
+@Composable
+fun IconCircle(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) =
+    Box(modifier.size(Tokens.Avatar).background(Tokens.Raised, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+    }
 
 /** The round Glyph, drawn only (no input): the 489 real LEDs as circles, off ones in 20% grey; corners never drawn. */
 @Composable
@@ -514,7 +530,7 @@ fun FullSheet(
     onDismiss: () -> Unit,
     title: String? = null,
     subtitle: String? = null,
-    confirm: String = "Done",
+    confirm: String? = "Done",
     confirmEnabled: Boolean = true,
     onConfirm: (() -> Unit)? = null,
     scrolls: Boolean = true,
@@ -530,28 +546,40 @@ fun FullSheet(
         shape = Tokens.SheetShape,
         contentWindowInsets = { WindowInsets(0) },
     ) {
+        // snackbars from inside a sheet ("Blocked AX-LOANS · Undo") show on the sheet, not under it
+        UndoSnackbarHost(fill = false) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+            val scroll = rememberScrollState()
             if (title != null) {
                 // the text button has 12 dp of its own padding: 4 + 12 puts its text 16 dp from the edge
-                Row(Modifier.fillMaxWidth().padding(start = Tokens.Gutter, end = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = Tokens.Target + Tokens.Small)
+                        .padding(start = Tokens.Gutter, end = if (confirm != null) Tokens.Tiny else Tokens.Gutter),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Column(Modifier.weight(1f).padding(vertical = Tokens.Tiny)) {
                         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                         subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary) }
                     }
-                    TextButton(onClick = onConfirm ?: onDismiss, enabled = confirmEnabled, modifier = Modifier.heightIn(min = Tokens.Target)) {
-                        Text(confirm, style = MaterialTheme.typography.labelLarge, color = if (confirmEnabled) Color.White else Tokens.Secondary)
+                    if (confirm != null) TextButton(onClick = onConfirm ?: onDismiss, enabled = confirmEnabled, modifier = Modifier.heightIn(min = Tokens.Target)) {
+                        // a disabled action is plainly disabled: 38% white, not the grey of secondary text
+                        Text(confirm, style = MaterialTheme.typography.labelLarge, color = if (confirmEnabled) Color.White else Color.White.copy(alpha = DISABLED_ALPHA))
                     }
                 }
             }
             if (pinned != null) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = Tokens.Gutter, vertical = Tokens.Small), content = pinned)
                 androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
+            } else if (title != null && scrolls && scroll.value > 0) {
+                // the header stays put: a hairline once content has scrolled under it
+                androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
             }
             Column(
-                (if (scrolls) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                (if (scrolls) Modifier.verticalScroll(scroll) else Modifier)
                     .fillMaxWidth().padding(horizontal = Tokens.Gutter).padding(top = Tokens.Small, bottom = Tokens.Gutter),
                 content = content,
             )
+        }
         }
     }
 }
@@ -623,6 +651,9 @@ private fun DialogButtons(modifier: Modifier, cancel: @Composable () -> Unit, co
 
 /** How dark the scrim behind a dialog is. */
 const val SCRIM_ALPHA = 0.6f
+
+/** Disabled controls and their text: 38% of white. */
+const val DISABLED_ALPHA = 0.38f
 
 /**
  * A sheet option: at least 76 dp, a 40 dp preview (title at 72 dp from the screen edge), a 17 sp title, a description that wraps, a chevron (or a
@@ -792,16 +823,31 @@ val SLIDER_TRACK = Color(0xFF616161)
 
 /**
  * A warning card for a state the user must fix or know about: an icon and words (never colour alone), and one
- * button. Used for "Alerts are off", "Needs Phone (3)" and the like.
+ * action. The action sits beside the text when it takes at most 35% of the card's width; otherwise (a long
+ * label, large text) it moves to its own line under the text, right-aligned, as a 48 dp text button. Every
+ * warning in the app uses this one card.
  */
 @Composable
 fun StatusBanner(text: String, modifier: Modifier = Modifier, button: String? = null, onClick: () -> Unit = {}) =
     Surface(color = Tokens.Raised, shape = Tokens.CardShape, modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.padding(start = Tokens.Gutter, end = Tokens.Small, top = Tokens.Small, bottom = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Warning, contentDescription = "Warning", tint = Color.White, modifier = Modifier.size(Tokens.Icon))
-            Text(text, Modifier.weight(1f).padding(horizontal = Tokens.Gutter, vertical = Tokens.Small), style = MaterialTheme.typography.bodyMedium)
-            if (button != null) TextButton(onClick = onClick, modifier = Modifier.heightIn(min = Tokens.Target)) {
-                Text(button, style = MaterialTheme.typography.labelLarge, color = Color.White)
+        androidx.compose.foundation.layout.BoxWithConstraints {
+            val labelStyle = MaterialTheme.typography.labelLarge
+            val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+            val density = LocalDensity.current
+            // the label plus the text button's own 12 dp padding on each side
+            val actionWidth = if (button == null) 0.dp else with(density) { measurer.measure(button, labelStyle).size.width.toDp() } + 24.dp
+            val beside = button == null || actionWidth <= maxWidth * 0.35f
+            Column(Modifier.padding(start = Tokens.Gutter, end = Tokens.Small, top = Tokens.Small, bottom = if (beside) Tokens.Small else 0.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Warning, contentDescription = "Warning", tint = Color.White, modifier = Modifier.size(Tokens.Icon))
+                    Text(text, Modifier.weight(1f).padding(horizontal = Tokens.Gutter, vertical = Tokens.Small), style = MaterialTheme.typography.bodyMedium)
+                    if (button != null && beside) TextButton(onClick = onClick, modifier = Modifier.heightIn(min = Tokens.Target)) {
+                        Text(button, style = labelStyle, color = Color.White)
+                    }
+                }
+                if (button != null && !beside) TextButton(onClick = onClick, modifier = Modifier.align(Alignment.End).heightIn(min = Tokens.Target)) {
+                    Text(button, style = labelStyle, color = Color.White, textAlign = TextAlign.End)
+                }
             }
         }
     }
@@ -876,15 +922,15 @@ val LocalSnacks = compositionLocalOf<Snacks?> { null }
  * bottom bar when [bottomBar] is showing.
  */
 @Composable
-fun UndoSnackbarHost(modifier: Modifier = Modifier, bottomBar: Boolean = false, content: @Composable () -> Unit) {
+fun UndoSnackbarHost(modifier: Modifier = Modifier, bottomBar: Boolean = false, fill: Boolean = true, content: @Composable () -> Unit) {
     val host = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val snacks = remember { Snacks(host, scope, Snacks.timeoutMs(ctx)) }
     CompositionLocalProvider(LocalSnacks provides snacks) {
-        Box(Modifier.fillMaxSize()) {
+        Box(if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
             content()
-            SnackbarHost(host, modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = (if (bottomBar) Tokens.BottomBar else 0.dp) + Tokens.Gutter)) { data ->
+            SnackbarHost(host, modifier.align(Alignment.BottomCenter).then(if (fill) Modifier.navigationBarsPadding() else Modifier).padding(bottom = (if (bottomBar) Tokens.BottomBar else 0.dp) + Tokens.Gutter)) { data ->
                 androidx.compose.material3.Snackbar(
                     data,
                     containerColor = Color.White,

@@ -64,6 +64,8 @@ sealed interface Page {
     data object AlertSettings : Page
     data object Quiet : Page
     data object WhoWins : Page
+    /** Alerts > Apps > Phone moments: unlock, shake, camera, alarm or timer, headphones. */
+    data object PhoneMoments : Page
     /** Third-party notices and font licences (Profile > About). */
     data object Licences : Page
     /** Temporary: the screens from before the redesign, until each is replaced. */
@@ -102,6 +104,7 @@ private fun Page.encode(): String = when (this) {
     Page.AlertSettings -> "alertsettings"
     Page.Quiet -> "quiet"
     Page.WhoWins -> "whowins"
+    Page.PhoneMoments -> "moments"
     is Page.OldTab -> "oldtab:$key"
     is Page.Feature -> "feature:$key"
     is Page.Editor -> "editor:$animated:${designId.orEmpty()}"
@@ -133,6 +136,7 @@ private fun decode(s: String): Page? {
         "alertsettings" -> Page.AlertSettings
         "quiet" -> Page.Quiet
         "whowins" -> Page.WhoWins
+        "moments" -> Page.PhoneMoments
         "oldtab" -> parts.getOrNull(1)?.let(Page::OldTab)
         "feature" -> parts.getOrNull(1)?.let(Page::Feature)
         // a draft lives in memory only: after a restart the editor opens the saved design, or a blank one

@@ -88,7 +88,7 @@ object SimpleRules {
         "com.google.android.apps.tasks", "com.google.android.keep", "com.google.android.calendar", "com.microsoft.todos",
         "com.ticktick.task", "com.todoist", "com.samsung.android.app.reminder", "com.nothing.ntessentialspace",
     )
-    val REMINDER_CATEGORIES = listOf("reminder", "event", "alarm")
+    val REMINDER_CATEGORIES = listOf("reminder", "event")
 
     fun phoneCalls() = Rule(
         id = PHONE_CALLS, name = "Phone calls", packages = RuleEngine.CALL_APPS, glyph = GlyphStyle.ICON, designId = "phone",
@@ -104,7 +104,7 @@ object SimpleRules {
         glyph = GlyphStyle.BELL, until = Until.READ,
     )
 
-    /** The six phone moments, all off: each plays its design once, or while it lasts. */
+    /** The five phone moments, all off: each plays its design once, or while it lasts. */
     fun moments() = Moment.entries.map { m ->
         Rule(
             id = MOMENT_PREFIX + m.name.lowercase(), name = m.label, enabled = false, moment = m,
@@ -114,7 +114,7 @@ object SimpleRules {
 
     private val MOMENT_GLYPHS = mapOf(
         Moment.UNLOCK to "lock", Moment.SHAKE to "wave", Moment.CAMERA to "camera", Moment.ALARM to "alarm",
-        Moment.CALL to "phone", Moment.HEADPHONES to "music",
+        Moment.HEADPHONES to "music",
     )
 
     /** Extra apps the reminders rule covers beyond the built-in list. */
@@ -300,6 +300,8 @@ object SimpleRules {
             p.where.isEmpty() -> "Pick where it applies"
             p.type == PatternType.WORDS && t.length < 3 -> "Type at least 3 letters"
             p.type == PatternType.WORDS && Where.CALLS in p.where && p.where.size == 1 -> "Words apply to messages, not calls"
+            // "Exactly" also takes a name, like AX-LOANS or a group's name
+            p.type == PatternType.IS && t.any(Char::isLetter) -> if (t.length < 2) "Type at least 2 letters" else null
             p.type != PatternType.WORDS && t.count(Char::isDigit) < 3 -> "Type at least 3 digits"
             p.type != PatternType.WORDS && t.any { !it.isDigit() && it !in "+ -()" } -> "Use digits only"
             else -> null
@@ -341,7 +343,12 @@ object SimpleRules {
         val text = p.text.trim()
         val match = if (p.type == PatternType.WORDS) {
             Match(all = false, conditions = listOf(Condition(Field.MESSAGE, Op.CONTAINS, text.split(',').map { it.trim() }.filter { it.isNotEmpty() })))
-        } else Match(all = false, conditions = listOf(Condition(Field.SENDER, p.type.op, listOf(text)), Condition(Field.NUMBER, p.type.op, listOf(text))))
+        } else Match(
+            all = false,
+            conditions = listOf(Condition(Field.SENDER, p.type.op, listOf(text)), Condition(Field.NUMBER, p.type.op, listOf(text))) +
+                // "Exactly" in apps also matches a chat or group by its name
+                listOfNotNull(Condition(Field.TITLE, Op.IS, listOf(text)).takeIf { p.type == PatternType.IS && source != Source.CALLS }),
+        )
         return Rule(
             id = id,
             name = p.label,
@@ -363,10 +370,12 @@ object SimpleRules {
             if (r.packages.containsAll(WHATSAPP_APPS)) where += Where.WHATSAPP
             return BlockPattern(PatternType.WORDS, cs[0].cleanValues.joinToString(", "), where)
         }
-        if (cs.size != 2 || cs.any { it.not || it.list != null }) return null
+        if (cs.size !in 2..3 || cs.any { it.not || it.list != null }) return null
         val type = PatternType.entries.firstOrNull { it.op == cs[0].op } ?: return null
         val text = cs[0].cleanValues.singleOrNull() ?: return null
-        if (cs.map { it.field }.toSet() != setOf(Field.SENDER, Field.NUMBER) || cs[1].op != cs[0].op || cs[1].cleanValues != listOf(text)) return null
+        val fields = cs.map { it.field }.toSet()
+        val expected = if (cs.size == 3) setOf(Field.SENDER, Field.NUMBER, Field.TITLE) else setOf(Field.SENDER, Field.NUMBER)
+        if (fields != expected || (cs.size == 3 && type != PatternType.IS) || cs.any { it.op != cs[0].op || it.cleanValues != listOf(text) }) return null
         val where = mutableSetOf<Where>()
         if (r.source != Source.APPS) where += Where.CALLS
         val others = mutableListOf<String>()
@@ -379,6 +388,29 @@ object SimpleRules {
             }
         }
         return BlockPattern(type, text, where, others)
+    }
+
+    /** The chips a block made on [pkg]'s own sheet gets: WhatsApp's or SMS's chip, else the app itself. */
+    fun blockPlace(pkg: String): Pair<Set<Where>, List<String>> = when (pkg) {
+        in WHATSAPP_APPS -> setOf(Where.WHATSAPP) to emptyList()
+        in SMS_APPS -> setOf(Where.SMS) to emptyList()
+        else -> emptySet<Where>() to listOf(pkg)
+    }
+
+    /** Blocks [who] (a sender, a number or a group's name) in [pkg]: an "Exactly" rule with the app's chip. */
+    fun blockSender(pkg: String, who: String): Rule {
+        val (where, apps) = blockPlace(pkg)
+        return blockRule(BlockPattern(PatternType.IS, who.trim(), where, apps))
+    }
+
+    /** True when [p] applies in [pkg]. */
+    fun covers(p: BlockPattern, pkg: String): Boolean =
+        Where.ANY_APP in p.where || pkg in p.apps || (pkg in WHATSAPP_APPS && Where.WHATSAPP in p.where) || (pkg in SMS_APPS && Where.SMS in p.where)
+
+    /** The "Exactly [who]" rule that blocks [who] in [pkg], if there is one. */
+    fun senderBlock(rules: List<Rule>, pkg: String, who: String): Rule? = rules.firstOrNull { r ->
+        val p = pattern(r)
+        p != null && p.type == PatternType.IS && p.text.equals(who.trim(), ignoreCase = true) && covers(p, pkg)
     }
 
     /** Block rules that apply to the app [pkg] on its own sheet ("Block senders in WhatsApp"). */
