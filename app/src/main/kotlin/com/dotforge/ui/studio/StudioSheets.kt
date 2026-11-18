@@ -31,6 +31,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.selection.toggleable
 import com.dotforge.AppGraph
 import com.dotforge.device.Animation
+import com.dotforge.ui.design.LibraryGlyph
+import com.dotforge.ui.design.GlyphPreview
+import com.dotforge.ui.design.PreviewSize
 import com.dotforge.rules.GlyphChoice
 import com.dotforge.rules.GlyphStyle
 import com.dotforge.rules.SimpleRules
@@ -125,14 +128,21 @@ fun NewSheet(nav: Nav, onDismiss: () -> Unit, startOnFiles: Boolean = false) {
         nav.push(Page.Photo(MediaDrafts.put(MediaSource.Images(listOf(shot.uri)))))
     }
     fun go(p: Page) { onDismiss(); nav.push(p) }
-    FullSheet(onDismiss, if (files) "From a photo or file" else "New", confirm = null) {
+    FullSheet(onDismiss, if (files) "From a photo, GIF or file" else "New", confirm = null) {
         if (!files) {
-            OptionRow("Still design", "One picture to draw", preview = { IconCircle(DfIcons.Still) }) { go(Page.Editor(null, false)) }
-            OptionRow("Animation", "Frames that play one after another", preview = { IconCircle(DfIcons.Film) }) { go(Page.Editor(null, true)) }
-            OptionRow("Text", "Words that scroll, type or flash", preview = { IconCircle(DfIcons.Text) }) { go(Page.TextDesign(null)) }
-            OptionRow("From a photo or file", "Photos, GIFs, videos, Glyph Museum and Dot Hub files", preview = { IconCircle(DfIcons.Photo) }) { files = true }
-            OptionRow("From the library", "Hundreds of designs to use or change", preview = { IconCircle(DfIcons.Grid) }) { go(Page.Library) }
-            OptionRow("Glyph ringtone", "Lights that follow a song", preview = { IconCircle(DfIcons.Music) }) { song.launch(arrayOf("audio/*", "application/ogg")) }
+            // each row shows what it makes, live on a small Glyph
+            val p = AppGraph.profile
+            val text = remember { com.dotforge.device.TextRender.render(p, com.dotforge.device.TextSpec("Hi")) }
+            val photo = remember {
+                val pic = com.dotforge.device.PhotoDots.samplePicture()
+                Animation.single(com.dotforge.device.PhotoDots.render(p, com.dotforge.device.PhotoDots.sample(p, pic, com.dotforge.device.PhotoCrop()), com.dotforge.device.PhotoSettings()), 1000)
+            }
+            OptionRow("Still design", "One picture to draw", preview = { LibraryGlyph("heart", still = true) }) { go(Page.Editor(null, false)) }
+            OptionRow("Animation", "Frames that play one after another", preview = { LibraryGlyph("ripple") }) { go(Page.Editor(null, true)) }
+            OptionRow("Text", "Words that scroll, type or flash", preview = { GlyphPreview(text, "Text", size = PreviewSize.SMALL) }) { go(Page.TextDesign(null)) }
+            OptionRow("From a photo, GIF or file", "Photos, GIFs, videos, Glyph Museum and Dot Hub files", preview = { GlyphPreview(photo, "Photo", size = PreviewSize.SMALL) }) { files = true }
+            OptionRow("From the library", "Hundreds of designs to use or change", preview = { LibraryGlyph("star") }) { go(Page.Library) }
+            OptionRow("Glyph ringtone", "Lights that follow a song", preview = { LibraryGlyph("pulse") }) { song.launch(arrayOf("audio/*", "application/ogg")) }
         } else {
             OptionRow("Choose photos or a file", "Several photos become frames", preview = { IconCircle(DfIcons.Photo) }) {
                 pick.launch(arrayOf("image/*", "video/*", "application/json", "text/plain", "application/octet-stream", "audio/*", "application/ogg"))
@@ -159,15 +169,17 @@ class CameraShot(private val ctx: Context) {
 }
 
 /**
- * "Use Heart for…" (row 39): any of your apps and people, the DF Player toy (and Always-on through it) and
+ * "Use Heart for…" (row 39): any of your apps and people, the DotForge player toy (and Always-on through it) and
  * the Gallery, several at once.
  */
 @Composable
 fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, onDismiss: () -> Unit) {
     val snacks = rememberSnacks()
     val rules = remember { AppGraph.rules.rules.value }
+    // every alert that can show a design: phone calls and reminders, each app, phone moments; then people
     val people = rules.filter { SimpleRules.isPersonRule(it) }
-    val apps = rules.filter { SimpleRules.isAppRule(it) }
+    val alerts = rules.filter { it.action == com.dotforge.rules.Action.SHOW && !SimpleRules.isPersonRule(it) }
+        .sortedBy { when { it.id == SimpleRules.PHONE_CALLS -> 0; it.id == SimpleRules.REMINDERS -> 1; it.moment != null -> 3; else -> 2 } }
     val chosen = remember { mutableStateListOf<String>().also { list -> rules.filter { it.glyph == GlyphStyle.DESIGN && it.designId == d.id }.forEach { list += it.id } } }
     var player by remember { mutableStateOf(AppGraph.toys.playerDesignId == d.id) }
     var gallery by remember { mutableStateOf(d.id in AppGraph.toys.galleryIds) }
@@ -189,14 +201,16 @@ fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, onDismiss: () -> Unit) {
             onDismiss()
         },
     ) {
-        SectionLabel("Apps")
-        if (apps.isEmpty()) Hint("No apps light up yet. Add one in Alerts.")
-        apps.forEach { r -> CheckRow(r.name, r.id in chosen) { if (it) chosen += r.id else chosen -= r.id } }
+        val using = alerts.count { it.id in chosen } + people.count { it.id in chosen } + (if (player) 1 else 0) + (if (gallery) 1 else 0)
+        Hint(if (using == 0) "Not used anywhere yet. Tick where it should show." else "Ticked: where it shows now ($using).")
+        SectionLabel("Apps and alerts")
+        if (alerts.isEmpty()) Hint("No apps light up yet. Add one in Alerts.")
+        alerts.forEach { r -> CheckRow(r.name, r.id in chosen) { if (it) chosen += r.id else chosen -= r.id } }
         SectionLabel("People")
         if (people.isEmpty()) Hint("No people yet. Add one in Alerts > People.")
         people.forEach { r -> CheckRow(r.name, r.id in chosen) { if (it) chosen += r.id else chosen -= r.id } }
         SectionLabel("Toys")
-        CheckRow("DF Player and Always-on", player) { player = it }
+        CheckRow("DotForge player and Always-on", player) { player = it }
         CheckRow("Gallery", gallery) { gallery = it }
         TextButton(onClick = onDismiss, modifier = Modifier.padding(top = Tokens.Small).heightIn(min = Tokens.Target)) { Text("Not now", color = Color.White) }
     }

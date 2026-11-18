@@ -100,6 +100,7 @@ fun StudioScreen(nav: Nav, state: LazyListState, start: StudioSheet? = null, pla
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppGraph.ringtones.refresh() } }
     val recover = remember(editing, designs) { AppGraph.designs.recoverable() }
+    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
 
     fun open(d: Design) = openDesign(nav, d)
 
@@ -129,7 +130,8 @@ fun StudioScreen(nav: Nav, state: LazyListState, start: StudioSheet? = null, pla
         item(key = "designs-label") { SectionLabel("My designs") }
         if (designs.isEmpty()) {
             item(key = "designs-empty") {
-                EmptyState("No designs yet. Draw one or pick one from the library.", "Draw", glyph = "star") { openNew(nav, animated = false) }
+                // + New is the screen's one red button; Draw is a shortcut beside the words
+                EmptyState("No designs yet. Draw one or pick one from the library.", "Draw", glyph = "star", primary = false) { openNew(nav, animated = false) }
             }
         } else {
             val many = designs.size >= STUDIO_SEARCH_FROM
@@ -154,8 +156,10 @@ fun StudioScreen(nav: Nav, state: LazyListState, start: StudioSheet? = null, pla
             if (shown.isEmpty()) item(key = "designs-none") {
                 Text("Nothing matches “${query.trim()}”.", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(vertical = Tokens.Gutter))
             }
-            shown.chunked(3).forEachIndexed { row, three ->
-                item(key = "designs-$row-${three.first().id}") {
+            // three across; two at 1.3x text and up, so names and lines have room
+            val cols = if (fontScale >= 1.3f) 2 else 3
+            shown.chunked(cols).forEachIndexed { row, three ->
+                item(key = "designs-$cols-$row-${three.first().id}") {
                     Row(Modifier.fillMaxWidth().padding(bottom = Tokens.Gap), horizontalArrangement = Arrangement.spacedBy(Tokens.Gap)) {
                         three.forEach { d ->
                             DesignCard(d, Modifier.weight(1f), menuOpen = (sheet as? StudioSheet.Menu)?.id == d.id,
@@ -172,7 +176,7 @@ fun StudioScreen(nav: Nav, state: LazyListState, start: StudioSheet? = null, pla
                                     }
                                 })
                         }
-                        repeat(3 - three.size) { Spacer(Modifier.weight(1f)) }
+                        repeat(cols - three.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -207,7 +211,7 @@ fun StudioScreen(nav: Nav, state: LazyListState, start: StudioSheet? = null, pla
         is StudioSheet.UseFor -> AppGraph.designs.get(s.id)?.let { d -> UseForSheet(d, nav, s.fresh) { sheet = null } }
         is StudioSheet.Share -> AppGraph.designs.get(s.id)?.let { d -> ShareSheet(d, onDismiss = { sheet = null }) }
         is StudioSheet.SetAs -> SetAsSheet(android.net.Uri.parse(s.uri), s.name, nav) { sheet = null }
-        StudioSheet.GetMore -> GetMoreSheet(nav) { sheet = null }
+        StudioSheet.GetMore -> GetMoreSheet(nav, onDismiss = { sheet = null })
         is StudioSheet.Menu, null -> Unit
     }
 }
@@ -267,8 +271,9 @@ private fun DesignCard(
                 }
             }
         }
-        Text(d.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Tokens.Small))
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        // the name on up to two lines; the details on one line ("4 frames · 1 s")
+        Text(d.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Tokens.Small))
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

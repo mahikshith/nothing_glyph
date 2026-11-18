@@ -95,7 +95,7 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
             Spacer(Modifier.height(80.dp))
             EmptyState("Nothing here yet", "Draw on the Glyph Matrix, dot by dot.", "New design") { choose = true }
         } else {
-            Text("Saved designs play in the DF Player toy.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp, bottom = 16.dp))
+            Text("Saved designs play in the DotForge player toy.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp, bottom = 16.dp))
             designs.chunked(2).forEach { pair ->
                 TileRow {
                     pair.forEach { d ->
@@ -210,7 +210,7 @@ private fun delete(d: Design) {
 
 /**
  * Pixel editor. While open, the drawing is mirrored live on the matrix ("Show on matrix", on by default);
- * a corner preview plays it. Save stores it for the DF Player toy and the "My design" rule effect.
+ * a corner preview plays it. Save stores it for the DotForge player toy and the "My design" rule effect.
  */
 @Composable
 fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) {
@@ -271,7 +271,7 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
             updatedAt = System.currentTimeMillis(),
         )
         repo.save(d)
-        Toast.makeText(ctx, "Saved. DF Player can play it.", Toast.LENGTH_SHORT).show()
+        Toast.makeText(ctx, "Saved. DotForge player can play it.", Toast.LENGTH_SHORT).show()
         onClose()
     }
     fun close() = if (dirty()) confirmLeave = true else onClose()
