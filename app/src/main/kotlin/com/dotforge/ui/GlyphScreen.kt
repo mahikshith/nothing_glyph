@@ -190,7 +190,7 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             FeatureTile("Ringtones", "Import, make and edit glyph ringtones", Modifier.weight(1f), onClick = { nav.push(Page.Ringtones) })
         }
         TileRow {
-            FeatureTile("App integrations", "Tasker, media, more", Modifier.weight(1f), comingSoon = true)
+            FeatureTile("App integrations", "Tasker, media, more", Modifier.weight(1f), onClick = { nav.push(Page.Integrations) })
             FeatureTile("Import", "Glyph Museum files", Modifier.weight(1f), comingSoon = true)
         }
         Spacer(Modifier.height(24.dp))

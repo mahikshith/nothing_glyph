@@ -29,6 +29,14 @@
          for then, with Not now, and Android confirms each install. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Automation API: apps that hold this (normal) permission may send commands; DotForge obeys only the ones
+         the user allows on the Integrations page. -->
+    <permission
+        android:name="com.dotforge.permission.AUTOMATE"
+        android:description="@string/automate_permission_description"
+        android:label="@string/automate_permission_label"
+        android:protectionLevel="normal" />
+
     <queries>
         <!-- Toys page: every installed Glyph Toy (services answering Nothing's toy action). -->
         <intent>
@@ -105,6 +113,39 @@
         <receiver
             android:name=".toys.InstallResultReceiver"
             android:exported="false" />
+
+        <!-- Automation API (see automation/Automation.kt). -->
+        <receiver
+            android:name=".automation.AutomationReceiver"
+            android:exported="true"
+            android:permission="com.dotforge.permission.AUTOMATE">
+            <intent-filter>
+                <action android:name="com.dotforge.action.PLAY_COMPOSITION" />
+                <action android:name="com.dotforge.action.SHOW_GLYPH" />
+                <action android:name="com.dotforge.action.VISUALISER" />
+                <action android:name="com.dotforge.action.SET_RULE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Tasker / Locale action plugin: the edit screen and the receiver that runs saved actions. Only settings
+             signed by DotForge's own edit screen are run. -->
+        <activity
+            android:name=".automation.PluginEditActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_app"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.DotForge">
+            <intent-filter>
+                <action android:name="com.twofortyfouram.locale.intent.action.EDIT_SETTING" />
+            </intent-filter>
+        </activity>
+        <receiver
+            android:name=".automation.PluginFireReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.twofortyfouram.locale.intent.action.FIRE_SETTING" />
+            </intent-filter>
+        </receiver>
 
         <!-- Quick Settings tile: glyph torch. -->
         <service

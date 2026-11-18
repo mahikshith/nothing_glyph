@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import com.dotforge.automation.AutomationSettings
 import com.dotforge.calls.CallsRepository
 import com.dotforge.calls.SpamListStore
 import com.dotforge.calls.SpamListWorker
@@ -68,6 +69,8 @@ object AppGraph {
     lateinit var calls: CallsRepository
         private set
     lateinit var spamList: SpamListStore
+        private set
+    lateinit var automation: AutomationSettings
         private set
     private lateinit var prefs: SharedPreferences
 
@@ -152,6 +155,7 @@ object AppGraph {
         ringtones = RingtoneLibrary(app)
         calls = CallsRepository(File(app.filesDir, "calls.json"))
         spamList = SpamListStore(File(app.filesDir, "spam-list"))
+        automation = AutomationSettings(app.getSharedPreferences("automation", Context.MODE_PRIVATE))
         // the spam list is fetched (and refreshed weekly) only while a rule uses it
         MainScope().launch {
             rules.rules.map { list -> list.any { r -> r.enabled && r.match.allConditions.any { it.field == Field.SPAM_LIST } } }.distinctUntilChanged().collect { on ->

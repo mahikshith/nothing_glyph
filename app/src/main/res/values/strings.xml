@@ -12,5 +12,7 @@
     <string name="toy_player_summary">Loops a design from Create. Long press: pause. Double press: restart.</string>
     <string name="toy_music_name">DF Music</string>
     <string name="toy_music_summary">Bars, a ring pulse or a radial spectrum from what\'s playing. Long press: next look.</string>
+    <string name="automate_permission_label">control DotForge\'s glyphs</string>
+    <string name="automate_permission_description">Show glyphs, play compositions, start the visualiser and switch rules in DotForge. DotForge obeys only apps you allow.</string>
     <string name="live_tile">Music on Glyph</string>
 </resources>
