@@ -2,6 +2,7 @@ package com.dotforge.toys
 
 import android.content.SharedPreferences
 import com.dotforge.composition.VisualStyle
+import com.dotforge.device.ClockStyle
 
 /** The few options the toys have, set from each toy's settings page. */
 class ToySettings(private val prefs: SharedPreferences) {
@@ -28,7 +29,42 @@ class ToySettings(private val prefs: SharedPreferences) {
         get() = VisualStyle.entries.firstOrNull { it.name == prefs.getString(VISUAL_STYLE, null) } ?: VisualStyle.BARS
         set(v) = prefs.edit().putString(VISUAL_STYLE, v.name).apply()
 
+    var clockStyle: ClockStyle
+        get() = ClockStyle.entries.firstOrNull { it.name == prefs.getString(CLOCK_STYLE, null) } ?: ClockStyle.DIGITAL
+        set(v) = prefs.edit().putString(CLOCK_STYLE, v.name).apply()
+
+    /** Designs DF Gallery cycles through; empty = all of them. */
+    var galleryIds: Set<String>
+        get() = prefs.getStringSet(GALLERY, emptySet())!!.toSet()
+        set(v) = prefs.edit().putStringSet(GALLERY, v).apply()
+
+    /** What DF Always-on shows. */
+    var hubFace: HubFace
+        get() = HubFace.entries.firstOrNull { it.name == prefs.getString(HUB_FACE, null) } ?: HubFace.CLOCK
+        set(v) = prefs.edit().putString(HUB_FACE, v.name).apply()
+
+    var hubBattery: Boolean
+        get() = prefs.getBoolean(HUB_BATTERY, true)
+        set(v) = prefs.edit().putBoolean(HUB_BATTERY, v).apply()
+
+    /** DF Timer's countdown in minutes; 0 = stopwatch. */
+    var timerMinutes: Int
+        get() = prefs.getInt(TIMER_MINUTES, 0)
+        set(v) = prefs.edit().putInt(TIMER_MINUTES, v).apply()
+
+    /** Calls [onChange] when any toy option changes (a toy redraws at once); returns the way to stop. */
+    fun listen(onChange: () -> Unit): () -> Unit {
+        val l = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> onChange() }
+        prefs.registerOnSharedPreferenceChangeListener(l)
+        return { prefs.unregisterOnSharedPreferenceChangeListener(l) }
+    }
+
     companion object {
+        private const val CLOCK_STYLE = "clock_style"
+        private const val GALLERY = "gallery"
+        private const val HUB_FACE = "hub_face"
+        private const val HUB_BATTERY = "hub_battery"
+        private const val TIMER_MINUTES = "timer_minutes"
         private const val VISUAL_STYLE = "visual_style"
         private const val CLOCK_24H = "clock_24h"
         private const val BATTERY_CHARGE = "battery_charge_animation"
@@ -38,4 +74,15 @@ class ToySettings(private val prefs: SharedPreferences) {
         /** Hour as shown on the clock: 0-23, or 1-12 on a 12-hour clock. */
         fun displayHour(hour: Int, use24h: Boolean): Int = if (use24h) hour else (hour % 12).let { if (it == 0) 12 else it }
     }
+}
+
+/** The faces of the always-on toy, switched by long press, its settings or the Quick Settings tile. */
+enum class HubFace(val label: String, val hint: String) {
+    CLOCK("Clock", "The clock style of DF Clock"),
+    GALLERY("Gallery", "Your gallery designs, one a minute"),
+    MOON("Moon", "Today's moon phase"),
+    NOW_PLAYING("Now playing", "What's playing; the clock when nothing is"),
+    ;
+
+    fun next(): HubFace = entries[(ordinal + 1) % entries.size]
 }

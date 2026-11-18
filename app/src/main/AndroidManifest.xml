@@ -249,5 +249,116 @@
             <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
             <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
         </service>
+        <service
+            android:name=".toys.GalleryToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_gallery_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_gallery" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_gallery_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.HubToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_hub_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_hub" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_hub_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.NowPlayingToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_nowplaying_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_nowplaying" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_nowplaying_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.TimerToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_timer_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_timer" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_timer_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.CompassToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_compass_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_compass" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_compass_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.SnakeToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_snake_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_snake" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_snake_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.BreatheToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_breathe_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_breathe" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_breathe_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+        </service>
+        <service
+            android:name=".toys.MoonToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_moon_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_moon" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_moon_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+
+        <!-- Quick Settings tile: switches DF Always-on's face. -->
+        <service
+            android:name=".tile.HubTileService"
+            android:exported="true"
+            android:icon="@drawable/toy_hub"
+            android:label="@string/hub_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

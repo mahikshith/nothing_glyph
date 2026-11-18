@@ -14,5 +14,22 @@
     <string name="toy_music_summary">Bars, a ring pulse or a radial spectrum from what\'s playing. Long press: next look.</string>
     <string name="automate_permission_label">control DotForge\'s glyphs</string>
     <string name="automate_permission_description">Show glyphs, play compositions, start the visualiser and switch rules in DotForge. DotForge obeys only apps you allow.</string>
+    <string name="toy_gallery_name">DF Gallery</string>
+    <string name="toy_gallery_summary">Your favourite designs in turn; one a minute on the always-on display. Press: next. Long press: pause.</string>
+    <string name="toy_hub_name">DF Always-on</string>
+    <string name="toy_hub_summary">One always-on toy with the face you pick: clock and battery, gallery, moon or now playing. Long press: next face.</string>
+    <string name="toy_nowplaying_name">DF Now Playing</string>
+    <string name="toy_nowplaying_summary">Play or pause and the track position. Press: play or pause. Long press: next track. Double press: previous.</string>
+    <string name="toy_timer_name">DF Timer</string>
+    <string name="toy_timer_summary">Stopwatch or countdown. Press: start or pause. Long press: reset.</string>
+    <string name="toy_compass_name">DF Compass</string>
+    <string name="toy_compass_summary">A compass needle. Long press: spirit level.</string>
+    <string name="toy_snake_name">DF Snake</string>
+    <string name="toy_snake_summary">Snake. Press: turn right. Long press: turn left.</string>
+    <string name="toy_breathe_name">DF Breathe</string>
+    <string name="toy_breathe_summary">Box breathing: press to start four slow breaths.</string>
+    <string name="toy_moon_name">DF Moon</string>
+    <string name="toy_moon_summary">Today\'s moon phase. Long press: days to the full moon.</string>
+    <string name="hub_tile">Always-on face</string>
     <string name="live_tile">Music on Glyph</string>
 </resources>

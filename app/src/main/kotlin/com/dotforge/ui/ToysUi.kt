@@ -36,11 +36,15 @@ import com.dotforge.AppGraph
 import com.dotforge.R
 import com.dotforge.composition.VisualStyle
 import com.dotforge.composition.VisualiserRenderer
+import com.dotforge.device.ClockStyle
 import com.dotforge.device.DeviceProfile
 import com.dotforge.device.Effects
 import com.dotforge.device.Frame
+import com.dotforge.device.SnakeGame
+import com.dotforge.device.ToyFaces
+import com.dotforge.toys.HubFace
 import com.dotforge.toys.InstalledToys
-import com.dotforge.toys.ToySettings
+import com.dotforge.toys.galleryAnimations
 import java.time.LocalTime
 import kotlinx.coroutines.delay
 
@@ -51,10 +55,26 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
     DICE(R.string.toy_dice_name, R.string.toy_dice_summary, "Shake to roll"),
     PLAYER(R.string.toy_player_name, R.string.toy_player_summary, "Plays your design"),
     MUSIC(R.string.toy_music_name, R.string.toy_music_summary, "Lights to the music"),
+    HUB(R.string.toy_hub_name, R.string.toy_hub_summary, "Always-on faces"),
+    GALLERY(R.string.toy_gallery_name, R.string.toy_gallery_summary, "Designs in turn"),
+    NOW_PLAYING(R.string.toy_nowplaying_name, R.string.toy_nowplaying_summary, "Play, pause, skip"),
+    TIMER(R.string.toy_timer_name, R.string.toy_timer_summary, "Stopwatch, countdown"),
+    COMPASS(R.string.toy_compass_name, R.string.toy_compass_summary, "Compass and level"),
+    SNAKE(R.string.toy_snake_name, R.string.toy_snake_summary, "The classic game"),
+    BREATHE(R.string.toy_breathe_name, R.string.toy_breathe_summary, "Slow breathing"),
+    MOON(R.string.toy_moon_name, R.string.toy_moon_summary, "Moon phase"),
     ;
 
     fun preview(profile: DeviceProfile): Frame = when (this) {
-        CLOCK -> LocalTime.now().let { Effects.clock(profile, ToySettings.displayHour(it.hour, AppGraph.toys.clock24h), it.minute) }
+        CLOCK -> LocalTime.now().let { ToyFaces.clock(profile, AppGraph.toys.clockStyle, it.hour, it.minute, AppGraph.toys.clock24h) }
+        HUB -> LocalTime.now().let { ToyFaces.clock(profile, AppGraph.toys.clockStyle, it.hour, it.minute, AppGraph.toys.clock24h) }
+        GALLERY -> galleryAnimations().firstOrNull()?.frames?.first()?.frame ?: Effects.comet(profile, 30)
+        NOW_PLAYING -> ToyFaces.nowPlaying(profile, true, 0.4f)
+        TIMER -> ToyFaces.timer(profile, 0.75f, 300)
+        COMPASS -> ToyFaces.compass(profile, 30.0)
+        SNAKE -> SnakeGame(profile, 3).frame()
+        BREATHE -> ToyFaces.breath(profile, 3.0)
+        MOON -> ToyFaces.moon(profile, ToyFaces.moonAge(java.time.LocalDate.now().toEpochDay() + 0.5))
         BATTERY -> Effects.ring(profile, 0.7f)
         DICE -> Effects.dice(profile, 5)
         PLAYER -> AppGraph.playerAnimation()?.frames?.first()?.frame ?: Effects.comet(profile, 10)
@@ -117,14 +137,46 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
         Text(stringResource(toy.summaryRes), color = Muted)
 
         when (toy) {
-            Toy.CLOCK -> {
-                var h24 by remember { mutableStateOf(prefs.clock24h) }
-                GroupTitle("TIME FORMAT")
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ChoiceCard("24-hour", "Shows 13:45", h24, Modifier.weight(1f)) { h24 = true; prefs.clock24h = true; version++ }
-                    ChoiceCard("12-hour", "Shows 01:45", !h24, Modifier.weight(1f)) { h24 = false; prefs.clock24h = false; version++ }
+            Toy.CLOCK -> ClockOptions { version++ }
+            Toy.HUB -> {
+                var face by remember { mutableStateOf(prefs.hubFace) }
+                var battery by remember { mutableStateOf(prefs.hubBattery) }
+                GroupTitle("FACE")
+                HubFace.entries.forEach { f ->
+                    ChoiceCard(f.label, f.hint, f == face, Modifier.fillMaxWidth().padding(bottom = 8.dp)) { face = f; prefs.hubFace = f }
+                }
+                Text("The Always-on face tile in Quick Settings switches it too.", color = Muted, fontSize = 13.sp)
+                SwitchRow("Battery ring", "The clock face shows the battery round the edge", battery) { battery = it; prefs.hubBattery = it }
+                ClockOptions { version++ }
+            }
+            Toy.GALLERY -> {
+                var chosen by remember { mutableStateOf(prefs.galleryIds) }
+                GroupTitle("DESIGNS")
+                if (designs.isEmpty()) EmptyState("No designs yet", "Make one in Create, or take one from the library.", "Open Create") { nav.popTo(Tab.CREATE) }
+                else Text(if (chosen.isEmpty()) "None picked: all designs play." else "${chosen.size} picked.", color = Muted, fontSize = 13.sp)
+                designs.forEach { d ->
+                    SwitchRow(d.name, if (d.animated) "Animated" else "Static", d.id in chosen) { on ->
+                        chosen = if (on) chosen + d.id else chosen - d.id
+                        prefs.galleryIds = chosen
+                        version++
+                    }
                 }
             }
+            Toy.TIMER -> {
+                var minutes by remember { mutableStateOf(prefs.timerMinutes) }
+                GroupTitle("MODE")
+                listOf(0, 1, 3, 5, 10, 25).chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                        row.forEach { m ->
+                            ChoiceCard(if (m == 0) "Stopwatch" else "$m min", if (m == 0) "Counts up" else "Counts down", m == minutes, Modifier.weight(1f)) {
+                                minutes = m; prefs.timerMinutes = m
+                            }
+                        }
+                    }
+                }
+            }
+            Toy.NOW_PLAYING -> AccessNote()
+            Toy.COMPASS, Toy.SNAKE, Toy.BREATHE, Toy.MOON -> Unit
             Toy.BATTERY -> {
                 var anim by remember { mutableStateOf(prefs.batteryChargeAnimation) }
                 GroupTitle("OPTIONS")
@@ -186,4 +238,31 @@ private fun MicAsk() {
             }
         }
     }
+}
+
+@Composable
+private fun ClockOptions(changed: () -> Unit) {
+    val prefs = AppGraph.toys
+    var h24 by remember { mutableStateOf(prefs.clock24h) }
+    var style by remember { mutableStateOf(prefs.clockStyle) }
+    GroupTitle("CLOCK STYLE")
+    ClockStyle.entries.chunked(2).forEach { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+            row.forEach { s -> ChoiceCard(s.label, s.hint, s == style, Modifier.weight(1f)) { style = s; prefs.clockStyle = s; changed() } }
+        }
+    }
+    GroupTitle("TIME FORMAT")
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ChoiceCard("24-hour", "Shows 13:45", h24, Modifier.weight(1f)) { h24 = true; prefs.clock24h = true; changed() }
+        ChoiceCard("12-hour", "Shows 01:45", !h24, Modifier.weight(1f)) { h24 = false; prefs.clock24h = false; changed() }
+    }
+}
+
+/** Now playing reads media sessions through notification access. */
+@Composable
+private fun AccessNote() {
+    Text(
+        "Reads what's playing through notification access (Settings > Notification access). Nothing else is read.",
+        color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp),
+    )
 }

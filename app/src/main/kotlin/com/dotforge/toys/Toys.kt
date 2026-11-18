@@ -15,6 +15,7 @@ import com.dotforge.device.AnimFrame
 import com.dotforge.device.Animation
 import com.dotforge.device.Effects
 import com.dotforge.device.Frame
+import com.dotforge.device.ToyFaces
 import com.dotforge.visualiser.VisualiserEngine
 import com.dotforge.visualiser.next
 import java.time.LocalDateTime
@@ -58,8 +59,10 @@ class ClockToy : GlyphToyService() {
 
     private fun render() {
         val now = LocalDateTime.now()
-        val hour = ToySettings.displayHour(now.hour, AppGraph.toys.clock24h)
-        show(if (showDate) Effects.clock(profile, now.dayOfMonth, now.monthValue) else Effects.clock(profile, hour, now.minute))
+        show(
+            if (showDate) Effects.clock(profile, now.dayOfMonth, now.monthValue)
+            else ToyFaces.clock(profile, AppGraph.toys.clockStyle, now.hour, now.minute, AppGraph.toys.clock24h),
+        )
     }
 }
 
