@@ -157,6 +157,12 @@ object GlyphDriver {
                     record("register(DEVICE_23112)", ok, if (ok) null else "returned false")
                     if (ok) {
                         reconnectAttempts = 0
+                        // a frame left on the panel by an earlier process stays until someone closes it
+                        if (closeOnConnect && pending.getValue(Channel.APP).get() == null) {
+                            call("closeAppMatrix(on connect)") { m.closeAppMatrix() }
+                            drewApp = false
+                        }
+                        closeOnConnect = false
                         _state.value = DriverState.Ready
                         if (hasPending()) schedulePump()
                     } else fail("register returned false")
@@ -266,6 +272,22 @@ object GlyphDriver {
                 drewToy = false
             }
         }
+    }
+
+    @Volatile private var closeOnConnect = false
+
+    /**
+     * Stop showing the app channel even if this process never drew: an app frame survives our process, so after
+     * a restart only an unconditional closeAppMatrix takes it off. Runs once connected if not yet.
+     */
+    fun closeAppAlways() {
+        pending.getValue(Channel.APP).set(null)
+        val m = manager
+        if (m == null || _state.value != DriverState.Ready) {
+            closeOnConnect = true
+            return
+        }
+        io.execute { call("closeAppMatrix") { m.closeAppMatrix() }; drewApp = false }
     }
 
     /** Stop showing the app channel (closeAppMatrix) while keeping the connection. */

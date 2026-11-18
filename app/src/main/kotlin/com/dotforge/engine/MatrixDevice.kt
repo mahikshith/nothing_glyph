@@ -22,13 +22,21 @@ object PreviewDevice : MatrixDevice {
 }
 
 /**
- * Thin adapter over [GlyphDriver] for one [channel]. Holds one driver reference while it has something on
- * screen, so the Glyph service connection only stays open while a frame is shown. Not thread-safe: each
- * instance is used from one thread (the arbiter's engine thread or a toy's main thread).
+ * Thin adapter over [GlyphDriver] for one [channel]. The app channel (the arbiter's) holds the driver for the
+ * process's lifetime and always closes the app matrix on [clear], even if this process never drew: a frame
+ * from before a restart (a torch left on) would otherwise stay on the panel. A toy holds the driver only while
+ * it shows something. Not thread-safe: each instance is used from one thread.
  */
 class GlyphMatrixDevice(context: Context, private val channel: Channel) : MatrixDevice {
     private val appContext = context.applicationContext
     private var held = false
+
+    init {
+        if (channel == Channel.APP) {
+            GlyphDriver.acquire(appContext)
+            held = true
+        }
+    }
 
     override val isHardware = true
 
@@ -41,11 +49,9 @@ class GlyphMatrixDevice(context: Context, private val channel: Channel) : Matrix
     }
 
     override fun clear() {
+        if (channel == Channel.APP) return GlyphDriver.closeAppAlways()
         if (!held) return
-        when (channel) {
-            Channel.APP -> GlyphDriver.closeApp()
-            Channel.TOY -> GlyphDriver.endToy()
-        }
+        GlyphDriver.endToy()
         GlyphDriver.release()
         held = false
     }

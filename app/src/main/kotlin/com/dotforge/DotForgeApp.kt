@@ -149,6 +149,7 @@ object AppGraph {
         Skins.init(prefs)
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
         device = MatrixDevices.create(app, Channel.APP)
+        device.clear() // nothing is posted yet: take off any frame an earlier process left (a stuck torch)
         filters = FiltersRepository(File(app.filesDir, "filters.json"), legacySpam = File(app.filesDir, "spam.json"))
         val gate = NothingSettingsGate(app.contentResolver) { filters.filters.value.quiet.followBedtime }
         arbiter = DisplayArbiter(scope = engineScope, device = device, gate = gate)

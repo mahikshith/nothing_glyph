@@ -134,7 +134,7 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             )
             FeatureTile(
                 "Torch",
-                summary = if (torchOn) "On" else "Whole matrix",
+                summary = if (torchOn) "Torch on · Turn off" else "Whole matrix, 5 min",
                 modifier = Modifier.weight(1f),
                 checked = torchOn,
                 onCheckedChange = { TorchTileService.toggle() },

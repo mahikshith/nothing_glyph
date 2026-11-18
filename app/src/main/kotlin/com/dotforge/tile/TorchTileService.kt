@@ -8,7 +8,7 @@ import com.dotforge.device.Frame
 import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
 
-/** Quick Settings tile: the whole matrix as a soft torch. */
+/** Quick Settings tile: the whole matrix as a soft torch, off by itself after 5 minutes. */
 class TorchTileService : TileService() {
 
     override fun onStartListening() = update(AppGraph.arbiter.has(ID))
@@ -29,6 +29,8 @@ class TorchTileService : TileService() {
 
     companion object {
         const val ID = "torch"
+        /** The torch turns itself off after this long, so a forgotten torch never stays on. */
+        const val AUTO_OFF_MS = 5 * 60_000L
 
         fun toggle() {
             val arbiter = AppGraph.arbiter
@@ -36,7 +38,7 @@ class TorchTileService : TileService() {
                 arbiter.remove(ID)
             } else {
                 val full = Frame.blank(AppGraph.profile).fill(255)
-                arbiter.post(DisplayRequest(ID, Priority.TORCH, Animation.single(full), loop = true, label = "Torch"))
+                arbiter.post(DisplayRequest(ID, Priority.TORCH, Animation.single(full), loop = true, timeoutMs = AUTO_OFF_MS, label = "Torch"))
             }
         }
     }
