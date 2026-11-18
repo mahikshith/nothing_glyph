@@ -49,7 +49,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import com.dotforge.diagnostics.DiagnosticsScreen
 import com.dotforge.diagnostics.EventLog
-import com.dotforge.ringtones.ImportMode
 import com.dotforge.ui.alerts.AlertsScreen
 import com.dotforge.ui.design.ComponentGallery
 import com.dotforge.ui.design.DotForgeTheme
@@ -72,12 +71,12 @@ import com.dotforge.ui.studio.StudioScreen
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    /** A file opened with or shared to DotForge, waiting to be shown in the import page. */
-    private var incoming by mutableStateOf<Uri?>(null)
+    /** Files opened with or shared to DotForge, waiting to be routed by type (row 8). */
+    private var incoming by mutableStateOf<List<Uri>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) incoming = importUri(intent)
+        if (savedInstanceState == null) incoming = importUris(intent)
         enableEdgeToEdge()
         EventLog.init(this)
         val setup = Setup(this)
@@ -86,12 +85,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             DotForgeTheme {
                 val nav = rememberSaveable(saver = Nav.saver) { Nav() }
+                val ctx = androidx.compose.ui.platform.LocalContext.current
                 LaunchedEffect(incoming) {
-                    val uri = incoming ?: return@LaunchedEffect
-                    incoming = null
+                    val uris = incoming.ifEmpty { return@LaunchedEffect }
+                    incoming = emptyList()
                     nav.popTo(Tab.STUDIO)
-                    nav.push(Page.Ringtones)
-                    nav.push(Page.RingtoneImport(uri.toString(), ImportMode.FILE))
+                    com.dotforge.ui.studio.Picked.route(ctx, nav, uris)?.let { msg -> nav.studioRequest = "message:$msg" }
                 }
                 var firstRunDone by rememberSaveable { mutableStateOf(false) }
                 AppRoot(nav, setup)
@@ -102,7 +101,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        importUri(intent)?.let { incoming = it }
+        importUris(intent).takeIf { it.isNotEmpty() }?.let { incoming = it }
         if (intent.getBooleanExtra(EXTRA_LIVE, false)) pendingLive = true
     }
 
@@ -123,11 +122,12 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_LIVE = "com.dotforge.extra.LIVE"
     }
 
-    /** The file of an "Open with" (VIEW) or Share (SEND) intent. */
-    private fun importUri(intent: Intent?): Uri? = when (intent?.action) {
-        Intent.ACTION_VIEW -> intent.data
-        Intent.ACTION_SEND -> intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        else -> null
+    /** The files of an "Open with" (VIEW) or Share (SEND, SEND_MULTIPLE) intent. */
+    private fun importUris(intent: Intent?): List<Uri> = when (intent?.action) {
+        Intent.ACTION_VIEW -> listOfNotNull(intent.data)
+        Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
+        Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        else -> emptyList()
     }
 }
 
@@ -227,6 +227,9 @@ fun PageContent(page: Page, nav: Nav, setup: Setup) {
         Page.PhoneMoments -> com.dotforge.ui.alerts.PhoneMomentsPage(nav, setup)
         Page.Library -> LibraryScreen(nav)
         is Page.Editor -> EditorScreen(page.designId, page.animated, page.draft, nav)
+        is Page.TextDesign -> com.dotforge.ui.studio.TextScreen(page.designId, page.text, nav)
+        is Page.Photo -> com.dotforge.ui.studio.PhotoScreen(page.key, page.designId, nav)
+        is Page.GlyphRingtone -> com.dotforge.ui.studio.RingtoneScreen(page.uri, nav)
         is Page.Feature -> FeaturePage(page.key, nav, setup)
         is Page.OldTab -> OldTab(page.key, nav, setup)
         Page.Notifications -> NotificationsPage(nav, setup)

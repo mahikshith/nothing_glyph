@@ -30,6 +30,17 @@ object RingtoneActions {
         return runCatching { RingtoneManager.setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE, ringtone) }.isSuccess
     }
 
+    /** Makes [sound] the default notification sound. Returns false without the special access. */
+    fun setNotificationSound(context: Context, sound: Uri): Boolean = setDefault(context, RingtoneManager.TYPE_NOTIFICATION, sound)
+
+    /** Makes [sound] the default alarm sound. Returns false without the special access. */
+    fun setAlarmSound(context: Context, sound: Uri): Boolean = setDefault(context, RingtoneManager.TYPE_ALARM, sound)
+
+    private fun setDefault(context: Context, type: Int, sound: Uri): Boolean {
+        if (!canWriteSettings(context)) return false
+        return runCatching { RingtoneManager.setActualDefaultRingtoneUri(context, type, sound) }.isSuccess
+    }
+
     fun canWriteContacts(context: Context): Boolean =
         context.checkSelfPermission(Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
