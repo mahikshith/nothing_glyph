@@ -217,4 +217,159 @@ class EditorDocTest {
         doc.undo()
         assertEquals(0, lit(doc.current))
     }
+
+    // ---- the rebuilt editor's operations
+
+    private fun stroke(doc: EditorDoc, brush: Brush, vararg pts: Pair<Int, Int>, erase: Boolean = false) {
+        doc.beginStroke()
+        for ((x, y) in pts) doc.brush(brush, x, y, erase)
+        doc.endStroke()
+    }
+
+    @Test fun brushSizesAndMirror() {
+        val doc = blankDoc()
+        stroke(doc, Brush(size = 1), 12 to 12)
+        assertEquals(1, lit(doc.current))
+        stroke(doc, Brush(size = 2), 5 to 12)
+        assertEquals(5, lit(doc.current))
+        stroke(doc, Brush(size = 3), 18 to 12)
+        assertEquals(10, lit(doc.current))
+        doc.clearFrame()
+        stroke(doc, Brush(mirror = Mirror.BOTH), 8 to 9)
+        assertEquals(4, lit(doc.current))
+        assertEquals(255, at(doc, 24 - 8, 24 - 9))
+        assertEquals(1, doc.undoSteps - 4) // each stroke is one step (3 strokes, a clear, the mirrored stroke)
+    }
+
+    @Test fun shadesBrightenDimAndReplace() {
+        val doc = blankDoc()
+        stroke(doc, Brush(value = 111), 12 to 12)
+        assertEquals(111, at(doc, 12, 12))
+        // brighten changes each dot once per stroke, however often the finger passes
+        stroke(doc, Brush(mode = BrushMode.BRIGHTEN), 12 to 12, 12 to 12, 12 to 12)
+        assertEquals(111 + Brush.STEP, at(doc, 12, 12))
+        stroke(doc, Brush(mode = BrushMode.DIM), 12 to 12, 12 to 12)
+        assertEquals(111, at(doc, 12, 12))
+        doc.addCopy()
+        doc.replaceShade(111, 255, all = false)
+        assertEquals(255, at(doc, 12, 12))
+        assertEquals(111, doc.frames[0][p.index(12, 12)])
+        doc.replaceShade(255, 48, all = true)
+        assertEquals(48, at(doc, 12, 12))
+        doc.undo()
+        assertEquals(255, at(doc, 12, 12))
+        assertEquals(8, Brush.SHADES.size)
+    }
+
+    @Test fun selectMoveCopyPasteFlipAndDelete() {
+        val doc = blankDoc()
+        drag(doc, EditorTool.PEN, 8, 10, 10, 10)
+        val r = Region(8, 10, 10, 10)
+        // dragging the selection moves it, as one step
+        doc.beginStroke()
+        doc.moveRegion(r, 1, 0)
+        doc.moveRegion(r, 2, 1)
+        doc.endStroke()
+        assertEquals(0, at(doc, 8, 10))
+        assertEquals(255, at(doc, 10, 11))
+        assertEquals(255, at(doc, 12, 11))
+        doc.undo()
+        assertEquals(255, at(doc, 8, 10))
+        // copy and paste keeps the copy
+        val clip = Regions.copy(doc.current, p, r)
+        doc.paste(clip, 8, 14)
+        assertEquals(6, lit(doc.current))
+        // flip a lopsided region
+        doc.clearFrame()
+        tap(doc, EditorTool.PEN, 8, 10)
+        doc.flipRegion(Region(8, 10, 10, 10), horizontal = true)
+        assertEquals(0, at(doc, 8, 10))
+        assertEquals(255, at(doc, 10, 10))
+        doc.deleteRegion(Region(0, 0, 24, 24))
+        assertEquals(0, lit(doc.current))
+        // and drawing still works after it all
+        tap(doc, EditorTool.PEN, 12, 12)
+        assertEquals(255, at(doc, 12, 12))
+    }
+
+    @Test fun effectsOnThisFrameOrAllFrames() {
+        val doc = blankDoc()
+        tap(doc, EditorTool.PEN, 3, 12)
+        doc.addCopy()
+        doc.change(FrameOp.FLIP_H, all = false)
+        assertEquals(255, at(doc, 21, 12))
+        assertEquals(255, doc.frames[0][p.index(3, 12)])
+        doc.change(FrameOp.SHIFT_DOWN, all = true)
+        assertEquals(255, doc.frames[0][p.index(3, 13)])
+        assertEquals(255, at(doc, 21, 13))
+        doc.undo()
+        doc.undo()
+        assertEquals(255, at(doc, 3, 12))
+    }
+
+    @Test fun outlineFillInAndLevels() {
+        val f = Frame.blank(p)
+        Draw.box(f, 8, 8, 16, 16, 255)
+        val o = FrameOps.outline(f)
+        assertEquals(0, o.pixels[p.index(12, 12)])
+        assertEquals(255, o.pixels[p.index(8, 12)])
+        val filled = FrameOps.fillIn(o)
+        assertEquals(255, filled.pixels[p.index(12, 12)])
+        assertEquals(0, filled.pixels[p.index(2, 12)])
+        val faint = Frame.of(p, IntArray(p.cellCount) { if (it == p.index(12, 12)) 40 else if (it == p.index(13, 12)) 20 else 0 })
+        val lv = FrameOps.levels(faint)
+        assertEquals(255, lv.pixels[p.index(12, 12)])
+        assertEquals(64, lv.pixels[p.index(13, 12)])
+    }
+
+    @Test fun nameAndTimingAreOnTheUndoStack() {
+        val doc = EditorDoc(p, Animation.single(Frame.blank(p), 150), name = "Design 3")
+        doc.rename("  Heart  ")
+        assertEquals("Heart", doc.name)
+        doc.rename("")
+        assertEquals("Heart", doc.name)
+        doc.rename("x".repeat(40))
+        assertEquals(30, doc.name.length)
+        doc.setTiming(Timing(speed = 2f))
+        doc.undo()
+        assertEquals(1f, doc.timing.speed)
+        doc.undo()
+        assertEquals("Heart", doc.name)
+        doc.undo()
+        assertEquals("Design 3", doc.name)
+    }
+
+    @Test fun framesStopAtThreeHundred() {
+        val doc = blankDoc()
+        repeat(EditorDoc.MAX_FRAMES - 1) { assertTrue(doc.addBlank()) }
+        assertFalse(doc.canAddFrame)
+        assertFalse(doc.addCopy())
+        assertEquals(EditorDoc.MAX_FRAMES, doc.size)
+    }
+
+    @Test fun makeItMoveReplacesOnlyTheCurrentFrame() {
+        val doc = blankDoc()
+        tap(doc, EditorTool.PEN, 12, 12)
+        doc.addBlank()
+        doc.select(0)
+        doc.replaceCurrentWith(AnimatePreset.BLINK.apply(Frame.of(p, doc.current)))
+        assertTrue(doc.size > 2)
+        assertEquals(0, lit(doc.frames.last()))
+        doc.undo()
+        assertEquals(2, doc.size)
+    }
+
+    @Test fun shapesCanBeFilledAndMirrored() {
+        val doc = blankDoc()
+        doc.beginStroke()
+        EditorDoc.apply(doc, EditorTool.BOX, 4 to 4, 7, 7, 255, filled = true, mirror = Mirror.H)
+        doc.endStroke()
+        assertEquals(32, lit(doc.current))
+        assertEquals(255, at(doc, 20, 5))
+        doc.clearFrame()
+        doc.beginStroke()
+        EditorDoc.apply(doc, EditorTool.CIRCLE, 12 to 12, 15, 12, 255, filled = true)
+        doc.endStroke()
+        assertEquals(255, at(doc, 12, 12))
+    }
 }

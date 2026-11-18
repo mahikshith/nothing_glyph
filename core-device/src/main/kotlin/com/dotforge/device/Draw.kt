@@ -48,6 +48,20 @@ object Draw {
         line(f, x0, y1, x0, y0, value)
     }
 
+    /** A filled box with corners (x0, y0) and (x1, y1). */
+    fun box(f: Frame, x0: Int, y0: Int, x1: Int, y1: Int, value: Int) {
+        for (y in minOf(y0, y1)..maxOf(y0, y1)) for (x in minOf(x0, x1)..maxOf(x0, x1)) f[x, y] = value
+    }
+
+    /** A filled circle centred on (cx, cy) through (x, y). */
+    fun disc(f: Frame, cx: Int, cy: Int, x: Int, y: Int, value: Int) {
+        val r = hypot((x - cx).toDouble(), (y - cy).toDouble()) + 0.5
+        val p = f.profile
+        for (py in 0 until p.size) for (px in 0 until p.size) {
+            if (hypot((px - cx).toDouble(), (py - cy).toDouble()) < r) f[px, py] = value
+        }
+    }
+
     /** A circle outline centred on (cx, cy) through (x, y). */
     fun circle(f: Frame, cx: Int, cy: Int, x: Int, y: Int, value: Int) {
         val r = hypot((x - cx).toDouble(), (y - cy).toDouble())
