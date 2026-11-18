@@ -33,8 +33,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.dotforge.AppGraph
 import com.dotforge.diagnostics.DiagnosticsScreen
 import com.dotforge.diagnostics.EventLog
 import kotlinx.coroutines.launch
@@ -73,8 +71,8 @@ class MainActivity : ComponentActivity() {
 private fun Tabs(nav: Nav, setup: Setup, scrolls: Map<Tab, ScrollState>) {
     val scope = rememberCoroutineScope()
     val saved = rememberSaveableStateHolder()
-    val spam by AppGraph.spam.settings.collectAsStateWithLifecycle()
-    val needsSetup = !setup.notificationAccess || (spam.needsContacts && !setup.contacts)
+    val needsContacts by rememberNeedsContacts()
+    val needsSetup = !setup.notificationAccess || (needsContacts && !setup.contacts)
     BackHandler(enabled = nav.tab != Tab.GLYPH) { nav.tab = Tab.GLYPH }
     Scaffold(
         containerColor = Color.Black,
@@ -120,9 +118,8 @@ private fun Tabs(nav: Nav, setup: Setup, scrolls: Map<Tab, ScrollState>) {
 @Composable
 private fun PageContent(page: Page, nav: Nav, setup: Setup) {
     when (page) {
-        Page.Rules -> RulesPage(nav, setup)
-        is Page.RuleEditor -> RuleEditorPage(page.ruleId, onClose = nav::pop)
-        Page.Spam -> SpamPage(setup, onBack = nav::pop)
+        Page.Notifications -> NotificationsPage(nav, setup)
+        is Page.RuleEditor -> RuleEditorPage(page.ruleId, setup, onClose = nav::pop)
         is Page.ToySettings -> ToySettingsPage(page.toy, nav)
         is Page.DesignEditor -> DesignEditorPage(page.designId, page.animated, onClose = nav::pop)
         Page.Diagnostics -> {

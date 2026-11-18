@@ -10,23 +10,30 @@ import com.dotforge.device.Animation
 import com.dotforge.device.DeviceProfile
 import com.dotforge.driver.Channel
 import com.dotforge.driver.GlyphDriver
+import com.dotforge.engine.AlertPlayer
+import com.dotforge.engine.AlertQueue
 import com.dotforge.engine.DisplayArbiter
 import com.dotforge.engine.MatrixDevice
 import com.dotforge.engine.MatrixDevices
 import com.dotforge.engine.Priority
-import com.dotforge.rules.NotificationInfo
+import com.dotforge.notify.FaceDownSensor
+import com.dotforge.rules.FiltersRepository
+import com.dotforge.rules.LogEntry
 import com.dotforge.rules.RulesRepository
-import com.dotforge.rules.SpamRepository
 import com.dotforge.studio.DesignsRepository
 import com.dotforge.toys.ToySettings
 import com.dotforge.system.NothingSettingsGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.io.File
 
 /** Process-wide objects, created once in [DotForgeApp.onCreate]. */
@@ -39,7 +46,11 @@ object AppGraph {
         private set
     lateinit var rules: RulesRepository
         private set
-    lateinit var spam: SpamRepository
+    lateinit var filters: FiltersRepository
+        private set
+    lateinit var alerts: AlertPlayer
+        private set
+    lateinit var faceDown: FaceDownSensor
         private set
     lateinit var designs: DesignsRepository
         private set
@@ -49,14 +60,14 @@ object AppGraph {
 
     private const val KEY_BRIGHTNESS = "brightness"
     private const val KEY_PROGRESS = "progress_rings"
-    private const val RECENT_MAX = 30
+    private const val LOG_MAX = 20
 
-    private val _recent = MutableStateFlow<List<NotificationInfo>>(emptyList())
-    /** Last notifications seen, newest first, for the rule editor's "would match" list. */
-    val recent: StateFlow<List<NotificationInfo>> = _recent.asStateFlow()
+    private val _log = MutableStateFlow<List<LogEntry>>(emptyList())
+    /** The last notifications and what happened to each, newest first: the rule tester. */
+    val log: StateFlow<List<LogEntry>> = _log.asStateFlow()
 
-    fun remember(info: NotificationInfo) =
-        _recent.update { list -> (listOf(info) + list.filterNot { it.key == info.key }).take(RECENT_MAX) }
+    fun log(entry: LogEntry) =
+        _log.update { list -> (listOf(entry) + list.filterNot { it.info.key == entry.info.key }).take(LOG_MAX) }
 
     private val _progressRings = MutableStateFlow(true)
     /** Progress rings for downloads, deliveries and timers. */
@@ -77,10 +88,12 @@ object AppGraph {
         arbiter.refresh()
     }
 
-    /** What DF Player and the "My design" effect play: the chosen design, else the newest. */
-    fun playerAnimation(): Animation? {
-        val list = designs.designs.value
-        val design = designs.get(toys.playerDesignId) ?: list.firstOrNull() ?: return null
+    /** What DF Player plays: the chosen design, else the newest. */
+    fun playerAnimation(): Animation? = designAnimation(toys.playerDesignId)
+
+    /** A saved design's animation; the newest design when [id] is null or gone. */
+    fun designAnimation(id: String?): Animation? {
+        val design = designs.get(id) ?: designs.designs.value.firstOrNull() ?: return null
         return designs.animation(design)
     }
 
@@ -88,20 +101,38 @@ object AppGraph {
         prefs = app.getSharedPreferences("dotforge", Context.MODE_PRIVATE)
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
         device = MatrixDevices.create(app, Channel.APP)
-        arbiter = DisplayArbiter(scope = engineScope, device = device, gate = NothingSettingsGate(app.contentResolver))
+        filters = FiltersRepository(File(app.filesDir, "filters.json"), legacySpam = File(app.filesDir, "spam.json"))
+        val gate = NothingSettingsGate(app.contentResolver) { filters.filters.value.quiet.followBedtime }
+        arbiter = DisplayArbiter(scope = engineScope, device = device, gate = gate)
+        alerts = AlertPlayer(engineScope, arbiter, AlertQueue(System::currentTimeMillis))
         GlyphDriver.setBrightness(prefs.getInt(KEY_BRIGHTNESS, 255))
         _progressRings.value = prefs.getBoolean(KEY_PROGRESS, true)
         rules = RulesRepository(File(app.filesDir, "rules.json"))
-        spam = SpamRepository(File(app.filesDir, "spam.json"))
+        faceDown = FaceDownSensor(app)
+        MainScope().launch {
+            filters.filters.map { it.onlyFaceDown }.distinctUntilChanged().collect(faceDown::setEnabled)
+        }
         designs = DesignsRepository(profile, File(app.filesDir, "designs.json"), legacyFile = File(app.filesDir, "studio_current.json"))
         toys = ToySettings(app.getSharedPreferences("toys", Context.MODE_PRIVATE))
     }
 }
 
 class DotForgeApp : Application() {
-    /** Nothing tells us when system lights covered our frame, so re-send it whenever the user is likely to look. */
+    /**
+     * Nothing tells us when system lights covered our frame, so re-send it whenever the user is likely to look:
+     * at once, and again once the unlock / screen-on animation is over. Unlocking also ends held alerts.
+     */
     private val wakeReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) = AppGraph.arbiter.refresh()
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_USER_PRESENT) AppGraph.alerts.unlocked()
+            AppGraph.arbiter.refresh()
+            AppGraph.arbiter.refreshAfter(COVERED_MS)
+        }
+    }
+
+    companion object {
+        /** About how long a system light (notification glyph, unlock animation) covers the app frame. */
+        const val COVERED_MS = 1_500L
     }
 
     override fun onCreate() {

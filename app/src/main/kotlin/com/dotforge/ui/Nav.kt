@@ -42,17 +42,15 @@ enum class Tab(val label: String, val selectedIcon: ImageVector, val icon: Image
 
 /** Full-screen detail pages, pushed over a tab (no bottom bar). */
 sealed interface Page {
-    data object Rules : Page
+    data object Notifications : Page
     data class RuleEditor(val ruleId: String?) : Page
-    data object Spam : Page
     data class ToySettings(val toy: Toy) : Page
     data class DesignEditor(val designId: String?, val animated: Boolean) : Page
     data object Diagnostics : Page
 }
 
 private fun Page.encode(): String = when (this) {
-    Page.Rules -> "rules"
-    Page.Spam -> "spam"
+    Page.Notifications -> "notifications"
     Page.Diagnostics -> "diagnostics"
     is Page.RuleEditor -> "rule:${ruleId.orEmpty()}"
     is Page.ToySettings -> "toy:${toy.name}"
@@ -62,8 +60,7 @@ private fun Page.encode(): String = when (this) {
 private fun decode(s: String): Page? {
     val parts = s.split(':', limit = 3)
     return when (parts[0]) {
-        "rules" -> Page.Rules
-        "spam" -> Page.Spam
+        "notifications" -> Page.Notifications
         "diagnostics" -> Page.Diagnostics
         "rule" -> Page.RuleEditor(parts.getOrNull(1)?.ifEmpty { null })
         "toy" -> Toy.entries.firstOrNull { it.name == parts.getOrNull(1) }?.let(Page::ToySettings)

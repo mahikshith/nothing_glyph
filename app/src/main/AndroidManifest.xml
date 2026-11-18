@@ -3,15 +3,17 @@
 
     <!-- Glyph SDK access (a normal permission on Nothing phones). -->
     <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
-    <!-- Only asked for when the spam filter's "Always allow: Contacts / Starred" is switched on. -->
+    <!-- Only asked for when a rule's People picker opens or the spam filter needs to know who is a contact. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
-    <!-- The rule editor's app picker lists launcher apps; no QUERY_ALL_PACKAGES needed. -->
     <queries>
+        <!-- The rule editor's app picker lists launcher apps; no QUERY_ALL_PACKAGES needed. -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- Nothing's Glyph notification settings live in the Settings app (the "Sound only" helper). -->
+        <package android:name="com.android.settings" />
     </queries>
 
     <application
@@ -36,7 +38,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Notification rules: needs the user to grant Notification access. -->
+        <!-- Notification glyphs, filters and progress rings: needs the user to grant Notification access. -->
         <service
             android:name=".notify.GlyphNotificationListener"
             android:exported="true"

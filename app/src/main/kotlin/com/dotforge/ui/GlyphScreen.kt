@@ -40,8 +40,8 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
     val frame by AppGraph.arbiter.frame.collectAsStateWithLifecycle()
     val active by AppGraph.arbiter.active.collectAsStateWithLifecycle()
     val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
-    val spam by AppGraph.spam.settings.collectAsStateWithLifecycle()
-    val catches by AppGraph.spam.catches.collectAsStateWithLifecycle()
+    val spam by AppGraph.filters.spam.collectAsStateWithLifecycle()
+    val catches by AppGraph.filters.catches.collectAsStateWithLifecycle()
     val progress by AppGraph.progressRings.collectAsStateWithLifecycle()
     val brightness by AppGraph.brightness.collectAsStateWithLifecycle()
     var howTo by rememberSaveable { mutableStateOf<Toy?>(null) }
@@ -71,30 +71,17 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
         }
 
         GroupTitle("NOTIFICATIONS")
-        TileRow {
-            val on = rules.count { it.enabled }
-            FeatureTile(
-                "Rules",
-                summary = if (!access && on > 0) "Needs access" else "$on active",
-                modifier = Modifier.weight(1f),
-                onClick = { nav.push(Page.Rules) },
-            )
-            FeatureTile(
-                "Spam filter",
-                summary = when {
-                    !spam.enabled -> "Off"
-                    !access -> "Needs access"
-                    else -> "${SpamFilter.blockedOn(LocalDate.now(), catches)} blocked today"
-                },
-                modifier = Modifier.weight(1f),
-                checked = spam.enabled,
-                onCheckedChange = { on ->
-                    AppGraph.spam.update { it.copy(enabled = on) }
-                    if (on) setup.needNotificationAccess()
-                },
-                onClick = { nav.push(Page.Spam) },
-            )
-        }
+        val on = rules.count { it.enabled }
+        FeatureTile(
+            "Notifications",
+            summary = when {
+                !access && (on > 0 || spam.enabled) -> "Needs access"
+                spam.enabled -> "${if (on == 1) "1 rule" else "$on rules"} · ${SpamFilter.blockedOn(LocalDate.now(), catches)} blocked today"
+                else -> if (on == 1) "1 rule on" else "$on rules on"
+            },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            onClick = { nav.push(Page.Notifications) },
+        )
 
         GroupTitle("LIVE")
         TileRow {

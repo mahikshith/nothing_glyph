@@ -3,28 +3,30 @@ package com.dotforge.rules
 import com.dotforge.device.Animation
 import com.dotforge.device.DeviceProfile
 import com.dotforge.device.Effects
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.SerialName
+import com.dotforge.engine.Until
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
-import java.io.File
 import java.util.UUID
 
 @Serializable
-enum class KeywordMode(val label: String) { ANY("Any word"), ALL("All words"), NONE("None of the words"), REGEX("Regex") }
+enum class KeywordMode(val label: String) { ANY("Any"), ALL("All"), NONE("None") }
 
+/** What a rule shows on the matrix. */
 @Serializable
-enum class Effect(val label: String) {
-    PULSE("Pulse"), RING("Ring chase"), LETTER("Sender letter"), FLASH("Flash"),
-    MARQUEE("Scroll sender"), SPARKLE("Sparkle"), CUSTOM("My design"),
+enum class GlyphStyle(val label: String, val hint: String) {
+    PULSE("Pulse", "Slow glow, in and out"),
+    RING("Ring chase", "Three dots chase round the edge"),
+    FLASH("Flash", "Three quick flashes"),
+    SPARKLE("Sparkle", "Random twinkling dots"),
+    COMET("Comet", "One bright comet, two laps"),
+    LETTER("App letter", "The app's first letter blinks"),
+    NAME("Sender name", "The sender's name scrolls by"),
+    DESIGN("My design", "A design from Create"),
 }
 
 /**
- * One notification rule: "when [packages] from [senders] mention [keywords], light up [effect]". Rules are
- * checked top to bottom and the first match wins, so list order is priority.
+ * One notification rule: "When [packages] from [people] mention [keywords], show [glyph] until [until]".
+ * Empty slots mean any. The most specific matching rule wins (see [RuleEngine.tier]); [priority] only breaks
+ * ties between equally specific rules, then list order does.
  */
 @Serializable
 data class Rule(
@@ -33,20 +35,32 @@ data class Rule(
     val enabled: Boolean = true,
     /** Package names; empty = any app. */
     val packages: List<String> = emptyList(),
-    /** Sender / conversation names matched against the notification title; empty = anyone. */
-    val senders: List<String> = emptyList(),
+    /** Contact names, matched against the sender's contact name or the notification title. */
+    val people: List<String> = emptyList(),
+    /** Also match starred contacts. */
+    val starred: Boolean = false,
+    /** Also match people who are not in Contacts. */
+    val unknown: Boolean = false,
     val keywords: List<String> = emptyList(),
     val keywordMode: KeywordMode = KeywordMode.ANY,
-    val effect: Effect = Effect.PULSE,
-    /** Keep showing until the notification is dismissed. */
-    @SerialName("hold") val holdUntilDismissed: Boolean = false,
-    /** Stop showing as soon as the phone is unlocked. */
-    val clearOnUnlock: Boolean = true,
-    /** Spam: matching notifications never light up and stop lower rules. Only the spam filter makes these. */
-    val suppress: Boolean = false,
-    /** Still light up during Do Not Disturb. */
-    val breakDnd: Boolean = false,
-)
+    /** Keywords are regular expressions (Advanced). */
+    val regex: Boolean = false,
+    val glyph: GlyphStyle = GlyphStyle.PULSE,
+    /** The design for [GlyphStyle.DESIGN]; null = the newest design. */
+    val designId: String? = null,
+    val until: Until = Until.READ,
+    /** 1 high, 0 normal, -1 low. */
+    val priority: Int = 0,
+) {
+    val usesContacts: Boolean get() = people.any { it.isNotBlank() } || starred || unknown
+    val words: List<String> get() = keywords.filter { it.isNotBlank() }
+}
+
+/** What Contacts knows about a notification's sender. */
+enum class ContactStatus { UNKNOWN, CONTACT, STARRED }
+
+/** The sender as found in Contacts; [name] is the contact's display name when found. */
+data class Sender(val status: ContactStatus, val name: String? = null)
 
 /** What we know about an incoming notification. */
 data class NotificationInfo(
@@ -56,56 +70,100 @@ data class NotificationInfo(
     val title: String,
     val text: String,
     val postedAt: Long,
-    /** Contact URIs the app attached (tel:, mailto: or content://), for the spam filter's allow list. */
+    /** Contact URIs the app attached (tel:, mailto: or content://). */
     val people: List<String> = emptyList(),
+    /** A message or call from a person: the only kind "unknown senders" applies to. */
+    val fromPerson: Boolean = false,
+    /** A ringing call. */
+    val isCall: Boolean = false,
+    /** The conversation, for the re-post cooldown. */
+    val conversation: String = key,
 )
 
-sealed interface MatchResult {
-    data class Show(val rule: Rule) : MatchResult
-    data class Suppressed(val rule: Rule) : MatchResult
-    data object NoMatch : MatchResult
-}
+/** How specific a rule is; earlier entries win. */
+enum class Tier { CONTACT, APP_AND_WORDS, WORDS, APP, ANY }
+
+data class RuleMatch(val rule: Rule, val why: String)
 
 object RuleEngine {
 
-    fun match(info: NotificationInfo, rules: List<Rule>): MatchResult {
-        val body = "${info.title}\n${info.text}"
-        for (r in rules) {
-            if (!r.enabled) continue
-            if (r.packages.isNotEmpty() && r.packages.none { it.equals(info.packageName, ignoreCase = true) }) continue
-            if (r.senders.isNotEmpty() && r.senders.none { info.title.contains(it, ignoreCase = true) }) continue
-            if (!keywordsMatch(r, body)) continue
-            return if (r.suppress) MatchResult.Suppressed(r) else MatchResult.Show(r)
-        }
-        return MatchResult.NoMatch
+    fun tier(r: Rule): Tier = when {
+        r.usesContacts -> Tier.CONTACT
+        r.words.isNotEmpty() && r.packages.isNotEmpty() -> Tier.APP_AND_WORDS
+        r.words.isNotEmpty() -> Tier.WORDS
+        r.packages.isNotEmpty() -> Tier.APP
+        else -> Tier.ANY
     }
 
-    private fun keywordsMatch(r: Rule, body: String): Boolean {
-        val words = r.keywords.filter { it.isNotBlank() }
-        if (words.isEmpty()) return true
+    /**
+     * The best rule for [info]: the most specific ([tier]), then the highest [Rule.priority], then the first in
+     * the list. [sender] reads Contacts; it is called at most once, and only when a rule needs it.
+     * Specificity tiers and the regex cache are adapted from Glyphifier's RuleMatcher (Apache-2.0, see NOTICE).
+     */
+    fun match(info: NotificationInfo, rules: List<Rule>, sender: () -> Sender? = { null }): RuleMatch? {
+        val lookup = lazy(LazyThreadSafetyMode.NONE, sender)
+        return rules.withIndex()
+            .filter { it.value.enabled }
+            .sortedWith(compareBy({ tier(it.value) }, { -it.value.priority }, { it.index }))
+            .firstNotNullOfOrNull { (_, r) -> explain(r, info) { lookup.value }?.let { RuleMatch(r, it) } }
+    }
+
+    /** Why [rule] matches [info] in a few words, or null when it does not. Ignores [Rule.enabled]. */
+    fun explain(rule: Rule, info: NotificationInfo, sender: () -> Sender? = { null }): String? {
+        val why = mutableListOf<String>()
+        if (rule.packages.isNotEmpty()) {
+            if (rule.packages.none { it.equals(info.packageName, ignoreCase = true) }) return null
+            why += info.appLabel
+        }
+        if (rule.usesContacts) why += people(rule, info, sender) ?: return null
+        if (rule.words.isNotEmpty()) why += keywords(rule, "${info.title}\n${info.text}") ?: return null
+        return why.joinToString(", ").ifEmpty { "any notification" }
+    }
+
+    private fun people(r: Rule, info: NotificationInfo, sender: () -> Sender?): String? {
+        val names = r.people.filter { it.isNotBlank() }
+        val title = info.title.trim()
+        names.firstOrNull { title.contains(it.trim(), ignoreCase = true) }?.let { return "from $it" }
+        val s = sender() ?: return null
+        s.name?.let { n -> names.firstOrNull { it.trim().equals(n, ignoreCase = true) } }?.let { return "from $it" }
+        if (r.starred && s.status == ContactStatus.STARRED) return "starred contact"
+        if (r.unknown && info.fromPerson && s.status == ContactStatus.UNKNOWN) return "unknown sender"
+        return null
+    }
+
+    private fun keywords(r: Rule, body: String): String? {
+        val words = r.words
+        val hit = { w: String -> if (r.regex) regex(w)?.containsMatchIn(body) == true else body.contains(w, ignoreCase = true) }
+        val what = { w: String -> if (r.regex) "pattern" else "\"$w\"" }
         return when (r.keywordMode) {
-            KeywordMode.ANY -> words.any { body.contains(it, ignoreCase = true) }
-            KeywordMode.ALL -> words.all { body.contains(it, ignoreCase = true) }
-            KeywordMode.NONE -> words.none { body.contains(it, ignoreCase = true) }
-            // an invalid pattern simply never matches
-            KeywordMode.REGEX -> words.any { p ->
-                runCatching { Regex(p, RegexOption.IGNORE_CASE).containsMatchIn(body) }.getOrDefault(false)
-            }
+            KeywordMode.ANY -> words.firstOrNull(hit)?.let { "mentions ${what(it)}" }
+            KeywordMode.ALL -> if (words.all(hit)) "mentions " + if (words.size == 1) what(words[0]) else "all ${words.size}" else null
+            KeywordMode.NONE -> if (words.none(hit)) "no " + if (words.size == 1) what(words[0]) else "listed words" else null
         }
     }
 
-    fun animationFor(rule: Rule, info: NotificationInfo, profile: DeviceProfile, custom: Animation?): Animation {
-        val who = info.title.ifBlank { info.appLabel }
-        return when (rule.effect) {
-            Effect.PULSE -> Effects.pulse(profile)
-            Effect.RING -> Effects.ringChase(profile)
-            Effect.LETTER -> Effects.blinkLetter(profile, who.firstOrNull { it.isLetterOrDigit() } ?: '?')
-            Effect.FLASH -> Effects.flash(profile)
-            Effect.MARQUEE -> Effects.marquee(profile, who.take(24))
-            Effect.SPARKLE -> Effects.sparkle(profile)
-            Effect.CUSTOM -> custom ?: Effects.pulse(profile)
-        }
+    private val regexCache = HashMap<String, Regex?>()
+
+    /** Compiled once; null for an invalid pattern, which never matches. */
+    fun regex(pattern: String): Regex? = synchronized(regexCache) {
+        regexCache.getOrPut(pattern) { runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }.getOrNull() }
     }
+
+    /** True for a usable regular expression. */
+    fun isValidPattern(p: String): Boolean = p.isNotBlank() && runCatching { Regex(p) }.isSuccess
+
+    /** The animation [rule] shows for [info]. [design] returns a saved design's animation (null id = newest). */
+    fun animation(rule: Rule, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?): Animation =
+        when (rule.glyph) {
+            GlyphStyle.PULSE -> Effects.pulse(profile)
+            GlyphStyle.RING -> Effects.chase(profile)
+            GlyphStyle.FLASH -> Effects.flash(profile)
+            GlyphStyle.SPARKLE -> Effects.sparkle(profile)
+            GlyphStyle.COMET -> Effects.cometLaps(profile)
+            GlyphStyle.LETTER -> Effects.blinkLetter(profile, info.appLabel.firstOrNull { it.isLetterOrDigit() } ?: '?')
+            GlyphStyle.NAME -> Effects.marquee(profile, info.title.trim().ifBlank { info.appLabel }.take(24))
+            GlyphStyle.DESIGN -> design(rule.designId) ?: Effects.pulse(profile)
+        }
 
     /** Phone apps that post incoming and missed call notifications. */
     val CALL_APPS = listOf("com.google.android.dialer", "com.android.dialer", "com.android.server.telecom")
@@ -117,52 +175,18 @@ object RuleEngine {
     /** A 4-8 digit code near a word like OTP, code or verification, in either order. */
     const val OTP_PATTERN = """(otp|code|passcode|verif)\D{0,40}\b\d{4,8}\b|\b\d{4,8}\b\D{0,40}(otp|code|passcode|verif)"""
 
-    /** Built-in rules, so the list never starts empty. Fixed ids let them be added back after deletion. */
-    fun presets() = listOf(
-        Rule(id = "preset-calls", name = "Calls", packages = CALL_APPS, effect = Effect.RING, holdUntilDismissed = true),
-        Rule(
-            id = "preset-otp", name = "OTP", keywords = listOf(OTP_PATTERN), keywordMode = KeywordMode.REGEX,
-            effect = Effect.FLASH,
-        ),
-        Rule(
-            id = "preset-messages", name = "Messages", packages = MESSAGE_APPS, effect = Effect.LETTER,
-            holdUntilDismissed = true,
-        ),
+    val DELIVERY_WORDS = listOf(
+        "out for delivery", "has been delivered", "was delivered", "arriving today", "your parcel", "your package", "courier",
     )
-}
 
-/** Rules saved as JSON in app storage. Call from one thread (the UI thread). */
-class RulesRepository(private val file: File) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
-    private val serializer = ListSerializer(Rule.serializer())
-
-    private val _rules = MutableStateFlow(load())
-    val rules: StateFlow<List<Rule>> = _rules.asStateFlow()
-
-    // Spam rules from earlier versions are dropped: the spam filter has its own settings now.
-    private fun load(): List<Rule> =
-        if (!file.exists()) RuleEngine.presets()
-        else runCatching { json.decodeFromString(serializer, file.readText()) }.getOrElse { RuleEngine.presets() }
-            .filterNot { it.suppress }
-
-    private fun save(list: List<Rule>) {
-        _rules.value = list
-        file.writeText(json.encodeToString(serializer, list))
-    }
-
-    /** Replaces the rule with the same id, or adds a new one at the top (most specific rules usually win). */
-    fun upsert(rule: Rule) {
-        val list = _rules.value.toMutableList()
-        val i = list.indexOfFirst { it.id == rule.id }
-        if (i >= 0) list[i] = rule else list.add(0, rule)
-        save(list)
-    }
-
-    fun delete(id: String) = save(_rules.value.filterNot { it.id == id })
-
-    /** Adds back any built-in preset that is missing, at the end. */
-    fun addPresets() {
-        val have = _rules.value.map { it.id }.toSet()
-        save(_rules.value + RuleEngine.presets().filterNot { it.id in have })
-    }
+    /** Built-in rules. Fixed ids let them be added back after deletion. */
+    fun presets() = listOf(
+        Rule(id = "preset-calls", name = "Calls", packages = CALL_APPS, glyph = GlyphStyle.RING, until = Until.READ),
+        Rule(id = "preset-messages", name = "Messages", packages = MESSAGE_APPS, glyph = GlyphStyle.NAME, until = Until.READ),
+        Rule(
+            id = "preset-otp", name = "OTP codes", keywords = listOf(OTP_PATTERN), regex = true,
+            glyph = GlyphStyle.FLASH, until = Until.TIMEOUT,
+        ),
+        Rule(id = "preset-delivery", name = "Delivery", keywords = DELIVERY_WORDS, glyph = GlyphStyle.COMET, until = Until.TIMEOUT),
+    )
 }

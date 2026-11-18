@@ -52,7 +52,8 @@ private fun addTorchTile(ctx: Context) {
 @Composable
 fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
     val ctx = LocalContext.current
-    val spam by AppGraph.spam.settings.collectAsStateWithLifecycle()
+    val needsContacts by rememberNeedsContacts()
+    val filters by AppGraph.filters.filters.collectAsStateWithLifecycle()
     val driver by GlyphDriver.state.collectAsStateWithLifecycle()
     // re-read on every resume: the user may have changed these in Nothing's settings
     val lights = remember(setup.resumes) { NothingSettings.glyphLightsEnabled(ctx.contentResolver) }
@@ -65,7 +66,7 @@ fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
         GroupTitle("SETUP")
         ValueRow(
             "Notification access", if (setup.notificationAccess) "Granted" else "Tap to grant",
-            subtitle = "Rules, spam filter, progress rings",
+            subtitle = "Notification glyphs, progress rings",
             attention = !setup.notificationAccess,
         ) {
             if (setup.notificationAccess) setup.manageAccess() else setup.needNotificationAccess()
@@ -74,11 +75,11 @@ fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             "Contacts",
             when {
                 setup.contacts -> "Granted"
-                spam.needsContacts -> "Tap to grant"
+                needsContacts -> "Tap to grant"
                 else -> "Not needed"
             },
-            subtitle = "Spam filter: always allow people you know",
-            attention = spam.needsContacts && !setup.contacts,
+            subtitle = "People in rules and the spam filter",
+            attention = needsContacts && !setup.contacts,
         ) { if (!setup.contacts) setup.needContacts() }
         ValueRow("Torch in Quick Settings", "Add", subtitle = "Turn the torch on from the shade") { addTorchTile(ctx) }
 
@@ -100,7 +101,7 @@ fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
                 false -> "Off"
                 null -> "Unknown"
             },
-            subtitle = "When off, rules and progress pause",
+            subtitle = "When off, notification glyphs and progress pause",
             attention = lights == false,
         )
         ValueRow(
@@ -108,13 +109,14 @@ fun SettingsScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             bedtime?.let {
                 "${it.start.format(hm)}–${it.end.format(hm)}" + if (it.isActive(LocalDateTime.now())) " · now" else ""
             } ?: if (lights == null) "Unknown" else "Off",
-            subtitle = "Rules and progress pause at bedtime",
+            subtitle = if (filters.quiet.followBedtime) "Notification glyphs and progress pause at bedtime"
+            else "Ignored: Quiet hours don't follow it",
         )
         ValueRow("Glyph Toys", "Open", subtitle = "Add or reorder toys") { openToysManager(ctx) }
 
         Collapsible("Advanced", advanced, { advanced = !advanced }) {
             ValueRow("Diagnostics", "Open", subtitle = "Driver test bench, settings keys, toy log") { nav.push(Page.Diagnostics) }
-            ValueRow("Rule presets", "Restore", subtitle = "Add back Calls, OTP and Messages") {
+            ValueRow("Rule presets", "Restore", subtitle = "Add back Calls, Messages, OTP codes and Delivery") {
                 AppGraph.rules.addPresets()
                 Toast.makeText(ctx, "Presets restored", Toast.LENGTH_SHORT).show()
             }

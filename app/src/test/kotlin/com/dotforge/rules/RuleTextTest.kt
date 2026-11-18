@@ -1,5 +1,6 @@
 package com.dotforge.rules
 
+import com.dotforge.engine.Until
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -8,21 +9,35 @@ class RuleTextTest {
     private fun l(pkg: String) = label[pkg] ?: pkg
 
     @Test fun emptyRuleReadsAsAny() =
-        assertEquals("When Any app from Anyone mention Anything, light up Pulse", RuleText.sentence(Rule(), ::l))
+        assertEquals("When Any app from Anyone mention Anything, show Pulse until read", RuleText.sentence(Rule(), ::l))
 
     @Test fun slotsShowFirstValueAndCount() {
         val r = Rule(
             packages = listOf("com.whatsapp", "org.telegram.messenger", "x"),
-            senders = listOf("Mum"),
+            people = listOf("Mum"),
+            starred = true,
             keywords = listOf("urgent", " "),
-            effect = Effect.LETTER,
+            glyph = GlyphStyle.NAME,
+            until = Until.UNLOCK,
         )
-        assertEquals("When WhatsApp +2 from Mum mention \"urgent\", light up Sender letter", RuleText.sentence(r, ::l))
+        assertEquals("When WhatsApp +2 from Mum +1 mention \"urgent\", show Sender name until unlock", RuleText.sentence(r, ::l))
+    }
+
+    @Test fun peopleSlotNamesStarredAndUnknown() {
+        assertEquals("Starred", RuleText.people(Rule(starred = true)))
+        assertEquals("Unknown senders", RuleText.people(Rule(unknown = true)))
     }
 
     @Test fun keywordModesReadPlainly() {
-        assertEquals("a pattern", RuleText.keywords(Rule(keywords = listOf("\\d+"), keywordMode = KeywordMode.REGEX)))
+        assertEquals("a pattern", RuleText.keywords(Rule(keywords = listOf("\\d+"), regex = true)))
+        assertEquals("not a pattern", RuleText.keywords(Rule(keywords = listOf("\\d+"), regex = true, keywordMode = KeywordMode.NONE)))
         assertEquals("not \"promo\"", RuleText.keywords(Rule(keywords = listOf("promo"), keywordMode = KeywordMode.NONE)))
         assertEquals("all of 2 words", RuleText.keywords(Rule(keywords = listOf("a", "b"), keywordMode = KeywordMode.ALL)))
+    }
+
+    @Test fun designGlyphUsesTheDesignName() {
+        val r = Rule(glyph = GlyphStyle.DESIGN, designId = "d1")
+        assertEquals("Heart", RuleText.glyph(r) { if (it == "d1") "Heart" else null })
+        assertEquals("My design", RuleText.glyph(r) { null })
     }
 }

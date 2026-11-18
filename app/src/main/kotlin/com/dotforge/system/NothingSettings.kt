@@ -1,11 +1,17 @@
 package com.dotforge.system
 
+import android.content.ComponentName
 import android.content.ContentResolver
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.provider.Settings
 import com.dotforge.engine.AmbientGate
 import java.time.LocalDateTime
 
 data class SettingRow(val key: String, val global: String, val secure: String, val system: String)
+
+/** A settings page to open, and the button text for it. */
+data class SettingsLink(val intent: Intent, val label: String)
 
 /**
  * Nothing's Glyph settings. They live in Settings.Global; whether a third-party app may read them depends on
@@ -60,6 +66,31 @@ object NothingSettings {
         else -> null
     }
 
+    private const val SETTINGS_PACKAGE = "com.android.settings"
+
+    /**
+     * Nothing's per-app Glyph notification settings (where an app can be set to a sound without lights), the
+     * Glyph Interface page if that is missing, else system Settings. Component and action names come from
+     * Phone (3) firmware; the first one that resolves wins.
+     */
+    fun glyphNotificationSettings(pm: PackageManager): SettingsLink {
+        val notifications = "Open Glyph notifications"
+        val candidates = listOf(
+            SettingsLink(
+                Intent().setComponent(ComponentName(SETTINGS_PACKAGE, "com.nothing.settings.NtSettings\$GlyphNotificationRingtonesActivity")),
+                notifications,
+            ),
+            SettingsLink(Intent("com.nothing.settings.ACTION_GLYPH_NOTIFICATION_RINGTONES_LIST").setPackage(SETTINGS_PACKAGE), notifications),
+            SettingsLink(Intent("android.settings.GLYPHS_ALL_APPS_NOTIFICATION_SETTINGS").setPackage(SETTINGS_PACKAGE), notifications),
+            SettingsLink(Intent("android.settings.ACTION_GLYPHS_SETTINGS").setPackage(SETTINGS_PACKAGE), "Open Glyph Interface"),
+        )
+        return candidates.firstOrNull { pm.resolveActivity(it.intent, 0) != null }
+            ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open Settings")
+    }
+
+    /** True when the firmware lets us read the bedtime switch, so "Follow Nothing bedtime" can work. */
+    fun bedtimeReadable(cr: ContentResolver): Boolean = global(cr, BEDTIME_ENABLE) != null
+
     /** The bedtime schedule when it is switched on and readable, null otherwise. */
     fun bedtime(cr: ContentResolver): BedtimeSchedule? {
         if (global(cr, BEDTIME_ENABLE) != "1") return null
@@ -67,9 +98,12 @@ object NothingSettings {
     }
 }
 
-/** Ambient lights are allowed unless Nothing's Glyph switch is readably off or a readable bedtime is active. */
-class NothingSettingsGate(private val cr: ContentResolver) : AmbientGate {
+/**
+ * Ambient lights are allowed unless Nothing's Glyph switch is readably off, or a readable bedtime is active
+ * while [followBedtime] (Quiet hours > Follow Nothing bedtime) is on.
+ */
+class NothingSettingsGate(private val cr: ContentResolver, private val followBedtime: () -> Boolean) : AmbientGate {
     override fun ambientAllowed(): Boolean =
         NothingSettings.glyphLightsEnabled(cr) != false &&
-            NothingSettings.bedtime(cr)?.isActive(LocalDateTime.now()) != true
+            !(followBedtime() && NothingSettings.bedtime(cr)?.isActive(LocalDateTime.now()) == true)
 }

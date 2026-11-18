@@ -24,7 +24,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -36,13 +40,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dotforge.AppGraph
 import com.dotforge.notify.GlyphNotificationListener
 import com.dotforge.setup.AccessFlow
 
 /**
  * Live permission state and the ask-when-first-used flows. Notification access goes through [AccessFlow]
  * (explain, open settings, and the restricted-settings unlock steps if Android blocked it); Contacts is a
- * normal runtime permission, asked only when the spam filter's "Always allow" needs it.
+ * normal runtime permission, asked inline ([ContactsAsk]) when a rule's People picker opens or a spam setting
+ * needs it, or from the Settings row.
  */
 class Setup(private val activity: ComponentActivity) {
     private val flow = AccessFlow()
@@ -114,7 +121,7 @@ class Setup(private val activity: ComponentActivity) {
         sync()
     }
 
-    /** The spam filter's "Always allow" was switched on. Returns true when Contacts can be read. */
+    /** Ask for Contacts with the sheet (the Settings row). Returns true when Contacts can be read. */
     fun needContacts(): Boolean {
         if (contacts) return true
         contactsSheet = true
@@ -184,7 +191,7 @@ fun SetupSheets(setup: Setup) {
         Sheet(
             onDismiss = setup::contactsNotNow,
             title = "Allow Contacts",
-            body = "Lets the spam filter skip people you know. Contacts are only read on this phone.",
+            body = "Lets rules and the spam filter recognise people you know. Contacts are only read on this phone.",
             primary = "Allow" to { setup.allowContacts { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) } },
             secondary = null,
         )
@@ -217,6 +224,29 @@ private fun Sheet(
     }
 }
 
+/**
+ * The Contacts ask inside a dialog or picker (a bottom sheet could open behind it): [title], [why], Allow and
+ * Not now. Shows nothing once Contacts is granted or after Not now.
+ */
+@Composable
+fun ContactsAsk(setup: Setup, title: String, why: String, modifier: Modifier = Modifier) {
+    var notNow by rememberSaveable { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { setup.onContactsResult() }
+    if (setup.contacts || notNow) return
+    Surface(color = Surface1, shape = RoundedCornerShape(16.dp), modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, fontWeight = FontWeight.Medium)
+            Text("$why Contacts are only read on this phone.", color = Muted, fontSize = 13.sp)
+            Row(Modifier.padding(top = 8.dp)) {
+                TextButton(onClick = { setup.allowContacts { launcher.launch(Manifest.permission.READ_CONTACTS) } }) {
+                    Text("Allow", color = NothingRed)
+                }
+                TextButton(onClick = { notNow = true }) { Text("Not now", color = Color.White) }
+            }
+        }
+    }
+}
+
 /** A card shown on pages whose feature needs notification access while it is missing. */
 @Composable
 fun AccessBanner(setup: Setup, text: String) {
@@ -227,4 +257,12 @@ fun AccessBanner(setup: Setup, text: String) {
             TextButton(onClick = { setup.needNotificationAccess() }) { Text("Allow", color = NothingRed) }
         }
     }
+}
+
+/** True while an enabled rule picks people, or a spam setting needs to know who is a contact. */
+@Composable
+fun rememberNeedsContacts(): State<Boolean> {
+    val rules = AppGraph.rules.rules.collectAsStateWithLifecycle()
+    val spam = AppGraph.filters.spam.collectAsStateWithLifecycle()
+    return remember { derivedStateOf { spam.value.needsContacts || rules.value.any { it.enabled && it.usesContacts } } }
 }
