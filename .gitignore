@@ -13,3 +13,6 @@ local.properties
 
 # Nothing Glyph Matrix SDK: not redistributable, fetched by scripts/fetch-glyph-sdk.sh
 *.aar
+
+__pycache__/
+*.pyc
