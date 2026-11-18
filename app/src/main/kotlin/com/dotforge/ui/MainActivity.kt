@@ -168,7 +168,9 @@ private fun Tabs(nav: Nav, setup: Setup, scrolls: Map<Tab, ScrollState>) {
 private fun PageContent(page: Page, nav: Nav, setup: Setup) {
     when (page) {
         Page.Notifications -> NotificationsPage(nav, setup)
-        is Page.RuleEditor -> RuleEditorPage(page.ruleId, setup, onClose = nav::pop)
+        is Page.RuleEditor -> RuleEditorPage(page.ruleId, page.template, setup, onClose = nav::pop)
+        Page.Calls -> CallsPage(nav, setup)
+        Page.Spam -> SpamPage(nav, setup)
         is Page.ToySettings -> ToySettingsPage(page.toy, nav)
         is Page.DesignEditor -> DesignEditorPage(page.designId, page.animated, onClose = nav::pop)
         Page.Ringtones -> RingtonesPage(nav)

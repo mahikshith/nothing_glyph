@@ -1,5 +1,6 @@
 package com.dotforge.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,14 +15,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -49,11 +48,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
+import com.dotforge.rules.Action
 import com.dotforge.rules.LogEntry
+import com.dotforge.rules.NotificationInfo
 import com.dotforge.rules.QuietHours
 import com.dotforge.rules.Rule
 import com.dotforge.rules.RuleEngine
 import com.dotforge.rules.RuleText
+import com.dotforge.rules.Source
 import com.dotforge.rules.SpamFilter
 import com.dotforge.rules.Verdict
 import com.dotforge.system.NothingSettings
@@ -68,10 +70,10 @@ import kotlin.math.max
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 private const val REPLAY_ID = "replay"
 
-private fun hm(minutes: Int) = "%02d:%02d".format(minutes / 60 % 24, minutes % 60)
+internal fun hm(minutes: Int) = "%02d:%02d".format(minutes / 60 % 24, minutes % 60)
 
 /** "Every day", "Weekdays", "Weekends" or "Mon, Wed, Fri". */
-private fun daysText(days: List<Int>): String {
+internal fun daysText(days: List<Int>): String {
     val d = days.filter { it in 1..7 }.toSortedSet()
     return when (d) {
         (1..7).toSortedSet() -> "Every day"
@@ -94,14 +96,12 @@ fun NotificationsPage(nav: Nav, setup: Setup) {
     val ctx = LocalContext.current
     val rulesRepo = AppGraph.rules
     val rules by rulesRepo.rules.collectAsStateWithLifecycle()
-    val spam by AppGraph.filters.spam.collectAsStateWithLifecycle()
     val catches by AppGraph.filters.catches.collectAsStateWithLifecycle()
     val filters by AppGraph.filters.filters.collectAsStateWithLifecycle()
     val log by AppGraph.log.collectAsStateWithLifecycle()
     val frame by AppGraph.arbiter.frame.collectAsStateWithLifecycle()
     val active by AppGraph.arbiter.active.collectAsStateWithLifecycle()
     val label = rememberAppLabel()
-    var spamDialog by rememberSaveable { mutableStateOf(false) }
     var quietDialog by rememberSaveable { mutableStateOf(false) }
     val bedtimeReadable = remember(setup.resumes) { NothingSettings.bedtimeReadable(ctx.contentResolver) }
     val glyphSettings = remember { NothingSettings.glyphNotificationSettings(ctx.packageManager) }
@@ -121,33 +121,21 @@ fun NotificationsPage(nav: Nav, setup: Setup) {
         )
 
         GroupTitle("RULES")
-        if (rules.isEmpty()) {
-            EmptyState("No rules yet", "Start from the presets, or make your own.", "Add presets") { rulesRepo.addPresets() }
-        }
-        rules.forEach { r ->
-            Surface(color = Surface1, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-                Row(
-                    Modifier.clickable { nav.push(Page.RuleEditor(r.id)) }.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(r.name, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                        Text(RuleText.sentence(r, label, ::designName), color = Muted, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    }
-                    Switch(checked = r.enabled, colors = nothingSwitchColors(), onCheckedChange = { on ->
-                        rulesRepo.upsert(r.copy(enabled = on))
-                        if (on) setup.needNotificationAccess()
-                    })
-                }
+        val shown = rules.filter { it.action == Action.SHOW }
+        if (shown.isEmpty()) {
+            EmptyState("No rules yet", "Start from the presets, or make your own.", "Add presets") {
+                rulesRepo.addPresets(missing.filter { it.action == Action.SHOW })
             }
         }
-        if (rules.size > 1) {
+        shown.forEach { r -> RuleCard(r, label, nav, setup) }
+        if (shown.size > 1) {
             Text("The most specific rule wins: a person, then app and words, words, an app, anything.", color = Muted, fontSize = 13.sp)
         }
-        if (missing.isNotEmpty() && rules.isNotEmpty()) {
+        val missingShow = missing.filter { it.action == Action.SHOW }
+        if (missingShow.isNotEmpty() && shown.isNotEmpty()) {
             FlowRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Text("Add", color = Muted)
-                missing.forEach { p ->
+                missingShow.forEach { p ->
                     FilterChip(selected = false, onClick = { rulesRepo.addPresets(listOf(p)) }, label = { Text(p.name) })
                 }
             }
@@ -155,25 +143,12 @@ fun NotificationsPage(nav: Nav, setup: Setup) {
         SecondaryButton("New rule", Modifier.fillMaxWidth().padding(top = 12.dp)) { nav.push(Page.RuleEditor(null)) }
 
         GroupTitle("FILTERS")
-        SwitchRow("Spam filter", "Blocked today: ${SpamFilter.blockedOn(LocalDate.now(), catches)}", spam.enabled) { on ->
-            AppGraph.filters.updateSpam { it.copy(enabled = on) }
-            if (on) setup.needNotificationAccess()
-        }
-        if (spam.enabled) {
-            ValueRow("Spam settings", spamSummary(spam.keywords.size + spam.patterns.size, spam.blockUnknown), subtitle = "Words, unknown senders, always allow") {
-                spamDialog = true
-            }
-            catches.take(5).forEach { c ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("${c.appLabel} · ${timeFormat.format(Date(c.at))}", color = Muted, fontSize = 12.sp)
-                        Text(c.title.ifBlank { c.appLabel }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(c.text, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    SecondaryButton("Allow", Modifier.padding(start = 12.dp)) { AppGraph.filters.allow(c) }
-                }
-            }
-        }
+        val spamRules = rules.count { it.enabled && RuleEngine.isSpamRule(it) }
+        ValueRow(
+            "Spam filter",
+            "Blocked today: ${SpamFilter.blockedOn(LocalDate.now(), catches)}",
+            subtitle = if (spamRules == 1) "1 rule on, for calls and messages" else "$spamRules rules on, for calls and messages",
+        ) { nav.push(Page.Spam) }
         ValueRow("Quiet hours", quietSummary(filters.quiet, bedtimeReadable), subtitle = "No glyphs at night") { quietDialog = true }
         SwitchRow("Respect Do Not Disturb", "No glyphs while Do Not Disturb is on", filters.respectDnd) { on ->
             AppGraph.filters.updateFilters { it.copy(respectDnd = on) }
@@ -195,7 +170,7 @@ fun NotificationsPage(nav: Nav, setup: Setup) {
         } else {
             Text("Tap one to replay its glyph.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
         }
-        log.forEach { e -> LogRow(e, rules) }
+        log.forEach { e -> LogRow(e, rules, nav) }
 
         GroupTitle("NOTHING GLYPHS")
         Text("Nothing's own notification glyphs outrank DotForge's.")
@@ -208,15 +183,11 @@ fun NotificationsPage(nav: Nav, setup: Setup) {
         }
     }
 
-    if (spamDialog) SpamDialog(setup) { spamDialog = false }
     if (quietDialog) QuietHoursDialog(filters.quiet, bedtimeReadable, onDismiss = { quietDialog = false }) { q ->
         AppGraph.filters.updateFilters { it.copy(quiet = q) }
         quietDialog = false
     }
 }
-
-private fun spamSummary(words: Int, unknown: Boolean) =
-    (if (words == 1) "1 word" else "$words words") + if (unknown) " · unknown" else ""
 
 private fun quietSummary(q: QuietHours, bedtimeReadable: Boolean) = when {
     q.enabled -> "${hm(q.start)}–${hm(q.end)} · ${daysText(q.days)}"
@@ -226,11 +197,12 @@ private fun quietSummary(q: QuietHours, bedtimeReadable: Boolean) = when {
 
 /** One rule tester line: the notification, then which rule matched and why (or why it stayed dark). */
 @Composable
-private fun LogRow(e: LogEntry, rules: List<Rule>) {
+private fun LogRow(e: LogEntry, rules: List<Rule>, nav: Nav) {
+    var menu by remember { mutableStateOf(false) }
     val (text, color) = when (val v = e.verdict) {
         is Verdict.Show -> "${v.match.rule.name} · ${v.match.why}" + (if (e.cooldown) " · cooldown" else "") to Color.White
         is Verdict.Quiet -> "${v.match.rule.name} · ${v.match.why} · held: ${v.reason}" to Muted
-        is Verdict.Blocked -> "Spam · ${v.reason}" to NothingRed
+        is Verdict.Blocked -> "${v.match.rule.action.done} · ${v.match.rule.name} · ${v.match.why}" to NothingRed
         Verdict.NoRule -> "No rule matched" to Muted
     }
     val matched = when (val v = e.verdict) {
@@ -238,14 +210,76 @@ private fun LogRow(e: LogEntry, rules: List<Rule>) {
         is Verdict.Quiet -> v.match.rule
         else -> null
     }
-    Column(
-        Modifier.fillMaxWidth()
-            .then(if (matched != null) Modifier.clickable { replay(e, rules.firstOrNull { it.id == matched.id } ?: matched) } else Modifier)
-            .padding(vertical = 8.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().clickable { menu = true }.padding(vertical = 8.dp)) {
         Text("${e.info.appLabel} · ${timeFormat.format(Date(e.info.postedAt))}", color = Muted, fontSize = 12.sp)
         Text(e.info.title.ifBlank { e.info.text }.ifBlank { e.info.appLabel }, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(text, color = color, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+    if (menu) {
+        NotificationActions(
+            e.info,
+            onReplay = matched?.let { m -> { replay(e, rules.firstOrNull { it.id == m.id } ?: m) } },
+            onRule = { nav.push(Page.RuleEditor(null, RuleTemplates.encode(RuleTemplates.from(e.info, spam = false)))) },
+            onDismiss = { menu = false },
+        )
+    }
+}
+
+/** What to do with a recent notification: replay, make a rule from it, mark its sender as spam. */
+@Composable
+private fun NotificationActions(info: NotificationInfo, onReplay: (() -> Unit)?, onRule: () -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val who = info.number?.takeIf { it.isNotBlank() } ?: info.sender.ifBlank { info.title.takeIf { info.fromPerson }.orEmpty() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface2,
+        title = { Text(info.sender.ifBlank { info.title }.ifBlank { info.appLabel }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                onReplay?.let { r -> ChoiceCard("Replay its glyph", "On the matrix, a few seconds", false, Modifier.fillMaxWidth()) { r(); onDismiss() } }
+                ChoiceCard("Make a rule from this", "Starts with ${info.appLabel} and this sender", false, Modifier.fillMaxWidth()) { onDismiss(); onRule() }
+                if (who.isNotBlank()) {
+                    ChoiceCard("Mark as spam", "Always block $who", false, Modifier.fillMaxWidth()) {
+                        AppGraph.blockSender(who)
+                        Toast.makeText(ctx, "$who is on Blocked senders", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    }
+                }
+                info.number?.takeIf { it.count(Char::isDigit) > 7 }?.let { n ->
+                    val prefix = RuleTemplates.prefixOf(n)
+                    ChoiceCard("Block numbers starting with $prefix", "Marks them all as spam", false, Modifier.fillMaxWidth()) {
+                        AppGraph.blockPrefix(prefix)
+                        Toast.makeText(ctx, "Numbers starting with $prefix are blocked", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Color.White) } },
+    )
+}
+
+/** A rule as a card: name, the sentence, an on/off switch. */
+@Composable
+internal fun RuleCard(r: Rule, label: (String) -> String, nav: Nav, setup: Setup) {
+    Surface(color = Surface1, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+        Row(
+            Modifier.clickable { nav.push(Page.RuleEditor(r.id)) }.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(r.name, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(RuleText.sentence(r, label, ::designName), color = Muted, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+            Switch(checked = r.enabled, colors = nothingSwitchColors(), onCheckedChange = { on ->
+                AppGraph.rules.upsert(r.copy(enabled = on))
+                if (on) {
+                    if (r.source != Source.CALLS) setup.needNotificationAccess()
+                    if (r.source != Source.APPS) setup.needCallScreening()
+                    if (r.usesContacts) setup.needContacts()
+                }
+            })
+        }
     }
 }
 
@@ -259,69 +293,27 @@ private fun replay(e: LogEntry, rule: Rule) {
     )
 }
 
-/** Spam words and patterns, unknown senders and the allow list, edited in place. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SpamDialog(setup: Setup, onDismiss: () -> Unit) {
-    val repo = AppGraph.filters
-    val s by repo.spam.collectAsStateWithLifecycle()
-    var advanced by rememberToggle(s.patterns.isNotEmpty())
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Surface2,
-        title = { Text("Spam settings") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("Any one of these words blocks a notification.", color = Muted, fontSize = 13.sp)
-                ChipsEditor(s.keywords, { list -> repo.updateSpam { it.copy(keywords = list) } }, "Add a word")
-                SwitchRow("Block unknown senders", "Messages and calls from people not in Contacts", s.blockUnknown) { on ->
-                    repo.updateSpam { it.copy(blockUnknown = on) }
-                }
-                Text("Always allow", modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val chipColors = FilterChipDefaults.filterChipColors(selectedContainerColor = Surface1, selectedLabelColor = NothingRed)
-                    FilterChip(selected = s.allowContacts, colors = chipColors, label = { Text("Contacts") }, onClick = {
-                        repo.updateSpam { it.copy(allowContacts = !it.allowContacts) }
-                    })
-                    FilterChip(selected = s.allowStarred, colors = chipColors, label = { Text("Starred") }, onClick = {
-                        repo.updateSpam { it.copy(allowStarred = !it.allowStarred) }
-                    })
-                    s.allowedSenders.forEach { who ->
-                        InputChip(
-                            selected = false,
-                            onClick = { repo.updateSpam { it.copy(allowedSenders = it.allowedSenders - who) } },
-                            label = { Text(who, maxLines = 1) },
-                            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Remove") },
-                        )
-                    }
-                }
-                if (s.needsContacts) ContactsAsk(setup, "Allow Contacts", "Needed to tell people you know from strangers.", Modifier.padding(top = 12.dp))
-                Collapsible("Advanced", advanced, { advanced = !advanced }) {
-                    Text("Patterns (regex)", modifier = Modifier.padding(bottom = 4.dp))
-                    ChipsEditor(
-                        s.patterns, { list -> repo.updateSpam { it.copy(patterns = list) } }, "Add a pattern",
-                        validate = { if (RuleEngine.isValidPattern(it)) null else "Not a valid pattern" },
-                    )
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done", color = NothingRed) } },
-    )
-}
-
 /** Quiet hours: on/off, the time range, days, and following Nothing's bedtime when it is readable. */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun QuietHoursDialog(initial: QuietHours, bedtimeReadable: Boolean, onDismiss: () -> Unit, onDone: (QuietHours) -> Unit) {
+internal fun QuietHoursDialog(
+    initial: QuietHours,
+    bedtimeReadable: Boolean,
+    onDismiss: () -> Unit,
+    title: String = "Quiet hours",
+    /** A schedule (a call rule's) is always on: no switch. */
+    schedule: Boolean = false,
+    onDone: (QuietHours) -> Unit,
+) {
     var q by remember { mutableStateOf(initial) }
     var editing by remember { mutableStateOf<Boolean?>(null) } // true = start, false = end
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Surface2,
-        title = { Text("Quiet hours") },
+        title = { Text(title) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                SwitchRow("Quiet hours", "No notification glyphs in this time", q.enabled) { q = q.copy(enabled = it) }
+                if (!schedule) SwitchRow("Quiet hours", "No notification glyphs; call rules can use it too", q.enabled) { q = q.copy(enabled = it) }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = { editing = true }, modifier = Modifier.weight(1f)) { Text("From ${hm(q.start)}", color = Color.White) }
                     OutlinedButton(onClick = { editing = false }, modifier = Modifier.weight(1f)) { Text("To ${hm(q.end)}", color = Color.White) }
@@ -337,7 +329,7 @@ private fun QuietHoursDialog(initial: QuietHours, bedtimeReadable: Boolean, onDi
                         )
                     }
                 }
-                if (bedtimeReadable) {
+                if (bedtimeReadable && !schedule) {
                     SwitchRow("Follow Nothing bedtime", "Also pause during the Glyph bedtime", q.followBedtime) { q = q.copy(followBedtime = it) }
                 }
             }

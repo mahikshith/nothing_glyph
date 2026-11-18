@@ -2,7 +2,6 @@ package com.dotforge.rules
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
 import org.junit.Test
@@ -13,43 +12,20 @@ import java.time.ZoneOffset
 class SpamTest {
     @get:JUnitRule val tmp = TemporaryFolder()
 
-    private fun note(title: String = "Promo", text: String = "You have WON the lottery", at: Long = 0, key: String = "k", person: Boolean = false) =
-        NotificationInfo(key, "com.example", "Example", title, text, at, fromPerson = person)
+    private fun catch(key: String, title: String = "Promo", sender: String = "", number: String = "", call: Boolean = false) =
+        SpamCatch(key, "Example", title, "You have won", 0, call = call, sender = sender, number = number)
 
-    private val on = SpamSettings(enabled = true)
-    private val nobody = { null as Sender? }
-
-    @Test fun offFilterBlocksNothing() = assertNull(SpamFilter.check(note(), SpamSettings(), nobody))
-
-    @Test fun keywordsAndPatternsBlockWithAReason() {
-        assertEquals("spam word \"lottery\"", SpamFilter.check(note(), on, nobody))
-        assertNull(SpamFilter.check(note(text = "dinner?"), on, nobody))
-        val regex = on.copy(keywords = emptyList(), patterns = listOf("""\bfree\s+\w+\s+inside\b"""))
-        assertEquals("spam pattern", SpamFilter.check(note(text = "Free gift inside!"), regex, nobody))
-        assertNull(SpamFilter.check(note(text = "x"), on.copy(patterns = listOf("(broken")), nobody))
+    @Test fun theSpamAlertIsASilentGlyphByDefault() {
+        val s = SpamSettings()
+        assertTrue(s.glyphOn)
+        assertEquals(GlyphStyle.SPAM, s.glyph)
+        assertEquals(null, s.soundUri)
     }
 
-    @Test fun unknownSendersAreBlockedOnlyWhenKnownToBeUnknown() {
-        val s = on.copy(keywords = emptyList(), blockUnknown = true)
-        val hi = note(title = "+44 7700 900123", text = "hi", person = true)
-        assertEquals("unknown sender", SpamFilter.check(hi, s) { Sender(ContactStatus.UNKNOWN) })
-        assertNull(SpamFilter.check(hi, s) { Sender(ContactStatus.CONTACT, "Sam") })
-        assertNull(SpamFilter.check(hi, s, nobody)) // no Contacts permission
-        assertNull(SpamFilter.check(hi.copy(fromPerson = false), s) { Sender(ContactStatus.UNKNOWN) })
-    }
-
-    @Test fun allowListWins() {
-        assertNull(SpamFilter.check(note(title = " promo "), on.copy(allowedSenders = listOf("PROMO")), nobody))
-        assertNull(SpamFilter.check(note(), on.copy(allowContacts = true)) { Sender(ContactStatus.CONTACT) })
-        assertTrue(SpamFilter.check(note(), on.copy(allowStarred = true)) { Sender(ContactStatus.CONTACT) } != null)
-        assertNull(SpamFilter.check(note(), on.copy(allowStarred = true)) { Sender(ContactStatus.STARRED) })
-    }
-
-    @Test fun contactsAreOnlyReadWhenNeeded() {
-        var asked = 0
-        SpamFilter.check(note(), on) { asked++; null }
-        SpamFilter.check(note(text = "hi"), on.copy(allowContacts = true)) { asked++; null }
-        assertEquals(0, asked)
+    @Test fun senderKeyPrefersTheNumber() {
+        assertEquals("+447700900123", catch("a", sender = "Sam", number = "+447700900123").senderKey)
+        assertEquals("Sam", catch("a", sender = " Sam ").senderKey)
+        assertEquals("Promo", catch("a").senderKey)
     }
 
     @Test fun blockedTodayCountsOnlyThatDay() {
@@ -59,28 +35,32 @@ class SpamTest {
         assertEquals(2, SpamFilter.blockedOn(day, catches, ZoneOffset.UTC))
     }
 
-    @Test fun invalidPatternsAreRejected() {
-        assertTrue(RuleEngine.isValidPattern("""\d{6}"""))
-        assertFalse(RuleEngine.isValidPattern("(unclosed"))
-        assertFalse(RuleEngine.isValidPattern(" "))
-    }
-
-    @Test fun repositoryRecordsAllowsAndPersists() {
+    @Test fun repositoryRecordsForgetsAndPersists() {
         val file = tmp.root.resolve("filters.json")
         val repo = FiltersRepository(file)
-        repo.updateSpam { it.copy(enabled = true) }
+        repo.updateSpam { it.copy(soundUri = "content://x/1", soundName = "Bells", glyphOn = false) }
         repo.updateFilters { it.copy(onlyLocked = true) }
-        repo.record(note(title = "Promo", key = "a"))
-        repo.record(note(title = "Other", key = "b"))
-        repo.record(note(title = "promo", key = "c"))
-        assertEquals(listOf("c", "b", "a"), repo.catches.value.map { it.key })
+        repo.record(catch("a", number = "+447700900123", call = true))
+        repo.record(catch("b", sender = "Other"))
+        repo.record(catch("c", number = "+447700900123"))
+        repo.record(catch("b", sender = "Other")) // the same key moves to the top
+        assertEquals(listOf("b", "c", "a"), repo.catches.value.map { it.key })
 
-        repo.allow(repo.catches.value.first())
+        repo.forget("+447700900123")
         val reloaded = FiltersRepository(file)
         assertEquals(listOf("b"), reloaded.catches.value.map { it.key })
-        assertEquals(listOf("promo"), reloaded.spam.value.allowedSenders)
-        assertTrue(reloaded.spam.value.enabled)
+        assertEquals("Bells", reloaded.spam.value.soundName)
+        assertFalse(reloaded.spam.value.glyphOn)
         assertTrue(reloaded.filters.value.onlyLocked)
+        reloaded.clearCatches()
+        assertEquals(emptyList<SpamCatch>(), FiltersRepository(file).catches.value)
+    }
+
+    @Test fun theLogKeepsTheNewestFifty() {
+        val repo = FiltersRepository(tmp.root.resolve("filters.json"))
+        repeat(60) { repo.record(catch("k$it")) }
+        assertEquals(50, repo.catches.value.size)
+        assertEquals("k59", repo.catches.value.first().key)
     }
 
     @Test fun versionOneSpamFileMovesIntoFilters() {
@@ -92,8 +72,9 @@ class SpamTest {
         val file = tmp.root.resolve("filters.json")
         val repo = FiltersRepository(file, legacySpam = legacy)
         assertEquals(listOf("casino"), repo.spam.value.keywords)
-        assertTrue(repo.spam.value.allowStarred)
+        assertTrue(repo.spam.value.enabled)
         assertEquals(listOf("a"), repo.catches.value.map { it.key })
+        assertEquals(Action.SPAM, repo.catches.value.single().action)
         assertFalse(legacy.exists())
         assertEquals(listOf("casino"), FiltersRepository(file, legacySpam = legacy).spam.value.keywords)
     }

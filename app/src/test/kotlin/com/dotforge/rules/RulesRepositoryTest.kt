@@ -1,7 +1,14 @@
 package com.dotforge.rules
 
 import com.dotforge.engine.Until
+import com.dotforge.filter.Condition
+import com.dotforge.filter.Field
+import com.dotforge.filter.Group
+import com.dotforge.filter.Match
+import com.dotforge.filter.NamedList
+import com.dotforge.filter.Op
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
 import org.junit.Test
@@ -10,43 +17,86 @@ import org.junit.rules.TemporaryFolder
 class RulesRepositoryTest {
     @get:JUnitRule val tmp = TemporaryFolder()
 
-    @Test fun freshInstallGetsPresets() {
+    private val showPresets = listOf("Calls", "Messages", "OTP codes", "Delivery")
+
+    @Test fun freshInstallGetsPresetsAndLists() {
         val repo = RulesRepository(tmp.root.resolve("rules.json"))
-        assertEquals(listOf("Calls", "Messages", "OTP codes", "Delivery"), repo.rules.value.map { it.name })
+        assertEquals(showPresets, repo.rules.value.filter { it.action == Action.SHOW }.map { it.name })
+        assertTrue(repo.rules.value.any { it.id == "spam-contacts" && it.enabled })
+        assertTrue(repo.rules.value.any { it.id == "spam-repeated" && it.enabled })
+        assertFalse(repo.rules.value.first { it.id == "spam-words" }.enabled)
+        assertEquals(
+            listOf(RuleEngine.ALLOWED, RuleEngine.BLOCKED, RuleEngine.SPAM_WORDS, RuleEngine.SPAM_PREFIXES),
+            repo.lists.value.map { it.name },
+        )
     }
 
     @Test fun newRulesGoOnTopAndEditsPersist() {
         val file = tmp.root.resolve("rules.json")
         val repo = RulesRepository(file)
-        val added = Rule(name = "Boss", people = listOf("Boss"), starred = true, regex = true, until = Until.UNLOCK, priority = 1)
+        val added = Rule(
+            name = "Boss", match = Match(conditions = listOf(Condition(Field.SENDER, Op.IS, listOf("Boss")))),
+            until = Until.UNLOCK, priority = 1, vibrate = true,
+        )
         repo.upsert(added)
         repo.upsert(added.copy(enabled = false)) // replaced in place
         repo.delete("preset-messages")
 
         val reloaded = RulesRepository(file).rules.value
-        assertEquals(listOf("Boss", "Calls", "OTP codes", "Delivery"), reloaded.map { it.name })
+        assertEquals(listOf("Boss", "Calls", "OTP codes", "Delivery"), reloaded.filter { it.action == Action.SHOW }.map { it.name })
         assertEquals(added.copy(enabled = false), reloaded.first())
-        assertTrue(file.readText().startsWith("""{"version":2,"""))
+        assertTrue(file.readText().startsWith("""{"version":3,"""))
     }
 
     @Test fun addPresetsRestoresOnlyMissingOnes() {
         val repo = RulesRepository(tmp.root.resolve("rules.json"))
         repo.delete("preset-otp")
-        repo.delete("preset-delivery")
-        repo.upsert(repo.rules.value.first().copy(name = "My calls"))
-        assertEquals(listOf("OTP codes", "Delivery"), repo.missingPresets().map { it.name })
-        repo.addPresets(repo.missingPresets().takeLast(1))
-        assertEquals(listOf("My calls", "Messages", "Delivery"), repo.rules.value.map { it.name })
-        repo.addPresets()
-        assertEquals(listOf("My calls", "Messages", "Delivery", "OTP codes"), repo.rules.value.map { it.name })
+        repo.delete("spam-list")
+        repo.deleteList(RuleEngine.SPAM_WORDS)
+        assertEquals(listOf("OTP codes", "Spam list"), repo.missingPresets().map { it.name })
+        repo.addPresets(repo.missingPresets().take(1))
+        assertEquals(listOf("Spam list"), repo.missingPresets().map { it.name })
+        assertTrue(repo.list(RuleEngine.SPAM_WORDS) != null) // missing preset lists come back too
+    }
+
+    @Test fun ensurePresetAddsOrSwitchesOn() {
+        val repo = RulesRepository(tmp.root.resolve("rules.json"))
+        repo.delete("spam-blocked")
+        repo.ensurePreset("spam-blocked")
+        assertTrue(repo.rules.value.first { it.id == "spam-blocked" }.enabled)
+        repo.upsert(repo.rules.value.first { it.id == "spam-words" }.copy(enabled = false))
+        repo.ensurePreset("spam-words")
+        assertTrue(repo.rules.value.first { it.id == "spam-words" }.enabled)
+    }
+
+    @Test fun listsAddRenameAndDelete() {
+        val file = tmp.root.resolve("rules.json")
+        val repo = RulesRepository(file)
+        repo.addToList(RuleEngine.ALLOWED, " +447700900123 ")
+        repo.addToList(RuleEngine.BLOCKED, "+447700900123", removeFrom = RuleEngine.ALLOWED)
+        assertEquals(emptyList<String>(), repo.list(RuleEngine.ALLOWED)!!.entries)
+        assertEquals(listOf("+447700900123"), repo.list("blocked senders")!!.entries)
+        repo.addToList(RuleEngine.BLOCKED, "+447700900123") // no duplicates
+        assertEquals(1, repo.list(RuleEngine.BLOCKED)!!.entries.size)
+        repo.addToList("VIP", "Mum") // made when missing
+        assertEquals(listOf("Mum"), repo.list("vip")!!.entries)
+
+        // renaming a list keeps the rules that use it
+        val r = Rule(name = "VIP", match = Match(groups = listOf(Group(conditions = listOf(Condition(Field.SENDER, Op.IN_LIST, list = "VIP"))))))
+        repo.upsert(r)
+        repo.putList(NamedList("Family", listOf("Mum", "Dad")), oldName = "VIP")
+        assertEquals("Family", repo.rules.value.first { it.id == r.id }.match.allConditions.single().list)
+        assertEquals(null, repo.list("VIP"))
+        repo.deleteList("Family")
+        assertEquals(null, RulesRepository(file).list("Family"))
     }
 
     @Test fun unreadableFileFallsBackToPresets() {
         val file = tmp.root.resolve("rules.json").apply { writeText("not json") }
-        assertEquals(4, RulesRepository(file).rules.value.size)
+        assertEquals(RuleEngine.presets().size, RulesRepository(file).rules.value.size)
     }
 
-    @Test fun versionOneRulesAreMigratedOnce() {
+    @Test fun versionOneRulesAreMigrated() {
         val file = tmp.root.resolve("rules.json")
         file.writeText(
             """[
@@ -57,27 +107,88 @@ class RulesRepositoryTest {
             ]""",
         )
         val migrated = RulesRepository(file).rules.value
-        assertEquals(listOf("Mum", "OTP", "Old"), migrated.map { it.name })
-        val (mum, otp, old) = migrated
-        assertEquals(listOf("Mum"), mum.people)
+        val (mum, otp, old) = migrated.take(3)
+        assertEquals(listOf("Mum", "OTP", "Old"), listOf(mum.name, otp.name, old.name))
+        assertEquals(listOf(Condition(Field.SENDER, Op.CONTAINS, listOf("Mum"))), mum.match.conditions)
         assertEquals(GlyphStyle.NAME, mum.glyph)
         assertEquals(Until.READ, mum.until)
-        assertTrue(otp.regex)
-        assertEquals(KeywordMode.ANY, otp.keywordMode)
+        assertEquals(listOf(Condition(Field.MESSAGE, Op.REGEX, listOf("\\d{6}"))), otp.match.conditions)
         assertEquals(Until.TIMEOUT, otp.until)
         assertEquals(GlyphStyle.PULSE, old.glyph)
-        assertEquals(KeywordMode.NONE, old.keywordMode)
+        assertEquals(listOf(Condition(Field.MESSAGE, Op.NOT_CONTAINS, listOf("promo"))), old.match.conditions)
+        assertTrue(migrated.none { it.id == "s" })
+        assertTrue(migrated.any { it.id == "spam-list" }) // spam rules join
 
-        assertTrue(file.readText().startsWith("""{"version":2,"""))
+        assertTrue(file.readText().startsWith("""{"version":3,"""))
         assertEquals(migrated, RulesRepository(file).rules.value)
     }
 
-    @Test fun unknownEnumValuesFallBackToDefaults() {
+    @Test fun versionTwoRulesKeepEverySetting() {
         val file = tmp.root.resolve("rules.json")
-        file.writeText("""{"version":2,"rules":[{"id":"x","name":"Future","glyph":"LASER","until":"FOREVER","keywordMode":"FUZZY"}]}""")
-        val r = RulesRepository(file).rules.value.single()
-        assertEquals(GlyphStyle.PULSE, r.glyph)
-        assertEquals(Until.READ, r.until)
-        assertEquals(KeywordMode.ANY, r.keywordMode)
+        file.writeText(
+            """{"version":2,"rules":[
+              {"id":"a","name":"Family","enabled":false,"packages":["com.whatsapp"],"people":["Mum","Dad"],"starred":true,
+               "keywords":["urgent","asap"],"keywordMode":"ANY","glyph":"RING","until":"UNLOCK","priority":1,
+               "soundUri":"content://x/1","soundName":"Bells"},
+              {"id":"b","name":"Both words","keywords":["server","down"],"keywordMode":"ALL"},
+              {"id":"c","name":"No promo pattern","keywords":["promo\\d"],"keywordMode":"NONE","regex":true},
+              {"id":"d","name":"Strangers","unknown":true},
+              {"id":"e","name":"Future","glyph":"LASER","until":"FOREVER","keywordMode":"FUZZY"}
+            ]}""",
+        )
+        val rules = RulesRepository(file).rules.value.associateBy { it.id }
+        val a = rules.getValue("a")
+        assertFalse(a.enabled)
+        assertEquals(listOf("com.whatsapp"), a.packages)
+        assertEquals(listOf(Condition(Field.MESSAGE, Op.CONTAINS, listOf("urgent", "asap"))), a.match.conditions)
+        assertEquals(
+            listOf(Group(all = false, conditions = listOf(Condition(Field.SENDER, Op.CONTAINS, listOf("Mum", "Dad")), Condition.flag(Field.STARRED)))),
+            a.match.groups,
+        )
+        assertEquals(GlyphStyle.RING, a.glyph)
+        assertEquals(Until.UNLOCK, a.until)
+        assertEquals(1, a.priority)
+        assertEquals("content://x/1" to "Bells", a.soundUri to a.soundName)
+        assertEquals(Action.SHOW, a.action)
+
+        assertEquals(
+            listOf(Condition(Field.MESSAGE, Op.CONTAINS, listOf("server")), Condition(Field.MESSAGE, Op.CONTAINS, listOf("down"))),
+            rules.getValue("b").match.conditions,
+        )
+        assertEquals(listOf(Condition(Field.MESSAGE, Op.REGEX, listOf("promo\\d"), not = true)), rules.getValue("c").match.conditions)
+        assertEquals(listOf(Condition.flag(Field.CONTACT, yes = false)), rules.getValue("d").match.conditions)
+        val e = rules.getValue("e")
+        assertEquals(GlyphStyle.PULSE, e.glyph)
+        assertEquals(Until.READ, e.until)
+    }
+
+    @Test fun oldSpamSettingsBecomeSpamRulesAndLists() {
+        val file = tmp.root.resolve("rules.json")
+        file.writeText("""{"version":2,"rules":[]}""")
+        val legacy = SpamSettings(
+            enabled = true, keywords = listOf("casino"), patterns = listOf("win\\s+big"), blockUnknown = true, allowedSenders = listOf("Bank"),
+        )
+        val repo = RulesRepository(file, legacySpam = legacy)
+        val rules = repo.rules.value.associateBy { it.id }
+        assertTrue(rules.getValue("spam-words").enabled)
+        assertTrue(rules.getValue("spam-words").match.conditions.contains(Condition(Field.MESSAGE, Op.REGEX, listOf("win\\s+big"))))
+        assertTrue(rules.getValue("spam-unknown").enabled)
+        assertEquals(listOf("casino"), repo.list(RuleEngine.SPAM_WORDS)!!.entries)
+        assertEquals(listOf("Bank"), repo.list(RuleEngine.ALLOWED)!!.entries)
+        // read once: a later start keeps what the user changed
+        repo.upsert(rules.getValue("spam-unknown").copy(enabled = false))
+        assertFalse(RulesRepository(file, legacySpam = legacy).rules.value.first { it.id == "spam-unknown" }.enabled)
+    }
+
+    @Test fun oldSpamSettingsAreKeptWithoutARulesFile() {
+        val file = tmp.root.resolve("rules.json")
+        val repo = RulesRepository(file, legacySpam = SpamSettings(enabled = true, keywords = listOf("casino")))
+        assertTrue(repo.rules.value.first { it.id == "spam-words" }.enabled)
+        assertEquals(showPresets, repo.rules.value.filter { it.action == Action.SHOW }.map { it.name })
+        assertEquals(RuleEngine.presets().size, repo.rules.value.size)
+        assertTrue(file.exists())
+        // an untouched old spam filter changes nothing
+        val other = tmp.root.resolve("other.json")
+        assertFalse(RulesRepository(other, legacySpam = SpamSettings()).rules.value.first { it.id == "spam-words" }.enabled)
     }
 }

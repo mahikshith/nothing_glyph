@@ -1,5 +1,10 @@
 package com.dotforge.rules
 
+import com.dotforge.filter.Condition
+import com.dotforge.filter.Field
+import com.dotforge.filter.Match
+import com.dotforge.filter.NamedList
+import com.dotforge.filter.Op
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -38,20 +43,29 @@ class FiltersTest {
         assertFalse(lunch.copy(days = emptyList()).isActive(at(0, 12, 30)))
     }
 
-    private val calls = Rule(name = "Calls", packages = listOf("dialer"))
+    private val calls = Rule(id = "calls", name = "Calls", packages = listOf("dialer"))
+    private val spamWords = Rule(
+        id = "spam", name = "Spam words", match = Match(conditions = listOf(Condition(Field.MESSAGE, Op.CONTAINS, list = "Spam words"))),
+        action = Action.SPAM,
+    )
+    private val lists = listOf(NamedList("Spam words", listOf("lottery")))
     private fun note(text: String = "Incoming call") = NotificationInfo("k", "dialer", "Phone", "Sam", text, 0, fromPerson = true)
     private fun cond(h: Int = 12, dnd: Boolean = false, locked: Boolean = true, faceDown: Boolean? = null) =
         { Conditions(at(0, h), dnd, locked, faceDown) }
 
-    private fun decide(filters: FilterSettings = FilterSettings(), spam: SpamSettings = SpamSettings(), c: () -> Conditions = cond(), text: String = "Incoming call") =
-        Delivery.decide(note(text), listOf(calls), spam, filters, c) { null }
+    private fun decide(filters: FilterSettings = FilterSettings(), c: () -> Conditions = cond(), info: NotificationInfo = note()) =
+        Delivery.decide(info, listOf(calls, spamWords), lists, filters, c, { null })
 
     @Test fun showsWhenNothingHoldsItBack() = assertEquals(Verdict.Show(RuleMatch(calls, "Phone")), decide())
 
     @Test fun spamComesFirstThenRulesThenFilters() {
-        val spam = SpamSettings(enabled = true)
-        assertEquals(Verdict.Blocked("spam word \"lottery\""), decide(spam = spam, text = "lottery win"))
-        assertEquals(Verdict.NoRule, Delivery.decide(note().copy(packageName = "other"), listOf(calls), spam, FilterSettings(), cond()) { null })
+        val v = decide(info = note("lottery win"))
+        assertTrue(v is Verdict.Blocked)
+        assertEquals("spam", (v as Verdict.Blocked).match.rule.id)
+        assertEquals("title or text contains list \"Spam words\"", v.match.why)
+        assertEquals(Verdict.NoRule, decide(info = note().copy(packageName = "other")))
+        // quiet hours hold back a glyph, never the spam filter
+        assertTrue(decide(FilterSettings(quiet = night), cond(h = 23), note("lottery")) is Verdict.Blocked)
     }
 
     @Test fun filtersHoldBackAMatch() {
@@ -65,9 +79,13 @@ class FiltersTest {
         assertTrue(decide(FilterSettings(onlyFaceDown = true), c = cond(faceDown = null)) is Verdict.Show) // no reading yet
     }
 
-    @Test fun conditionsAreOnlyReadForAMatch() {
-        var reads = 0
-        Delivery.decide(note().copy(packageName = "other"), listOf(calls), SpamSettings(), FilterSettings(), { reads++; cond()() }) { null }
-        assertEquals(0, reads)
+    @Test fun subjectCarriesTheNotificationsFields() {
+        val info = note().copy(sender = "", number = "+447700900123", channel = "calls", groupChat = true)
+        val s = Delivery.subject(info, FilterSettings(), cond(), { Sender(ContactStatus.STARRED, "Sam") }, "GB") { it == "+447700900123" }
+        assertEquals("Sam", s.sender) // the title, as it comes from a person
+        assertEquals("calls", s.channel)
+        assertTrue(s.groupChat)
+        assertTrue(s.onSpamList)
+        assertEquals(true, s.caller?.starred)
     }
 }

@@ -44,7 +44,10 @@ enum class Tab(val label: String, val selectedIcon: ImageVector, val icon: Image
 /** Full-screen detail pages, pushed over a tab (no bottom bar). */
 sealed interface Page {
     data object Notifications : Page
-    data class RuleEditor(val ruleId: String?) : Page
+    /** A rule; a new one starts from [template] (a rule as JSON) when given. */
+    data class RuleEditor(val ruleId: String?, val template: String? = null) : Page
+    data object Calls : Page
+    data object Spam : Page
     data class ToySettings(val toy: Toy) : Page
     data class DesignEditor(val designId: String?, val animated: Boolean) : Page
     data object Diagnostics : Page
@@ -56,11 +59,13 @@ sealed interface Page {
 
 private fun Page.encode(): String = when (this) {
     Page.Notifications -> "notifications"
+    Page.Calls -> "calls"
+    Page.Spam -> "spam"
     Page.Diagnostics -> "diagnostics"
     Page.Ringtones -> "ringtones"
     Page.RingtoneEdit -> "ringedit"
     is Page.RingtoneImport -> "ringimport:${mode.name}:$uri"
-    is Page.RuleEditor -> "rule:${ruleId.orEmpty()}"
+    is Page.RuleEditor -> "rule:${ruleId.orEmpty()}:${template.orEmpty()}"
     is Page.ToySettings -> "toy:${toy.name}"
     is Page.DesignEditor -> "design:$animated:${designId.orEmpty()}"
 }
@@ -69,13 +74,15 @@ private fun decode(s: String): Page? {
     val parts = s.split(':', limit = 3)
     return when (parts[0]) {
         "notifications" -> Page.Notifications
+        "calls" -> Page.Calls
+        "spam" -> Page.Spam
         "diagnostics" -> Page.Diagnostics
         "ringtones" -> Page.Ringtones
         "ringedit" -> Page.RingtoneEdit
         "ringimport" -> ImportMode.entries.firstOrNull { it.name == parts.getOrNull(1) }?.let { mode ->
             parts.getOrNull(2)?.takeIf { it.isNotEmpty() }?.let { Page.RingtoneImport(it, mode) }
         }
-        "rule" -> Page.RuleEditor(parts.getOrNull(1)?.ifEmpty { null })
+        "rule" -> Page.RuleEditor(parts.getOrNull(1)?.ifEmpty { null }, parts.getOrNull(2)?.ifEmpty { null })
         "toy" -> Toy.entries.firstOrNull { it.name == parts.getOrNull(1) }?.let(Page::ToySettings)
         "design" -> Page.DesignEditor(parts.getOrNull(2)?.ifEmpty { null }, parts.getOrNull(1) == "true")
         else -> null

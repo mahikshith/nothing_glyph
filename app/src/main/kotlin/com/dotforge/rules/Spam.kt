@@ -1,34 +1,40 @@
 package com.dotforge.rules
 
-import kotlinx.serialization.Serializable
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.serialization.Serializable
 
+/**
+ * The spam alert: what plays when a call or message is marked as spam. By default a silent spam glyph; the
+ * glyph and the sound can each be changed or switched off.
+ *
+ * The other fields are the version 2 spam filter's settings, read once to move them into spam rules (see
+ * [RulesRepository]).
+ */
 @Serializable
 data class SpamSettings(
+    val glyphOn: Boolean = true,
+    val glyph: GlyphStyle = GlyphStyle.SPAM,
+    val designId: String? = null,
+    /** A composition's or a system sound's URI; null = no sound. */
+    val soundUri: String? = null,
+    val soundName: String? = null,
+    // ---- version 2, migrated into rules ----
     val enabled: Boolean = false,
-    /** Plain words: any one of them marks a notification as spam. */
     val keywords: List<String> = DEFAULT_KEYWORDS,
-    /** Regular expressions (Advanced). */
     val patterns: List<String> = emptyList(),
-    /** Messages and calls from people who are not in Contacts. */
     val blockUnknown: Boolean = false,
-    /** Never block people saved in Contacts. */
     val allowContacts: Boolean = false,
-    /** Never block starred contacts. */
     val allowStarred: Boolean = false,
-    /** Senders (notification titles) the user allowed from a catch. */
     val allowedSenders: List<String> = emptyList(),
 ) {
-    val needsContacts: Boolean get() = enabled && (blockUnknown || allowContacts || allowStarred)
-
     companion object {
         val DEFAULT_KEYWORDS = listOf("lottery", "you have won", "loan approved", "pre-approved", "claim your prize")
     }
 }
 
-/** A notification the spam filter kept off the Glyphs. */
+/** One entry of the Spam log: a call or notification a rule silenced, hid, rejected or marked as spam. */
 @Serializable
 data class SpamCatch(
     val key: String,
@@ -36,30 +42,21 @@ data class SpamCatch(
     val title: String,
     val text: String,
     val at: Long,
-)
+    val call: Boolean = false,
+    val packageName: String = "",
+    /** The sender's name (or the title when there is none). */
+    val sender: String = "",
+    /** The sender's normalised number, or empty. */
+    val number: String = "",
+    val action: Action = Action.SPAM,
+    val rule: String? = null,
+    val why: String = "",
+) {
+    /** What "Allow this sender" adds to the allowed list: the number, else the sender's name. */
+    val senderKey: String get() = number.ifBlank { sender.ifBlank { title } }.trim()
+}
 
 object SpamFilter {
-
-    /**
-     * Why [info] is spam ("spam word "lottery"", "unknown sender"), or null when it is not or the allow list
-     * covers it. [sender] reads Contacts and is only called when a setting needs it.
-     */
-    fun check(info: NotificationInfo, s: SpamSettings, sender: () -> Sender?): String? {
-        if (!s.enabled) return null
-        val body = "${info.title}\n${info.text}"
-        val reason = s.keywords.firstOrNull { it.isNotBlank() && body.contains(it, ignoreCase = true) }?.let { "spam word \"$it\"" }
-            ?: s.patterns.firstOrNull { it.isNotBlank() && RuleEngine.regex(it)?.containsMatchIn(body) == true }?.let { "spam pattern" }
-            ?: if (s.blockUnknown && info.fromPerson && sender()?.status == ContactStatus.UNKNOWN) "unknown sender" else null
-        if (reason == null) return null
-        if (s.allowedSenders.any { it.equals(info.title.trim(), ignoreCase = true) }) return null
-        if (s.allowContacts || s.allowStarred) {
-            val c = sender()?.status
-            if (s.allowContacts && (c == ContactStatus.CONTACT || c == ContactStatus.STARRED)) return null
-            if (s.allowStarred && c == ContactStatus.STARRED) return null
-        }
-        return reason
-    }
-
     fun blockedOn(day: LocalDate, catches: List<SpamCatch>, zone: ZoneId = ZoneId.systemDefault()): Int =
         catches.count { Instant.ofEpochMilli(it.at).atZone(zone).toLocalDate() == day }
 }

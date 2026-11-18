@@ -4,9 +4,10 @@
 
     <!-- Glyph SDK access (a normal permission on Nothing phones). -->
     <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
-    <!-- Only asked for when a rule's People picker opens or the spam filter needs to know who is a contact. -->
+    <!-- Only asked for when a rule needs to know who is a contact. Call screening also needs it before Android
+         passes calls from saved contacts to DotForge. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <!-- Get more on the Ringtones page: lists and downloads shared ringtones from GitHub. -->
+    <!-- Get more on the Ringtones page, and the weekly call spam list download (both from GitHub). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Music visualiser (Live switch, Quick Settings tile, DF Music toy): asked when first switched on. Visualizer
          on the output mix needs it, and so does the microphone fallback. -->
@@ -15,6 +16,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Quiet copies of notifications a rule silenced or marked as spam: asked when such a rule is saved. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Ringtones > Set as > A contact: asked only then, to set that contact's ringtone. -->
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <!-- Ringtones > Set as > Phone ringtone: special access ("Modify system settings"), asked only then. -->
@@ -77,6 +80,16 @@
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Call rules: Android binds it once the user makes DotForge the call screening app (asked when needed). -->
+        <service
+            android:name=".calls.GlyphCallScreeningService"
+            android:exported="true"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
 

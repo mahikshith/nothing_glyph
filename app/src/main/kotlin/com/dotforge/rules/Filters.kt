@@ -1,6 +1,14 @@
 package com.dotforge.rules
 
+import com.dotforge.filter.Caller
+import com.dotforge.filter.NamedList
+import com.dotforge.filter.PhoneState
+import com.dotforge.filter.Subject
 import com.dotforge.system.BedtimeSchedule
+import java.io.File
+import java.time.DayOfWeek
+import java.time.LocalDateTime
+import java.time.LocalTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -8,10 +16,6 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
-import java.io.File
-import java.time.DayOfWeek
-import java.time.LocalDateTime
-import java.time.LocalTime
 
 /** DotForge's own quiet hours: from [start] to [end] (minutes after midnight) on [days] (1 = Monday). */
 @Serializable
@@ -42,13 +46,13 @@ data class FilterSettings(
     val onlyFaceDown: Boolean = false,
 )
 
-/** What the phone is doing when a notification arrives. [faceDown] is null when unknown. */
-data class Conditions(val now: LocalDateTime, val dnd: Boolean, val locked: Boolean, val faceDown: Boolean?)
+/** What the phone is doing when a notification arrives. Null fields are unknown. */
+data class Conditions(val now: LocalDateTime, val dnd: Boolean, val locked: Boolean, val faceDown: Boolean?, val charging: Boolean? = null)
 
 /** What happened to one notification. */
 sealed interface Verdict {
-    /** The spam filter caught it. */
-    data class Blocked(val reason: String) : Verdict
+    /** A spam-filter rule silenced, hid or marked it as spam. */
+    data class Blocked(val match: RuleMatch) : Verdict
     data object NoRule : Verdict
     /** A rule matched but a filter held it back. */
     data class Quiet(val match: RuleMatch, val reason: String) : Verdict
@@ -59,23 +63,61 @@ sealed interface Verdict {
 data class LogEntry(val info: NotificationInfo, val verdict: Verdict, val cooldown: Boolean = false)
 
 object Delivery {
+    /** [info] as the filter engine sees it. Contacts, the spam list and the phone's state are read lazily. */
+    fun subject(
+        info: NotificationInfo,
+        filters: FilterSettings,
+        conditions: () -> Conditions,
+        sender: () -> Sender?,
+        region: String? = null,
+        spamList: (String) -> Boolean = { false },
+    ): Subject {
+        val c = lazy(LazyThreadSafetyMode.NONE, conditions)
+        return Subject(
+            isCall = false,
+            app = info.packageName,
+            appLabel = info.appLabel,
+            channel = info.channel,
+            category = info.category,
+            sender = info.sender.ifBlank { info.title.takeIf { info.fromPerson }.orEmpty() },
+            email = info.email,
+            number = info.number,
+            title = info.title,
+            text = info.text,
+            bigText = info.bigText,
+            subText = info.subText,
+            summary = info.summary,
+            fromPerson = info.fromPerson,
+            groupChat = info.groupChat,
+            ongoing = info.ongoing,
+            at = c.value.now,
+            region = region,
+            contact = { sender()?.let { Caller(it.status != ContactStatus.UNKNOWN, it.status == ContactStatus.STARRED, it.name) } },
+            spamList = spamList,
+            state = { PhoneState(c.value.locked, c.value.dnd, c.value.charging, filters.quiet.isActive(c.value.now)) },
+        )
+    }
+
     /**
-     * Spam filter first, then the best rule, then quiet hours, Do Not Disturb, locked and face down.
-     * [sender] reads Contacts; it runs at most once and only when a setting or rule needs it.
+     * Spam filter first (the allow and blocking rules), then the best rule that shows, then quiet hours, Do Not
+     * Disturb, locked and face down. Contacts are read at most once, and only when a rule needs them.
      */
     fun decide(
         info: NotificationInfo,
         rules: List<Rule>,
-        spam: SpamSettings,
+        lists: List<NamedList>,
         filters: FilterSettings,
         conditions: () -> Conditions,
         sender: () -> Sender?,
+        region: String? = null,
+        spamList: (String) -> Boolean = { false },
     ): Verdict {
-        val lookup = lazy(LazyThreadSafetyMode.NONE, sender)
-        val who = { lookup.value }
-        SpamFilter.check(info, spam, who)?.let { return Verdict.Blocked(it) }
-        val match = RuleEngine.match(info, rules, who) ?: return Verdict.NoRule
-        val c = conditions()
+        val cond = lazy(LazyThreadSafetyMode.NONE, conditions)
+        val s = subject(info, filters, { cond.value }, sender, region, spamList)
+        val d = RuleEngine.decide(s, rules, lists)
+        if (d.blocked) return Verdict.Blocked(d.gate!!)
+        val match = d.show ?: return Verdict.NoRule
+        val c = cond.value
         val quiet = when {
             filters.quiet.isActive(c.now) -> "quiet hours"
             filters.respectDnd && c.dnd -> "Do Not Disturb"
@@ -98,7 +140,7 @@ private data class FilterState(
 
 /**
  * The Filters section: spam filter settings and recent catches, quiet hours and the condition switches, in
- * one JSON file. The spam.json of version 1 is moved in on first load. Call from one thread (the main thread).
+ * one JSON file. The spam.json of version 1 is moved in on first load. Safe to call from any thread.
  */
 class FiltersRepository(private val file: File, legacySpam: File? = null) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
@@ -134,31 +176,21 @@ class FiltersRepository(private val file: File, legacySpam: File? = null) {
         file.writeText(json.encodeToString(FilterState.serializer(), next))
     }
 
-    fun updateSpam(transform: (SpamSettings) -> SpamSettings) = save(state.copy(spam = transform(state.spam)))
+    fun updateSpam(transform: (SpamSettings) -> SpamSettings) = synchronized(this) { save(state.copy(spam = transform(state.spam))) }
 
-    fun updateFilters(transform: (FilterSettings) -> FilterSettings) = save(state.copy(filters = transform(state.filters)))
+    fun updateFilters(transform: (FilterSettings) -> FilterSettings) = synchronized(this) { save(state.copy(filters = transform(state.filters))) }
 
-    fun record(info: NotificationInfo) {
-        val c = SpamCatch(info.key, info.appLabel, info.title, info.text, info.postedAt)
+    /** Adds a call or notification to the Spam log (newest first). */
+    fun record(c: SpamCatch) = synchronized(this) {
         save(state.copy(catches = (listOf(c) + state.catches.filterNot { it.key == c.key }).take(MAX_CATCHES)))
     }
 
-    /** Never block this sender again, and forget their catches. */
-    fun allow(c: SpamCatch) {
-        val who = c.title.trim()
-        if (who.isEmpty()) {
-            save(state.copy(catches = state.catches - c))
-            return
-        }
-        val s = state.spam
-        val allowed = if (s.allowedSenders.any { it.equals(who, ignoreCase = true) }) s.allowedSenders else s.allowedSenders + who
-        save(
-            state.copy(
-                spam = s.copy(allowedSenders = allowed),
-                catches = state.catches.filterNot { it.title.trim().equals(who, ignoreCase = true) },
-            ),
-        )
+    /** Drops the log entries of one sender (after "Allow this sender"). */
+    fun forget(senderKey: String) = synchronized(this) {
+        save(state.copy(catches = state.catches.filterNot { it.senderKey.equals(senderKey, ignoreCase = true) }))
     }
+
+    fun clearCatches() = synchronized(this) { save(state.copy(catches = emptyList())) }
 
     private companion object {
         const val MAX_CATCHES = 50

@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import com.dotforge.calls.CallsRepository
+import com.dotforge.calls.SpamListStore
+import com.dotforge.calls.SpamListWorker
 import com.dotforge.device.Animation
 import com.dotforge.device.DeviceProfile
 import com.dotforge.driver.Channel
@@ -16,14 +19,18 @@ import com.dotforge.engine.DisplayArbiter
 import com.dotforge.engine.MatrixDevice
 import com.dotforge.engine.MatrixDevices
 import com.dotforge.engine.Priority
+import com.dotforge.filter.Field
 import com.dotforge.notify.FaceDownSensor
 import com.dotforge.ringtones.RingtoneLibrary
 import com.dotforge.rules.FiltersRepository
 import com.dotforge.rules.LogEntry
+import com.dotforge.rules.RuleEngine
 import com.dotforge.rules.RulesRepository
+import com.dotforge.rules.SpamCatch
 import com.dotforge.studio.DesignsRepository
-import com.dotforge.toys.ToySettings
 import com.dotforge.system.NothingSettingsGate
+import com.dotforge.toys.ToySettings
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -35,7 +42,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.io.File
 
 /** Process-wide objects, created once in [DotForgeApp.onCreate]. */
 object AppGraph {
@@ -58,6 +64,10 @@ object AppGraph {
     lateinit var toys: ToySettings
         private set
     lateinit var ringtones: RingtoneLibrary
+        private set
+    lateinit var calls: CallsRepository
+        private set
+    lateinit var spamList: SpamListStore
         private set
     private lateinit var prefs: SharedPreferences
 
@@ -91,6 +101,28 @@ object AppGraph {
         arbiter.refresh()
     }
 
+    /** "Allow this sender" from the Spam log: on the allowed list, off the blocked list, out of the log. */
+    fun allowSender(c: SpamCatch) {
+        val key = c.senderKey.ifBlank { return }
+        rules.addToList(RuleEngine.ALLOWED, key, removeFrom = RuleEngine.BLOCKED)
+        rules.ensurePreset("spam-allowed")
+        filters.forget(key)
+    }
+
+    /** "Always block" from the Spam log or a notification: on the blocked list, off the allowed list. */
+    fun blockSender(key: String) {
+        if (key.isBlank()) return
+        rules.addToList(RuleEngine.BLOCKED, key, removeFrom = RuleEngine.ALLOWED)
+        rules.ensurePreset("spam-blocked")
+    }
+
+    /** "Block numbers starting with …": the prefix goes on the "Spam prefixes" list. */
+    fun blockPrefix(prefix: String) {
+        if (prefix.isBlank()) return
+        rules.addToList(RuleEngine.SPAM_PREFIXES, prefix)
+        rules.ensurePreset("spam-prefixes")
+    }
+
     /** What DF Player plays: the chosen design, else the newest. */
     fun playerAnimation(): Animation? = designAnimation(toys.playerDesignId)
 
@@ -110,7 +142,7 @@ object AppGraph {
         alerts = AlertPlayer(engineScope, arbiter, AlertQueue(System::currentTimeMillis))
         GlyphDriver.setBrightness(prefs.getInt(KEY_BRIGHTNESS, 255))
         _progressRings.value = prefs.getBoolean(KEY_PROGRESS, true)
-        rules = RulesRepository(File(app.filesDir, "rules.json"))
+        rules = RulesRepository(File(app.filesDir, "rules.json"), legacySpam = filters.spam.value)
         faceDown = FaceDownSensor(app)
         MainScope().launch {
             filters.filters.map { it.onlyFaceDown }.distinctUntilChanged().collect(faceDown::setEnabled)
@@ -118,6 +150,15 @@ object AppGraph {
         designs = DesignsRepository(profile, File(app.filesDir, "designs.json"), legacyFile = File(app.filesDir, "studio_current.json"))
         toys = ToySettings(app.getSharedPreferences("toys", Context.MODE_PRIVATE))
         ringtones = RingtoneLibrary(app)
+        calls = CallsRepository(File(app.filesDir, "calls.json"))
+        spamList = SpamListStore(File(app.filesDir, "spam-list"))
+        // the spam list is fetched (and refreshed weekly) only while a rule uses it
+        MainScope().launch {
+            rules.rules.map { list -> list.any { r -> r.enabled && r.match.allConditions.any { it.field == Field.SPAM_LIST } } }.distinctUntilChanged().collect { on ->
+                SpamListWorker.schedule(app, on)
+                if (on && !File(app.filesDir, "spam-list/spam_numbers.txt").exists()) SpamListWorker.now(app)
+            }
+        }
     }
 }
 

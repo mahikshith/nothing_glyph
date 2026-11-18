@@ -1,34 +1,39 @@
 package com.dotforge.notify
 
-import android.app.KeyguardManager
 import android.app.Notification
-import android.app.NotificationManager
 import android.app.Person
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.dotforge.AppGraph
 import com.dotforge.DotForgeApp
+import com.dotforge.calls.CallerLookup
 import com.dotforge.device.Effects
 import com.dotforge.engine.AlertGlyph
 import com.dotforge.engine.AlertQueue
 import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
+import com.dotforge.engine.Until
+import com.dotforge.filter.FilterActions
+import com.dotforge.filter.Senders
 import com.dotforge.ringtones.NotificationSound
-import com.dotforge.rules.Conditions
+import com.dotforge.rules.Action
 import com.dotforge.rules.Delivery
+import com.dotforge.rules.GlyphStyle
 import com.dotforge.rules.LogEntry
 import com.dotforge.rules.NotificationInfo
 import com.dotforge.rules.RuleEngine
+import com.dotforge.rules.SpamCatch
 import com.dotforge.rules.Verdict
-import java.time.LocalDateTime
 
 /**
  * Turns notifications into matrix glyphs:
  *  - ongoing notifications with a determinate progress value (downloads, deliveries, timers, Android 16
  *    ProgressStyle / Live Updates) become a progress ring, when progress rings are on;
- *  - ringing calls and everything else go through [Delivery] (spam filter, best rule, quiet hours and the
- *    other filters) and, when shown, into the alert queue. Every one is logged for the rule tester.
+ *  - ringing calls and everything else go through [Delivery] (spam rules first, then the best rule, quiet
+ *    hours and the other filters): shown ones go into the alert queue; silenced, hidden and spam ones are
+ *    handled and logged in the Spam log. Every one is logged for the rule tester.
+ * The message itself always stays in its app; only the notification, the sound and the glyph change.
  */
 class GlyphNotificationListener : NotificationListenerService() {
 
@@ -64,28 +69,62 @@ class GlyphNotificationListener : NotificationListenerService() {
 
         val info = infoOf(sbn, ringing)
         val verdict = Delivery.decide(
-            info, AppGraph.rules.rules.value, AppGraph.filters.spam.value, AppGraph.filters.filters.value,
-            conditions = ::conditions,
+            info, AppGraph.rules.rules.value, AppGraph.rules.lists.value, AppGraph.filters.filters.value,
+            conditions = { FilterActions.conditions(this) },
             sender = { contacts.lookup(info) },
+            region = region,
+            spamList = AppGraph.spamList::contains,
         )
         var cooldown = false
-        when (verdict) {
-            is Verdict.Blocked -> AppGraph.filters.record(info)
+        // the missed call glyph (Calls page option) repeats until the phone is unlocked, unless a filter holds it back
+        val missed = missedCall(n) && (verdict is Verdict.Show || verdict == Verdict.NoRule)
+        if (missed) {
+            val glyph = AlertGlyph(Effects.missedCall(AppGraph.profile), "Missed call: ${info.title.ifBlank { info.appLabel }}")
+            AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, false, Until.UNLOCK, glyph))
+            AppGraph.arbiter.refreshAfter(DotForgeApp.COVERED_MS)
+        } else when (verdict) {
+            is Verdict.Blocked -> block(sbn, info, verdict)
             is Verdict.Show -> {
                 val rule = verdict.match.rule
-                val glyph = AlertGlyph(
-                    RuleEngine.animation(rule, info, AppGraph.profile, AppGraph::designAnimation),
-                    "${rule.name}: ${info.title.ifBlank { info.appLabel }}",
-                )
-                val offer = AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, info.isCall, rule.until, glyph))
-                cooldown = offer == AlertQueue.Offer.COOLDOWN
-                if (offer == AlertQueue.Offer.QUEUED) rule.soundUri?.let { NotificationSound.play(this, it) }
-                // Nothing's own notification glyph plays now and covers ours without telling us; show ours again after it.
-                AppGraph.arbiter.refreshAfter(DotForgeApp.COVERED_MS)
+                var queued = true
+                if (rule.glyph != GlyphStyle.NONE) {
+                    val glyph = AlertGlyph(
+                        RuleEngine.animation(rule, info, AppGraph.profile, AppGraph::designAnimation),
+                        "${rule.name}: ${info.sender.ifBlank { info.title }.ifBlank { info.appLabel }}",
+                    )
+                    val offer = AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, info.isCall, rule.until, glyph))
+                    cooldown = offer == AlertQueue.Offer.COOLDOWN
+                    queued = offer == AlertQueue.Offer.QUEUED
+                    // Nothing's own notification glyph plays now and covers ours without telling us; show ours again after it.
+                    AppGraph.arbiter.refreshAfter(DotForgeApp.COVERED_MS)
+                }
+                if (queued) {
+                    rule.soundUri?.let { NotificationSound.play(this, it) }
+                    if (rule.vibrate) FilterActions.vibrate(this)
+                }
             }
             Verdict.NoRule, is Verdict.Quiet -> Unit
         }
         AppGraph.log(LogEntry(info, verdict, cooldown))
+    }
+
+    /** A spam-filter rule: silence (quiet copy), hide, or mark as spam (quiet copy and the spam alert); then log it. */
+    private fun block(sbn: StatusBarNotification, info: NotificationInfo, v: Verdict.Blocked) {
+        val action = v.match.rule.action
+        when (action) {
+            Action.HIDE -> cancelNotification(sbn.key)
+            Action.SILENCE -> FilterActions.silence(this, sbn, ::cancelNotification, spam = false)
+            else -> FilterActions.silence(this, sbn, ::cancelNotification, spam = true)
+        }
+        val who = info.sender.ifBlank { info.title }.ifBlank { info.appLabel }
+        AppGraph.filters.record(
+            SpamCatch(
+                key = sbn.key, appLabel = info.appLabel, title = info.title, text = info.text, at = info.postedAt,
+                packageName = info.packageName, sender = info.sender.ifBlank { info.title }, number = info.number.orEmpty(),
+                action = action, rule = v.match.rule.name, why = v.match.why,
+            ),
+        )
+        if (action == Action.SPAM) FilterActions.spamAlert(this, who)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
@@ -93,36 +132,69 @@ class GlyphNotificationListener : NotificationListenerService() {
         AppGraph.arbiter.remove(progressId(sbn.key))
     }
 
+    private val region: String? get() = callerLookup.region()
+    private val callerLookup by lazy { CallerLookup(this) }
+
     private fun infoOf(sbn: StatusBarNotification, ringing: Boolean): NotificationInfo {
         val n = sbn.notification
         val extras = n.extras
-        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-        val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))
-            ?.toString().orEmpty()
-        val people = extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, Person::class.java)
-            ?.mapNotNull { it.uri }.orEmpty()
+        val f = Senders.fields(extrasMap(extras))
+        val sender = Senders.sender(f, region)
+        val people = f.people
+        val messaging = extras.getString(Notification.EXTRA_TEMPLATE) == Notification.MessagingStyle::class.java.name || f.messages.isNotEmpty()
         val fromPerson = n.category == Notification.CATEGORY_MESSAGE || n.category == Notification.CATEGORY_CALL ||
-            people.isNotEmpty() || extras.getString(Notification.EXTRA_TEMPLATE) == Notification.MessagingStyle::class.java.name
+            n.category == Notification.CATEGORY_EMAIL || people.isNotEmpty() || messaging
+        val text = f.text.ifBlank { f.bigText }
         return NotificationInfo(
             key = sbn.key,
             packageName = sbn.packageName,
             appLabel = appLabel(sbn.packageName),
-            title = title,
+            title = f.title,
             text = text,
             postedAt = sbn.postTime,
             people = people,
             fromPerson = fromPerson,
             isCall = ringing,
-            conversation = n.shortcutId?.let { "${sbn.packageName}/$it" } ?: "${sbn.packageName}/${title.trim()}",
+            conversation = n.shortcutId?.let { "${sbn.packageName}/$it" } ?: "${sbn.packageName}/${f.title.trim()}",
+            channel = n.channelId.orEmpty(),
+            category = n.category.orEmpty(),
+            bigText = f.bigText,
+            subText = f.subText,
+            summary = f.summary,
+            sender = if (fromPerson) sender.name else "",
+            email = sender.email,
+            number = sender.number,
+            groupChat = sender.group,
+            ongoing = sbn.isOngoing,
         )
     }
 
-    private fun conditions() = Conditions(
-        now = LocalDateTime.now(),
-        dnd = getSystemService(NotificationManager::class.java).currentInterruptionFilter > NotificationManager.INTERRUPTION_FILTER_ALL,
-        locked = getSystemService(KeyguardManager::class.java).isKeyguardLocked,
-        faceDown = AppGraph.faceDown.faceDown,
-    )
+    /** The extras the filter engine reads, as plain values (see [Senders]). */
+    private fun extrasMap(extras: android.os.Bundle): Map<String, Any?> {
+        val messages = runCatching {
+            Notification.MessagingStyle.Message.getMessagesFromBundleArray(
+                extras.getParcelableArray(Notification.EXTRA_MESSAGES, android.os.Parcelable::class.java),
+            ).map { m -> mapOf("sender" to m.senderPerson?.name?.toString(), "text" to m.text?.toString(), "uri" to m.senderPerson?.uri) }
+        }.getOrDefault(emptyList())
+        val people = (extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, Person::class.java)?.mapNotNull { it.uri }.orEmpty() +
+            @Suppress("DEPRECATION") extras.getStringArray(Notification.EXTRA_PEOPLE).orEmpty()).distinct()
+        return mapOf(
+            Senders.TITLE to extras.getCharSequence(Notification.EXTRA_TITLE),
+            Senders.TEXT to extras.getCharSequence(Notification.EXTRA_TEXT),
+            Senders.BIG_TEXT to extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
+            Senders.SUB_TEXT to extras.getCharSequence(Notification.EXTRA_SUB_TEXT),
+            Senders.SUMMARY to extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT),
+            Senders.CONVERSATION_TITLE to extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE),
+            Senders.IS_GROUP to extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false),
+            Senders.MESSAGES to messages,
+            Senders.PEOPLE to people,
+            Senders.TEXT_LINES to extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map { it.toString() },
+        )
+    }
+
+    private fun missedCall(n: Notification) =
+        n.category == Notification.CATEGORY_MISSED_CALL && AppGraph.calls.settings.value.missedGlyph
+
 
     /** Determinate progress 0..1, from the classic extras or (Android 16) a ProgressStyle notification. */
     private fun progressOf(n: Notification): Float? {

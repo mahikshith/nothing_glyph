@@ -1,6 +1,7 @@
 package com.dotforge.ui
 
 import android.Manifest
+import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -44,6 +45,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.notify.GlyphNotificationListener
+import com.dotforge.rules.Action
 import com.dotforge.setup.AccessFlow
 import com.dotforge.visualiser.LiveVisualiser
 
@@ -68,6 +70,15 @@ class Setup(private val activity: ComponentActivity) {
     /** The microphone sheet for the Live visualiser. */
     var micSheet by mutableStateOf(false)
         private set
+    /** DotForge holds the call screening role (call rules work). */
+    var screening by mutableStateOf(hasScreening())
+        private set
+    /** The call screening sheet. */
+    var screeningSheet by mutableStateOf(false)
+        private set
+    /** The sheet for posting notifications (quiet copies of silenced ones). */
+    var postSheet by mutableStateOf(false)
+        private set
     /** Bumped on every resume, so screens can re-read system state. */
     var resumes by mutableIntStateOf(0)
         private set
@@ -78,6 +89,56 @@ class Setup(private val activity: ComponentActivity) {
     private fun hasContacts() =
         activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
+    private fun hasScreening() =
+        activity.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) == true
+
+    /** A call rule was switched on or saved. Returns true when DotForge already screens calls. */
+    fun needCallScreening(): Boolean {
+        screening = hasScreening()
+        if (!screening) screeningSheet = true
+        return screening
+    }
+
+    fun screeningNotNow() {
+        screeningSheet = false
+    }
+
+    /** Android's own dialog to make DotForge the call screening app. */
+    fun allowScreening(launch: (Intent) -> Unit) {
+        screeningSheet = false
+        val rm = activity.getSystemService(RoleManager::class.java) ?: return
+        if (rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+    }
+
+    fun onScreeningResult() {
+        screening = hasScreening()
+    }
+
+    private fun canPost() =
+        activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * A rule that silences or marks notifications as spam was saved: DotForge reposts a quiet copy, which needs
+     * permission to post notifications. Asked once; without it silenced notifications are hidden.
+     */
+    fun needPostNotifications(): Boolean {
+        if (canPost()) return true
+        if (!prefs.getBoolean(KEY_POST_ASKED, false)) postSheet = true
+        return false
+    }
+
+    fun postNotNow() {
+        postSheet = false
+        prefs.edit().putBoolean(KEY_POST_ASKED, true).apply()
+    }
+
+    fun allowPost(launch: () -> Unit) {
+        postSheet = false
+        val asked = prefs.getBoolean(KEY_POST_ASKED, false)
+        prefs.edit().putBoolean(KEY_POST_ASKED, true).apply()
+        if (asked && !activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) openAppDetails() else launch()
+    }
+
     private fun sync() {
         accessStep = flow.step
     }
@@ -85,6 +146,7 @@ class Setup(private val activity: ComponentActivity) {
     fun onResume() {
         notificationAccess = hasNotificationAccess()
         contacts = hasContacts()
+        screening = hasScreening()
         flow.resumed(notificationAccess)
         sync()
         resumes++
@@ -188,6 +250,7 @@ class Setup(private val activity: ComponentActivity) {
     private companion object {
         const val KEY_CONTACTS_ASKED = "contacts_asked"
         const val KEY_MIC_ASKED = "mic_asked"
+        const val KEY_POST_ASKED = "post_asked"
     }
 }
 
@@ -233,6 +296,30 @@ fun SetupSheets(setup: Setup) {
             body = "The visualiser reads the sound that is playing on this phone, which Android counts as microphone " +
                 "access. If no music data comes through, it listens with the microphone instead. Nothing is recorded or saved.",
             primary = "Allow" to { setup.allowMic { micLauncher.launch(Manifest.permission.RECORD_AUDIO) } },
+            secondary = null,
+        )
+    }
+
+    val screeningLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { setup.onScreeningResult() }
+    if (setup.screeningSheet) {
+        Sheet(
+            onDismiss = setup::screeningNotNow,
+            title = "Let DotForge screen calls",
+            body = "Call rules work when DotForge is the phone's call screening app. Android asks you once. Calls are " +
+                "checked on this phone; nothing about them leaves it.",
+            primary = "Allow" to { setup.allowScreening { screeningLauncher.launch(it) } },
+            secondary = null,
+        )
+    }
+
+    val postLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    if (setup.postSheet) {
+        Sheet(
+            onDismiss = setup::postNotNow,
+            title = "Keep silenced notifications",
+            body = "Android can't mute another app's notification, so DotForge removes it and puts a quiet copy in " +
+                "your shade. That copy needs permission to post notifications; without it, silenced ones are hidden.",
+            primary = "Allow" to { setup.allowPost { postLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) } },
             secondary = null,
         )
     }
@@ -309,10 +396,12 @@ fun AccessBanner(setup: Setup, text: String) {
     }
 }
 
-/** True while an enabled rule picks people, or a spam setting needs to know who is a contact. */
+/**
+ * True while an enabled rule that shows or blocks needs to know who is a contact. The default "always allow
+ * contacts" rule alone doesn't count: it is asked for on the Calls and Spam pages instead.
+ */
 @Composable
 fun rememberNeedsContacts(): State<Boolean> {
     val rules = AppGraph.rules.rules.collectAsStateWithLifecycle()
-    val spam = AppGraph.filters.spam.collectAsStateWithLifecycle()
-    return remember { derivedStateOf { spam.value.needsContacts || rules.value.any { it.enabled && it.usesContacts } } }
+    return remember { derivedStateOf { rules.value.any { it.enabled && it.usesContacts && it.action != Action.ALLOW } } }
 }

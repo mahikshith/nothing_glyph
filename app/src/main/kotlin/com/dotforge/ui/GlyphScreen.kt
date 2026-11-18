@@ -33,6 +33,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.composition.VisualStyle
+import com.dotforge.rules.Action
+import com.dotforge.rules.RuleEngine
+import com.dotforge.rules.Source
 import com.dotforge.rules.SpamFilter
 import com.dotforge.tile.TorchTileService
 import com.dotforge.visualiser.LiveVisualiser
@@ -46,7 +49,6 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
     val frame by AppGraph.arbiter.frame.collectAsStateWithLifecycle()
     val active by AppGraph.arbiter.active.collectAsStateWithLifecycle()
     val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
-    val spam by AppGraph.filters.spam.collectAsStateWithLifecycle()
     val catches by AppGraph.filters.catches.collectAsStateWithLifecycle()
     val progress by AppGraph.progressRings.collectAsStateWithLifecycle()
     val brightness by AppGraph.brightness.collectAsStateWithLifecycle()
@@ -78,18 +80,39 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             Text("${brightness * 100 / 255}%", Modifier.padding(start = 12.dp), color = Muted)
         }
 
-        GroupTitle("NOTIFICATIONS")
-        val on = rules.count { it.enabled }
-        FeatureTile(
-            "Notifications",
-            summary = when {
-                !access && (on > 0 || spam.enabled) -> "Needs access"
-                spam.enabled -> "${if (on == 1) "1 rule" else "$on rules"} · ${SpamFilter.blockedOn(LocalDate.now(), catches)} blocked today"
-                else -> if (on == 1) "1 rule on" else "$on rules on"
-            },
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            onClick = { nav.push(Page.Notifications) },
-        )
+        GroupTitle("NOTIFICATIONS AND CALLS")
+        val on = rules.count { it.enabled && it.action == Action.SHOW }
+        val callsOn = rules.count { it.enabled && it.source != Source.APPS }
+        val spamOn = rules.count { it.enabled && RuleEngine.isSpamRule(it) }
+        val today = LocalDate.now()
+        TileRow {
+            FeatureTile(
+                "Notifications",
+                summary = when {
+                    !access && on > 0 -> "Needs access"
+                    else -> if (on == 1) "1 rule on" else "$on rules on"
+                },
+                modifier = Modifier.weight(1f),
+                onClick = { nav.push(Page.Notifications) },
+            )
+            FeatureTile(
+                "Calls",
+                summary = when {
+                    callsOn > 0 && !setup.screening -> "Needs call screening"
+                    else -> "${if (callsOn == 1) "1 rule" else "$callsOn rules"} · ${SpamFilter.blockedOn(today, catches.filter { it.call })} stopped today"
+                },
+                modifier = Modifier.weight(1f),
+                onClick = { nav.push(Page.Calls) },
+            )
+        }
+        TileRow {
+            FeatureTile(
+                "Spam filter",
+                summary = "${if (spamOn == 1) "1 rule" else "$spamOn rules"} · ${SpamFilter.blockedOn(today, catches)} blocked today",
+                modifier = Modifier.weight(1f),
+                onClick = { nav.push(Page.Spam) },
+            )
+        }
 
         GroupTitle("LIVE")
         TileRow {

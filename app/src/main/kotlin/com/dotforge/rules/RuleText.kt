@@ -1,12 +1,16 @@
 package com.dotforge.rules
 
-/** How a rule reads in the app: "When [Apps] from [People] mention [Keywords], show [Glyph] until [read]". */
+import com.dotforge.filter.FilterEngine
+
+/**
+ * How a rule reads in the app: "When [WhatsApp] and [sender starts with "+44"], [mark as spam]", or for a rule
+ * that shows: "When [Any app] and [title or text contains "urgent"], show [Pulse] until [read] and play [Bells]".
+ */
 object RuleText {
     const val ANY_APP = "Any app"
-    const val ANYONE = "Anyone"
-    const val ANYTHING = "Anything"
-    const val STARRED = "Starred"
-    const val UNKNOWN = "Unknown senders"
+    const val CALLS = "Phone calls"
+    const val EVERYTHING = "Calls and any app"
+    const val ANYTHING = "anything"
 
     /** First item, then "+N" for the rest; [empty] when there are none. */
     private fun short(items: List<String>, empty: String): String = when (items.size) {
@@ -15,28 +19,14 @@ object RuleText {
         else -> "${items[0]} +${items.size - 1}"
     }
 
-    fun apps(rule: Rule, label: (String) -> String): String = short(rule.packages.map(label), ANY_APP)
-
-    fun people(rule: Rule): String =
-        short(rule.people.filter { it.isNotBlank() } + listOfNotNull(STARRED.takeIf { rule.starred }, UNKNOWN.takeIf { rule.unknown }), ANYONE)
-
-    fun keywords(rule: Rule): String {
-        val words = rule.words
-        if (words.isEmpty()) return ANYTHING
-        val listed = if (rule.regex) {
-            if (words.size == 1) "a pattern" else "${words.size} patterns"
-        } else {
-            when (rule.keywordMode) {
-                KeywordMode.ALL -> if (words.size == 1) "\"${words[0]}\"" else "all of ${words.size} words"
-                else -> short(words.map { "\"$it\"" }, ANYTHING)
-            }
-        }
-        return when {
-            rule.keywordMode == KeywordMode.NONE -> "not $listed"
-            rule.regex && rule.keywordMode == KeywordMode.ALL && words.size > 1 -> "all of $listed"
-            else -> listed
-        }
+    fun source(rule: Rule, label: (String) -> String): String = when (rule.source) {
+        Source.CALLS -> CALLS
+        Source.APPS -> short(rule.packages.map(label), ANY_APP)
+        Source.EVERYTHING -> if (rule.packages.isEmpty()) EVERYTHING else "Calls and " + short(rule.packages.map(label), ANY_APP)
     }
+
+    fun conditions(rule: Rule, label: (String) -> String = { it }): String =
+        FilterEngine.describe(rule.match, label).ifEmpty { ANYTHING }
 
     /** [designName] names the saved design a [GlyphStyle.DESIGN] rule shows. */
     fun glyph(rule: Rule, designName: (String?) -> String?): String =
@@ -45,8 +35,17 @@ object RuleText {
     /** The rule's sound, or null when it plays none. */
     fun sound(rule: Rule): String? = rule.soundUri?.let { rule.soundName?.takeIf { n -> n.isNotBlank() } ?: "a ringtone" }
 
-    fun sentence(rule: Rule, label: (String) -> String, designName: (String?) -> String? = { null }): String =
-        "When ${apps(rule, label)} from ${people(rule)} mention ${keywords(rule)}, " +
-            "show ${glyph(rule, designName)} until ${rule.until.label}" +
-            (sound(rule)?.let { " and play $it" } ?: "")
+    fun action(rule: Rule, designName: (String?) -> String? = { null }): String = when (rule.action) {
+        Action.SHOW -> buildString {
+            append(if (rule.glyph == GlyphStyle.NONE) "show no glyph" else "show ${glyph(rule, designName)} until ${rule.until.label}")
+            sound(rule)?.let { append(" and play $it") }
+            if (rule.vibrate) append(", vibrate")
+        }
+        else -> rule.action.label
+    }
+
+    fun sentence(rule: Rule, label: (String) -> String, designName: (String?) -> String? = { null }): String {
+        val cond = rule.match.takeIf { !it.isEmpty }?.let { " and " + FilterEngine.describe(it, label) }.orEmpty()
+        return "When ${source(rule, label)}$cond, ${action(rule, designName)}"
+    }
 }
