@@ -1,0 +1,15 @@
+# Build outputs and Gradle state
+build/
+.gradle/
+.kotlin/
+captures/
+*.apk
+*.aab
+
+# Machine-local configuration
+local.properties
+.idea/
+*.iml
+
+# Nothing Glyph Matrix SDK: not redistributable, fetched by scripts/fetch-glyph-sdk.sh
+*.aar
