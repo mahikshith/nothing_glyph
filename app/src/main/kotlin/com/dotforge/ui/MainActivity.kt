@@ -32,10 +32,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.dotforge.diagnostics.DiagnosticsScreen
@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         EventLog.init(this)
         val setup = Setup(this)
+        this.setup = setup
+        if (savedInstanceState == null && intent?.getBooleanExtra(EXTRA_LIVE, false) == true) pendingLive = true
         setContent {
             DotForgeTheme {
                 val nav = rememberSaveable(saver = Nav.saver) { Nav() }
@@ -86,6 +88,24 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         importUri(intent)?.let { incoming = it }
+        if (intent.getBooleanExtra(EXTRA_LIVE, false)) pendingLive = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // started here, once visible, so Android lets the foreground service start
+        if (pendingLive) {
+            pendingLive = false
+            setup?.startLive()
+        }
+    }
+
+    private var setup: Setup? = null
+    private var pendingLive = false
+
+    companion object {
+        /** Sent by the Live Quick Settings tile when it needs the app (to ask for the microphone). */
+        const val EXTRA_LIVE = "com.dotforge.extra.LIVE"
     }
 
     /** The file of an "Open with" (VIEW) or Share (SEND) intent. */

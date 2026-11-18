@@ -1,6 +1,7 @@
 package com.dotforge.toys
 
 import android.content.SharedPreferences
+import com.dotforge.composition.VisualStyle
 
 /** The few options the toys have, set from each toy's settings page. */
 class ToySettings(private val prefs: SharedPreferences) {
@@ -22,7 +23,13 @@ class ToySettings(private val prefs: SharedPreferences) {
         get() = prefs.getString(PLAYER_DESIGN, null)
         set(v) = prefs.edit().putString(PLAYER_DESIGN, v).apply()
 
+    /** What the Live visualiser and the DF Music toy draw. */
+    var visualStyle: VisualStyle
+        get() = VisualStyle.entries.firstOrNull { it.name == prefs.getString(VISUAL_STYLE, null) } ?: VisualStyle.BARS
+        set(v) = prefs.edit().putString(VISUAL_STYLE, v.name).apply()
+
     companion object {
+        private const val VISUAL_STYLE = "visual_style"
         private const val CLOCK_24H = "clock_24h"
         private const val BATTERY_CHARGE = "battery_charge_animation"
         private const val DICE_SHAKE = "dice_shake"

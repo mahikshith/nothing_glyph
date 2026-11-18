@@ -68,11 +68,11 @@ import com.dotforge.ringtones.ImportMode
 import com.dotforge.ringtones.ImportSession
 import com.dotforge.ringtones.ImportSessions
 import com.dotforge.ringtones.TimelineEditorState
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 private val LANE_HEIGHT = 56.dp
 private val LABEL_WIDTH = 84.dp

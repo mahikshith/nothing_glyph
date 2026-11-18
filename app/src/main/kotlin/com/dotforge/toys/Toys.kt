@@ -14,13 +14,16 @@ import com.dotforge.AppGraph
 import com.dotforge.device.AnimFrame
 import com.dotforge.device.Animation
 import com.dotforge.device.Effects
+import com.dotforge.device.Frame
+import com.dotforge.visualiser.VisualiserEngine
+import com.dotforge.visualiser.next
+import java.time.LocalDateTime
+import kotlin.math.sqrt
+import kotlin.random.Random
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.time.LocalDateTime
-import kotlin.math.sqrt
-import kotlin.random.Random
 
 private const val INFO_MS = 3_000L
 
@@ -191,5 +194,34 @@ class PlayerToy : GlyphToyService() {
 
     override fun onAodTick() {
         if (!paused && !isPlaying) start()
+    }
+}
+
+/**
+ * Music visualiser toy: bars, a ring pulse or a radial spectrum from what is playing (long press: next style).
+ * Needs the microphone permission, given in DotForge; until then it scrolls a hint.
+ */
+class MusicToy : GlyphToyService() {
+    private var engine: VisualiserEngine? = null
+
+    override fun onToyStart() {
+        val e = VisualiserEngine(this, profile, { AppGraph.toys.visualStyle }) { pixels ->
+            toyScope.launch { show(Frame.of(profile, pixels)) }
+        }
+        if (!e.hasPermission() || !e.start()) {
+            e.close()
+            play(Effects.marquee(profile, "ALLOW MICROPHONE IN DOTFORGE"), loop = true)
+            return
+        }
+        engine = e
+    }
+
+    override fun onPress(press: Press) {
+        if (press == Press.LONG) AppGraph.toys.visualStyle = AppGraph.toys.visualStyle.next()
+    }
+
+    override fun onToyStop() {
+        engine?.close()
+        engine = null
     }
 }

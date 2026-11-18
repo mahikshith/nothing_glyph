@@ -1,16 +1,22 @@
 package com.dotforge.ui
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -24,16 +30,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.R
+import com.dotforge.composition.VisualStyle
+import com.dotforge.composition.VisualiserRenderer
 import com.dotforge.device.DeviceProfile
 import com.dotforge.device.Effects
 import com.dotforge.device.Frame
 import com.dotforge.toys.ToySettings
-import kotlinx.coroutines.delay
 import java.time.LocalTime
+import kotlinx.coroutines.delay
 
 /** The four Glyph Toys as the app shows them. */
 enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
@@ -41,6 +51,7 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
     BATTERY(R.string.toy_battery_name, R.string.toy_battery_summary, "Battery ring"),
     DICE(R.string.toy_dice_name, R.string.toy_dice_summary, "Shake to roll"),
     PLAYER(R.string.toy_player_name, R.string.toy_player_summary, "Plays your design"),
+    MUSIC(R.string.toy_music_name, R.string.toy_music_summary, "Lights to the music"),
     ;
 
     fun preview(profile: DeviceProfile): Frame = when (this) {
@@ -48,6 +59,7 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
         BATTERY -> Effects.ring(profile, 0.7f)
         DICE -> Effects.dice(profile, 5)
         PLAYER -> AppGraph.playerAnimation()?.frames?.first()?.frame ?: Effects.comet(profile, 10)
+        MUSIC -> Frame.of(profile, VisualiserRenderer.frame(floatArrayOf(0.9f, 0.8f, 0.7f, 0.75f, 0.6f, 0.5f, 0.55f, 0.4f, 0.35f, 0.3f, 0.2f, 0.15f), AppGraph.toys.visualStyle, profile))
     }
 }
 
@@ -129,6 +141,7 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
                 GroupTitle("OPTIONS")
                 SwitchRow("Shake to roll", "Uses the motion sensor while the toy is on", shake) { shake = it; prefs.diceShake = it }
             }
+            Toy.MUSIC -> Unit
             Toy.PLAYER -> {
                 GroupTitle("PLAYS")
                 if (designs.isEmpty()) {
@@ -146,7 +159,37 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
                 }
             }
         }
+        if (toy == Toy.MUSIC) {
+            var style by remember { mutableStateOf(prefs.visualStyle) }
+            GroupTitle("LOOK")
+            VisualStyle.entries.forEach { s ->
+                ChoiceCard(s.label, s.hint, s == style, Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    style = s; prefs.visualStyle = s; version++
+                }
+            }
+            MicAsk()
+        }
         GroupTitle("HOW TO USE")
         Text(howToSteps(toy))
+    }
+}
+
+/** The toy can't ask for the microphone itself: ask here, with Not now. */
+@Composable
+private fun MicAsk() {
+    val ctx = LocalContext.current
+    var granted by remember { mutableStateOf(ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
+    var notNow by remember { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    if (granted || notNow) return
+    Surface(color = Surface1, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Allow the microphone", fontWeight = FontWeight.Medium)
+            Text("The toy reads the sound that is playing, which Android counts as microphone access. Nothing is recorded.", color = Muted, fontSize = 13.sp)
+            Row(Modifier.padding(top = 8.dp)) {
+                TextButton(onClick = { launcher.launch(Manifest.permission.RECORD_AUDIO) }) { Text("Allow", color = NothingRed) }
+                TextButton(onClick = { notNow = true }) { Text("Not now", color = Color.White) }
+            }
+        }
     }
 }

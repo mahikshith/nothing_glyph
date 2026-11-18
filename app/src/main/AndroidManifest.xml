@@ -6,6 +6,13 @@
     <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
     <!-- Only asked for when a rule's People picker opens or the spam filter needs to know who is a contact. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Music visualiser (Live switch, Quick Settings tile, DF Music toy): asked when first switched on. Visualizer
+         on the output mix needs it, and so does the microphone fallback. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Visualizer on the output mix (session 0). -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Ringtones > Set as > A contact: asked only then, to set that contact's ringtone. -->
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <!-- Ringtones > Set as > Phone ringtone: special access ("Modify system settings"), asked only then. -->
@@ -86,6 +93,27 @@
                 android:value="true" />
         </service>
 
+        <!-- Live music visualiser: runs while switched on, drives the matrix only while music plays. -->
+        <service
+            android:name=".visualiser.LiveVisualiserService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Quick Settings tile: Live music visualiser. -->
+        <service
+            android:name=".visualiser.LiveTileService"
+            android:exported="true"
+            android:icon="@drawable/toy_music"
+            android:label="@string/live_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
         <!-- Glyph Toys: added in Settings > Glyph Interface > Glyph Toys. -->
         <service
             android:name=".toys.ClockToy"
@@ -139,6 +167,18 @@
             <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
             <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
             <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.MusicToy"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_music_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_music" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_music_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
         </service>
     </application>
 </manifest>

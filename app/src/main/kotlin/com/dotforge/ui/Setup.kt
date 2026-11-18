@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,10 +28,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.notify.GlyphNotificationListener
 import com.dotforge.setup.AccessFlow
+import com.dotforge.visualiser.LiveVisualiser
 
 /**
  * Live permission state and the ask-when-first-used flows. Notification access goes through [AccessFlow]
@@ -62,6 +64,9 @@ class Setup(private val activity: ComponentActivity) {
     var accessStep by mutableStateOf(AccessFlow.Step.NONE)
         private set
     var contactsSheet by mutableStateOf(false)
+        private set
+    /** The microphone sheet for the Live visualiser. */
+    var micSheet by mutableStateOf(false)
         private set
     /** Bumped on every resume, so screens can re-read system state. */
     var resumes by mutableIntStateOf(0)
@@ -148,8 +153,41 @@ class Setup(private val activity: ComponentActivity) {
         contacts = hasContacts()
     }
 
+    private fun hasMic() =
+        activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    /** Live switch on (Glyph tab or the Quick Settings tile): start, or ask for the microphone first. */
+    fun startLive() {
+        if (!hasMic()) {
+            micSheet = true
+            return
+        }
+        if (!LiveVisualiser.start(activity)) Toast.makeText(activity, "Android didn't let the visualiser start.", Toast.LENGTH_SHORT).show()
+    }
+
+    fun micNotNow() {
+        micSheet = false
+    }
+
+    /** Ask with the system dialog, or open App info once Android stops showing it. */
+    fun allowMic(launch: () -> Unit) {
+        micSheet = false
+        val asked = prefs.getBoolean(KEY_MIC_ASKED, false)
+        if (asked && !activity.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
+            openAppDetails()
+        } else {
+            prefs.edit().putBoolean(KEY_MIC_ASKED, true).apply()
+            launch()
+        }
+    }
+
+    fun onMicResult(granted: Boolean) {
+        if (granted) startLive()
+    }
+
     private companion object {
         const val KEY_CONTACTS_ASKED = "contacts_asked"
+        const val KEY_MIC_ASKED = "mic_asked"
     }
 }
 
@@ -184,6 +222,18 @@ fun SetupSheets(setup: Setup) {
                 "No such option? Tap Try again, tap the greyed-out switch once, then come back here.",
             primary = "Open App info" to setup::openAppInfo,
             secondary = "Try again" to setup::openAccessSettings,
+        )
+    }
+
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { setup.onMicResult(it) }
+    if (setup.micSheet) {
+        Sheet(
+            onDismiss = setup::micNotNow,
+            title = "Allow the microphone",
+            body = "The visualiser reads the sound that is playing on this phone, which Android counts as microphone " +
+                "access. If no music data comes through, it listens with the microphone instead. Nothing is recorded or saved.",
+            primary = "Allow" to { setup.allowMic { micLauncher.launch(Manifest.permission.RECORD_AUDIO) } },
+            secondary = null,
         )
     }
 

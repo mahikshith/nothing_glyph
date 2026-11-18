@@ -5,8 +5,8 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
-import com.dotforge.composition.PeakEnvelope
 import com.dotforge.composition.Pcm
+import com.dotforge.composition.PeakEnvelope
 import java.io.File
 import java.io.IOException
 import java.nio.ByteOrder

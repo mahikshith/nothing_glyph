@@ -1,6 +1,7 @@
 package com.dotforge.ui
 
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,9 +11,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,14 +25,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
+import com.dotforge.composition.VisualStyle
 import com.dotforge.rules.SpamFilter
 import com.dotforge.tile.TorchTileService
+import com.dotforge.visualiser.LiveVisualiser
 import java.time.LocalDate
 import kotlin.math.roundToInt
 
@@ -45,6 +51,8 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
     val progress by AppGraph.progressRings.collectAsStateWithLifecycle()
     val brightness by AppGraph.brightness.collectAsStateWithLifecycle()
     var howTo by rememberSaveable { mutableStateOf<Toy?>(null) }
+    var pickStyle by rememberSaveable { mutableStateOf(false) }
+    val ctx = LocalContext.current
     val access = setup.notificationAccess
     val torchOn = active.any { it.id == TorchTileService.ID }
 
@@ -110,6 +118,24 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
                 onClick = { TorchTileService.toggle() },
             )
         }
+        val liveOn by LiveVisualiser.running.collectAsStateWithLifecycle()
+        val liveMic by LiveVisualiser.usingMic.collectAsStateWithLifecycle()
+        val liveMusic by LiveVisualiser.music.collectAsStateWithLifecycle()
+        val setLive = { on: Boolean -> if (on) setup.startLive() else LiveVisualiser.stop(ctx) }
+        FeatureTile(
+            "Music visualiser",
+            summary = when {
+                !liveOn -> "Lights follow what's playing. Hold for the look."
+                liveMic -> "Using the microphone: Android gave no music data"
+                !liveMusic -> "On. Waiting for music"
+                else -> "On · ${AppGraph.toys.visualStyle.label}"
+            },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            checked = liveOn,
+            onCheckedChange = { setLive(it) },
+            onClick = { setLive(!liveOn) },
+            onLongClick = { pickStyle = true },
+        )
 
         GroupTitle("TOYS")
         Toy.entries.chunked(2).forEach { pair ->
@@ -132,7 +158,7 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
         GroupTitle("CUSTOMISE")
         TileRow {
             FeatureTile("Essential Key", "Remap the side key", Modifier.weight(1f), comingSoon = true)
-            FeatureTile("Ringtones", "Import or make glyph ringtones", Modifier.weight(1f), onClick = { nav.push(Page.Ringtones) })
+            FeatureTile("Ringtones", "Import, make and edit glyph ringtones", Modifier.weight(1f), onClick = { nav.push(Page.Ringtones) })
         }
         TileRow {
             FeatureTile("App integrations", "Tasker, media, more", Modifier.weight(1f), comingSoon = true)
@@ -141,10 +167,33 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
         Spacer(Modifier.height(24.dp))
     }
 
+    if (pickStyle) VisualStyleDialog(onDismiss = { pickStyle = false })
     howTo?.let { toy ->
         ToyHowToDialog(toy, onDismiss = { howTo = null }, onSettings = {
             howTo = null
             nav.push(Page.ToySettings(toy))
         })
     }
+}
+
+/** The look of the Live visualiser and the DF Music toy. */
+@Composable
+fun VisualStyleDialog(onDismiss: () -> Unit) {
+    var style by remember { mutableStateOf(AppGraph.toys.visualStyle) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface2,
+        title = { Text("Visualiser look") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                VisualStyle.entries.forEach { s ->
+                    ChoiceCard(s.label, s.hint, s == style, Modifier.fillMaxWidth()) {
+                        style = s
+                        AppGraph.toys.visualStyle = s
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done", color = Color.White) } },
+    )
 }

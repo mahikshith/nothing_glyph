@@ -3,8 +3,8 @@ package com.dotforge.ringtones
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.dotforge.composition.AudioAnalysis
@@ -23,6 +23,8 @@ import com.dotforge.composition.SongWindow
 import com.dotforge.composition.Timeline
 import com.dotforge.composition.TimelineCodec
 import com.dotforge.device.DeviceProfile
+import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,8 +34,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
 
 /** How the import page was reached. */
 enum class ImportMode {

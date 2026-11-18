@@ -15,6 +15,8 @@ import kotlinx.coroutines.launch
 object Priority {
     const val PROGRESS = 30
     const val NOTIFICATION = 50
+    /** The Live music visualiser: above notifications while music plays (it is switched on by hand). */
+    const val LIVE = 55
     const val STUDIO_PREVIEW = 60
     const val TORCH = 70
 
