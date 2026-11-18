@@ -123,3 +123,37 @@ object AnimatePresets {
         return sample(f) { x, y -> (c + (x - c) / k) to (c + (y - c) / k) }
     }
 }
+
+/** The Effects sheet's "Make it move": the presets plus Breathe, each with Strength and Length. */
+enum class MoveEffect(val label: String) {
+    PULSE("Pulse"), BREATHE("Breathe"), BLINK("Blink"), SPIN("Spin"), SCROLL("Scroll"), SPARKLE("Sparkle"), WIPE("Wipe"),
+    GROW("Grow"), SLIDE_LEFT("Slide in ←"), SLIDE_RIGHT("Slide in →"), SLIDE_TOP("Drop in"), SLIDE_BOTTOM("Rise in");
+
+    /**
+     * Frames from [f]. [strength] 0.2-1 blends the motion with the still picture (low = subtle); [length]
+     * 0.5-2 stretches every frame's time.
+     */
+    fun make(f: Frame, strength: Float = 1f, length: Float = 1f): Animation {
+        val base: Animation = when (this) {
+            PULSE -> AnimatePreset.PULSE.apply(f)
+            BREATHE -> DesignEffects.breathe(Animation.single(f, 1000))
+            BLINK -> AnimatePreset.BLINK.apply(f)
+            SPIN -> AnimatePreset.ROTATE.apply(f)
+            SCROLL -> AnimatePreset.MARQUEE.apply(f)
+            SPARKLE -> AnimatePreset.SPARKLE.apply(f)
+            WIPE -> AnimatePreset.WIPE.apply(f)
+            GROW -> AnimatePreset.GROW.apply(f)
+            SLIDE_LEFT -> AnimatePreset.SLIDE_LEFT.apply(f)
+            SLIDE_RIGHT -> AnimatePreset.SLIDE_RIGHT.apply(f)
+            SLIDE_TOP -> AnimatePreset.SLIDE_TOP.apply(f)
+            SLIDE_BOTTOM -> AnimatePreset.SLIDE_BOTTOM.apply(f)
+        }
+        val s = strength.coerceIn(0.2f, 1f)
+        val k = length.coerceIn(0.5f, 2f)
+        val p = f.profile
+        return Animation(p, base.frames.map { af ->
+            val px = if (s >= 1f) af.frame.pixels else IntArray(p.cellCount) { (f.pixels[it] * (1 - s) + af.frame.pixels[it] * s).roundToInt() }
+            AnimFrame(Frame.of(p, px), (af.durationMs * k).roundToInt().coerceIn(Animation.MIN_FRAME_MS, Animation.MAX_FRAME_MS))
+        })
+    }
+}

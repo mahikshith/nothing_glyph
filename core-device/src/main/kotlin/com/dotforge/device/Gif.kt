@@ -12,6 +12,31 @@ class GifFrame(val picture: Picture, val delayMs: Int)
 object Gif {
     class GifException(message: String) : Exception(message)
 
+    /** How many frames the GIF has (for "Converting… 12 of 48 frames"), found without decoding; 0 if it can't be read. */
+    fun count(bytes: ByteArray): Int = runCatching {
+        var pos = 13
+        fun u8(): Int = bytes[pos++].toInt() and 0xFF
+        fun skipBlocks() { while (true) { val n = u8(); if (n == 0) break; pos += n } }
+        val flags = bytes[10].toInt() and 0xFF
+        if (flags and 0x80 != 0) pos += 3 * (2 shl (flags and 7))
+        var n = 0
+        while (pos < bytes.size) {
+            when (u8()) {
+                0x21 -> { u8(); skipBlocks() }
+                0x2C -> {
+                    pos += 8
+                    val lf = u8()
+                    if (lf and 0x80 != 0) pos += 3 * (2 shl (lf and 7))
+                    u8()
+                    skipBlocks()
+                    n++
+                }
+                else -> break
+            }
+        }
+        n
+    }.getOrDefault(0)
+
     /** Decodes up to [maxFrames] frames; [onFrame] reports progress (frames done) and returns false to stop. */
     fun decode(bytes: ByteArray, maxFrames: Int = 300, onFrame: (Int) -> Boolean = { true }): List<GifFrame> {
         var pos = 0

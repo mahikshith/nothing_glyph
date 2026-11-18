@@ -180,6 +180,8 @@ class StudioModelsTest {
         val bytes = Gif.encode(a, cell = 4)
         val frames = Gif.decode(bytes)
         assertEquals(2, frames.size)
+        assertEquals(2, Gif.count(bytes))
+        assertEquals(0, Gif.count("hello".toByteArray()))
         assertEquals(listOf(200, 100), frames.map { it.delayMs })
         // the middle of each lit dot is bright, of each dark dot is not
         val side = p.size * 4

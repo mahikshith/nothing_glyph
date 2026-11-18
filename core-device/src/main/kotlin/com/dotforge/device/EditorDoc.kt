@@ -253,6 +253,21 @@ class EditorDoc(
         commit(state.with(frames = frames.take(MAX_FRAMES), durations = durations.take(MAX_FRAMES), cur = i))
     }
 
+    /** Insert from library: [a]'s frames go in after the current frame (up to 300 in all); the first is selected. */
+    fun insertAfter(a: Animation): Boolean {
+        val room = MAX_FRAMES - state.frames.size
+        if (room <= 0) return false
+        val add = a.frames.take(room)
+        val at = state.cur + 1
+        val frames = state.frames.toMutableList().also { it.addAll(at, add.map { f -> Frame.of(profile, f.frame.pixels).pixels }) }
+        val durations = state.durations.toMutableList().also { it.addAll(at, add.map { f -> f.durationMs }) }
+        commit(state.with(frames = frames, durations = durations, cur = at))
+        return true
+    }
+
+    /** Insert a still on top of the current frame: its lit dots replace the ones under them. */
+    fun stamp(f: Frame) = draw { out -> for (i in f.pixels.indices) if (f.pixels[i] > 0 && profile.isActive(i % profile.size, i / profile.size)) out.pixels[i] = f.pixels[i] }
+
     /** Deletes the current frame; the last one can't be deleted. */
     fun deleteFrame(): Boolean {
         if (state.frames.size < 2) return false
