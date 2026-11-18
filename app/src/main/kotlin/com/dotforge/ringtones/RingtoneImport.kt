@@ -3,8 +3,8 @@ package com.dotforge.ringtones
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.dotforge.composition.AudioAnalysis
@@ -16,8 +16,10 @@ import com.dotforge.composition.GlyphAuthor
 import com.dotforge.composition.GlyphRingtone
 import com.dotforge.composition.ImportKind
 import com.dotforge.composition.OggRepager
+import com.dotforge.composition.Pcm
 import com.dotforge.composition.RingtoneConverter
 import com.dotforge.composition.RingtoneParser
+import com.dotforge.composition.SongWindow
 import com.dotforge.device.DeviceProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,30 +45,39 @@ enum class ImportMode {
     SAVED,
 }
 
-/** A file read and ready to preview: its kind, the audio that will be saved, and what lights are made from. */
+/** A song (audio without lights): the original file, its waveform and length. */
+class SongSource(val file: File, val scan: AudioCodec.Scan, /** Already Ogg Opus/Vorbis: a whole-song window is saved without re-encoding. */ val retaggable: Boolean)
+
+/** A file read and ready to preview. */
 class RingtoneSource(
     val name: String,
     val kind: ImportKind,
-    /** Ogg (Opus or Vorbis) whose comments get replaced on save; also what the preview plays. */
-    val audio: File,
-    val analysis: AudioAnalysis?,
-    /** The song was longer than [RingtoneImporter.MAX_SONG_MS] and was cut (with a fade-out). */
-    val trimmed: Boolean,
-)
+    /** Glyph files: the Ogg (Opus or Vorbis) saved with new comments. Null for songs (made from the window on save). */
+    val ogg: File?,
+    /** Songs only. */
+    val song: SongSource?,
+) {
+    /** What the preview plays. */
+    val playFile: File get() = ogg ?: song!!.file
+}
 
 object RingtoneImporter {
-    /** Songs are cut to this length: a ringtone loops, and the light track grows with every second. */
-    const val MAX_SONG_MS = 40_000L
+    /** The longest part of a song a ringtone is made from: a ringtone loops, and the light track grows with every second. */
+    const val MAX_SONG_MS = SongWindow.MAX_MS
     private const val MAX_FILE_BYTES = 80L * 1024 * 1024
+    private const val FADE_OUT_MS = 1_500
+    private const val FADE_IN_MS = 30
 
-    /** Reads [uri] into a fresh work folder and prepares it. Slow: call off the main thread. */
+    /** Reads [uri] into the work folder [dir] and prepares it. Slow: call off the main thread. */
     fun load(context: Context, uri: Uri, mode: ImportMode, dir: File): RingtoneSource {
         dir.deleteRecursively()
         dir.mkdirs()
         val cr = context.contentResolver
-        val name = runCatching {
-            cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-        }.getOrNull()?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Ringtone"
+        val name = (
+            runCatching {
+                cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/')
+            )?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Ringtone"
         val source = File(dir, "source")
         val input = cr.openInputStream(uri) ?: throw IOException("Couldn't open this file.")
         input.use { inp ->
@@ -88,31 +99,34 @@ object RingtoneImporter {
         val kind = if (mode == ImportMode.SONG) ImportKind.AudioOnly else ImportKind.of(info)
         val title = info?.tags?.first("TITLE")?.takeIf { it.isNotBlank() && mode == ImportMode.SAVED } ?: name
         val retaggable = isOgg && OggRepager.canRetag(bytes)
-        val audio = File(dir, "audio.ogg")
 
         if (kind !is ImportKind.AudioOnly) {
+            val audio = File(dir, "audio.ogg")
             if (retaggable) source.moveTo(audio) else AudioCodec.encodeOggOpus(AudioCodec.decode(source).pcm, audio)
-            return RingtoneSource(title, kind, audio, null, trimmed = false)
+            return RingtoneSource(title, kind, audio, null)
         }
-        val decoded = AudioCodec.decode(source, MAX_SONG_MS)
-        if (decoded.pcm.frames == 0) throw IOException("There's no sound in this file.")
-        val analysis = AudioAnalyzer.analyze(decoded.pcm.mono(), decoded.pcm.sampleRate)
-        when {
-            retaggable && !decoded.cut -> source.moveTo(audio)
-            decoded.cut -> AudioCodec.encodeOggOpus(decoded.pcm.fadedOut(1_500), audio)
-            else -> AudioCodec.encodeOggOpus(decoded.pcm, audio)
-        }
-        source.delete()
-        return RingtoneSource(title, kind, audio, analysis, decoded.cut)
+        val scan = AudioCodec.scan(source)
+        if (scan.durationMs <= 0) throw IOException("There's no sound in this file.")
+        return RingtoneSource(title, kind, null, SongSource(source, scan, retaggable))
     }
 
     private fun File.moveTo(target: File) {
         if (!renameTo(target)) copyTo(target, overwrite = true)
     }
 
-    /** The Phone (3) rows (0-4095) for the chosen settings. */
+    /** The chosen part of a song, decoded, and its analysis. */
+    class Part(val window: SongWindow, val pcm: Pcm, val analysis: AudioAnalysis)
+
+    fun analysePart(song: SongSource, window: SongWindow): Part {
+        val pcm = AudioCodec.decode(song.file, window.lengthMs, window.startMs).pcm
+        if (pcm.frames == 0) throw IOException("There's no sound in this part.")
+        return Part(window, pcm, AudioAnalyzer.analyze(pcm.mono(), pcm.sampleRate))
+    }
+
+    /** The Phone (3) rows (0-4095) for the chosen settings. [part] is needed for songs. */
     fun generate(
         src: RingtoneSource,
+        part: Part?,
         layout: ConvertLayout,
         style: ComposeStyle,
         intensity: Float,
@@ -121,15 +135,28 @@ object RingtoneImporter {
     ): List<IntArray> = when (val k = src.kind) {
         is ImportKind.Phone3 -> RingtoneConverter.keep(k.rows, profile, intensity)
         is ImportKind.OtherPhone -> RingtoneConverter.convert(k.rows, layout, profile, intensity)
-        ImportKind.AudioOnly -> AutoComposer.compose(src.analysis!!, style, profile, intensity, speed)
+        ImportKind.AudioOnly -> part?.let { AutoComposer.compose(it.analysis, style, profile, intensity, speed) }.orEmpty()
     }
 
     /** One row as a 0-255 frame for the preview and the matrix. */
     fun toLevels(row: IntArray): IntArray = IntArray(row.size) { GlyphAuthor.toLevel(row[it]) }
 
-    /** The saved file: [src]'s audio with our glyph comments. */
-    fun write(src: RingtoneSource, title: String, rows: List<IntArray>): ByteArray =
-        GlyphRingtone.write(src.audio.readBytes(), title, rows)
+    /**
+     * The Ogg the ringtone is saved from: the glyph file itself, or for a song the chosen part (a whole Ogg song
+     * as it is; otherwise encoded to Opus, faded out when it stops before the song's end).
+     */
+    fun oggBytes(src: RingtoneSource, part: Part?, dir: File): ByteArray {
+        src.ogg?.let { return it.readBytes() }
+        val song = src.song!!
+        val p = part ?: throw IOException("The song isn't ready yet.")
+        if (song.retaggable && p.window.isWhole) return song.file.readBytes()
+        var pcm = p.pcm
+        if (p.window.startMs > 0) pcm = pcm.fadedIn(FADE_IN_MS)
+        if (p.window.cutsEnd) pcm = pcm.fadedOut(FADE_OUT_MS)
+        val out = File(dir, "part.ogg")
+        AudioCodec.encodeOggOpus(pcm, out)
+        return out.readBytes()
+    }
 }
 
 /**
@@ -145,7 +172,8 @@ class ImportSession(val key: String, private val context: Context, private val u
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var generation: Job? = null
-    private val dir = File(File(context.cacheDir, "ringtone-import"), System.nanoTime().toString())
+    private var analysing: Job? = null
+    val dir = File(File(context.cacheDir, "ringtone-import"), System.nanoTime().toString())
 
     var state by mutableStateOf<State>(State.Loading)
         private set
@@ -167,11 +195,24 @@ class ImportSession(val key: String, private val context: Context, private val u
         private set
     var error by mutableStateOf<String?>(null)
 
+    /** Songs: the chosen part, as shown while dragging. */
+    var window by mutableStateOf<SongWindow?>(null)
+        private set
+    /** Songs: the part the lights are made from (catches up with [window] after a drag). */
+    var part by mutableStateOf<RingtoneImporter.Part?>(null)
+        private set
+    val updatingPart: Boolean get() = window != null && part?.window != window
+
     init {
         scope.launch {
             state = try {
                 val src = withContext(Dispatchers.IO) { RingtoneImporter.load(context, uri, mode, dir) }
                 title = src.name
+                src.song?.let { song ->
+                    val w = SongWindow.loudest(song.scan.durationMs, song.scan.envelope, song.scan.bucketMs)
+                    window = w
+                    part = withContext(Dispatchers.IO) { RingtoneImporter.analysePart(song, w) }
+                }
                 State.Ready(src).also { regenerate(it.source, now = true) }
             } catch (t: CancellationException) {
                 throw t
@@ -185,12 +226,32 @@ class ImportSession(val key: String, private val context: Context, private val u
         }
     }
 
-    private val source get() = (state as? State.Ready)?.source
+    val source: RingtoneSource? get() = (state as? State.Ready)?.source
 
     fun choose(layout: ConvertLayout) { this.layout = layout; changed() }
     fun choose(style: ComposeStyle) { this.style = style; changed() }
     fun changeIntensity(v: Float) { intensity = v; changed() }
     fun changeSpeed(v: Float) { speed = v; changed() }
+
+    /** Moves or resizes the song window; the part is decoded and analysed again once dragging pauses. */
+    fun changeWindow(w: SongWindow) {
+        if (w == window) return
+        window = w
+        savedUri = null
+        val song = source?.song ?: return
+        analysing?.cancel()
+        analysing = scope.launch {
+            delay(350)
+            try {
+                part = withContext(Dispatchers.IO) { RingtoneImporter.analysePart(song, w) }
+                source?.let { regenerate(it, now = true) }
+            } catch (t: CancellationException) {
+                throw t
+            } catch (t: Exception) {
+                error = t.message ?: "Couldn't read that part."
+            }
+        }
+    }
 
     private fun changed() {
         savedUri = if (mode == ImportMode.SAVED) savedUri else null
@@ -201,8 +262,8 @@ class ImportSession(val key: String, private val context: Context, private val u
         generation?.cancel()
         generation = scope.launch {
             if (!now) delay(120)
-            val l = layout; val s = style; val i = intensity; val sp = speed
-            rows = withContext(Dispatchers.Default) { RingtoneImporter.generate(src, l, s, i, sp) }
+            val l = layout; val s = style; val i = intensity; val sp = speed; val p = part
+            rows = withContext(Dispatchers.Default) { RingtoneImporter.generate(src, p, l, s, i, sp) }
         }
     }
 
@@ -211,10 +272,15 @@ class ImportSession(val key: String, private val context: Context, private val u
         if (saving) return
         saving = true
         scope.launch {
+            analysing?.join()
             generation?.join()
             val name = title.trim().ifEmpty { src.name }
+            val lights = rows
+            val p = part
             try {
-                val uri = withContext(Dispatchers.IO) { library.save(name, RingtoneImporter.write(src, name, rows)) }
+                val uri = withContext(Dispatchers.IO) {
+                    library.save(name, GlyphRingtone.write(RingtoneImporter.oggBytes(src, p, dir), name, lights))
+                }
                 savedUri = uri
                 onSaved(uri)
             } catch (t: CancellationException) {
@@ -233,9 +299,10 @@ class ImportSession(val key: String, private val context: Context, private val u
     }
 }
 
-/** At most one import page at a time; a rotation finds its session again by key. */
+/** At most one import page at a time; a rotation (or the editor) finds its session again by key. */
 object ImportSessions {
-    private var current: ImportSession? = null
+    var current: ImportSession? = null
+        private set
 
     fun open(context: Context, uri: Uri, mode: ImportMode): ImportSession {
         val key = "$mode|$uri"

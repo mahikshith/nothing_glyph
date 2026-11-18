@@ -2,10 +2,7 @@ package com.dotforge.ui
 
 import android.Manifest
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.net.Uri
-import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,21 +36,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.PathData
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,13 +56,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.composition.ComposeStyle
 import com.dotforge.composition.ConvertLayout
-import com.dotforge.composition.GlyphAuthor
 import com.dotforge.composition.GlyphRingtone
 import com.dotforge.composition.ImportKind
-import com.dotforge.device.Animation
-import com.dotforge.device.Frame
-import com.dotforge.engine.DisplayRequest
-import com.dotforge.engine.Priority
 import com.dotforge.ringtones.ImportMode
 import com.dotforge.ringtones.ImportSession
 import com.dotforge.ringtones.ImportSessions
@@ -81,11 +67,7 @@ import com.dotforge.ringtones.RingtoneSource
 import com.dotforge.ringtones.SavedRingtone
 import com.dotforge.rules.RuleText
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-
-private const val PREVIEW_ID = "ringtone"
 
 /** MIME types for "Import a file": any audio, and Ogg files that some pickers type as application/ogg. */
 private val IMPORT_TYPES = arrayOf("audio/*", "application/ogg")
@@ -245,62 +227,30 @@ fun RingtoneImportPage(uri: String, mode: ImportMode, nav: Nav) {
 @Composable
 private fun ColumnScope.ReadyContent(session: ImportSession, src: RingtoneSource, mode: ImportMode) {
     val profile = AppGraph.profile
-    val rows = session.rows
-    val player = rememberPlayer(src)
-    var playing by remember { mutableStateOf(false) }
-    var posMs by remember { mutableLongStateOf(0L) }
-    val durationMs = (player?.duration?.toLong()?.takeIf { it > 0 } ?: (rows.size * 1000L / GlyphAuthor.FPS)).coerceAtLeast(1L)
-
-    DisposableEffect(player) {
-        player?.setOnCompletionListener { playing = false; posMs = 0L; it.seekTo(0) }
-        onDispose { }
-    }
-    LaunchedEffect(playing, player) {
-        val p = player ?: return@LaunchedEffect
-        if (!playing) {
-            if (p.isPlaying) p.pause()
-            return@LaunchedEffect
-        }
-        p.start()
-        while (isActive && playing) {
-            posMs = p.currentPosition.toLong()
-            delay(15)
-        }
-    }
-    LifecycleResumeEffect(Unit) { onPauseOrDispose { playing = false } }
-
-    val index = (posMs * GlyphAuthor.FPS / 1000).toInt()
-    val pixels = remember(rows, index) { rows.getOrNull(index)?.let(RingtoneImporter::toLevels) }
-
-    // the same frame on the real matrix, at most ~30 times a second while playing
-    val lastPost = remember { longArrayOf(0L) }
-    LaunchedEffect(pixels) {
-        val now = SystemClock.uptimeMillis()
-        if (playing && now - lastPost[0] < 33) return@LaunchedEffect
-        lastPost[0] = now
-        val frame = Frame.of(profile, pixels ?: IntArray(profile.cellCount))
-        AppGraph.arbiter.post(DisplayRequest(PREVIEW_ID, Priority.STUDIO_PREVIEW, Animation.single(frame, 1_000), loop = true, label = "Ringtone preview"))
-    }
-    DisposableEffect(Unit) { onDispose { AppGraph.arbiter.remove(PREVIEW_ID) } }
-
-    MatrixView(pixels, profile, Modifier.fillMaxWidth(0.78f).align(Alignment.CenterHorizontally).padding(top = 8.dp))
-    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { playing = !playing }, enabled = player != null) {
-            Icon(if (playing) PauseIcon else Icons.Filled.PlayArrow, if (playing) "Pause" else "Play")
-        }
-        Slider(
-            value = posMs.coerceAtMost(durationMs).toFloat(),
-            onValueChange = { v ->
-                posMs = v.toLong()
-                player?.seekTo(v.toInt())
-            },
-            valueRange = 0f..durationMs.toFloat(),
-            modifier = Modifier.weight(1f),
-            colors = ringSliderColors(),
-        )
-        Text(clock(posMs), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
-    }
+    val part = session.part
+    val preview = rememberRingtonePreview(
+        src.playFile,
+        offsetMs = part?.window?.startMs ?: 0L,
+        lengthMs = part?.window?.lengthMs,
+        rows = session.rows,
+        fadeMs = if (part?.window?.cutsEnd == true) 1_500 else 0,
+    )
+    MatrixView(preview.pixels, profile, Modifier.fillMaxWidth(0.78f).align(Alignment.CenterHorizontally).padding(top = 8.dp))
+    PreviewTransport(preview)
     Text(describe(src), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+
+    val song = src.song
+    val window = session.window
+    if (song != null && window != null && mode != ImportMode.SAVED) {
+        GroupTitle("PART OF THE SONG")
+        SongWindowBar(song.scan.envelope, window, session::changeWindow)
+        Text(
+            "${clock(window.startMs)} - ${clock(window.endMs)} · ${window.lengthMs / 1000} s" +
+                if (session.updatingPart) " · Updating lights..." else "",
+            color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp),
+        )
+        Text("Drag the part to move it, its right edge to change the length.", color = Muted, fontSize = 13.sp)
+    }
 
     when (src.kind) {
         is ImportKind.OtherPhone -> if (mode != ImportMode.SAVED) {
@@ -333,8 +283,7 @@ private fun describe(src: RingtoneSource): String = when (val k = src.kind) {
     is ImportKind.Phone3 -> "Glyph ringtone for Phone (3). Its lights are kept."
     is ImportKind.OtherPhone ->
         "Glyph ringtone for ${GlyphRingtone.phoneFor(k.columns) ?: "another phone"} (${k.columns} zones). Pick how the zones sit on the matrix."
-    ImportKind.AudioOnly ->
-        "Lights made from the music." + if (src.trimmed) " Cut to the first ${RingtoneImporter.MAX_SONG_MS / 1000} s." else ""
+    ImportKind.AudioOnly -> "Lights made from the music, from the part you pick (up to ${RingtoneImporter.MAX_SONG_MS / 1000} s)."
 }
 
 @Composable
@@ -356,35 +305,8 @@ private fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPoin
     }
 }
 
-/** A prepared player for the import's audio; null when Android can't play it. Released when the page goes. */
-@Composable
-private fun rememberPlayer(src: RingtoneSource): MediaPlayer? {
-    val player = remember(src.audio) {
-        runCatching {
-            MediaPlayer().apply {
-                setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                setDataSource(src.audio.path)
-                prepare()
-            }
-        }.getOrNull()
-    }
-    DisposableEffect(player) { onDispose { player?.release() } }
-    return player
-}
-
-private fun clock(ms: Long): String {
-    val s = ms / 1000
-    return "%d:%02d".format(s / 60, s % 60)
-}
-
 @Composable
 private fun ringSliderColors() = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Surface2)
-
-private val PauseIcon: ImageVector = ImageVector.Builder("Pause", 24.dp, 24.dp, 24f, 24f).apply {
-    for (x in listOf(6f, 14f)) {
-        addPath(PathData { moveTo(x, 5f); lineTo(x + 4f, 5f); lineTo(x + 4f, 19f); lineTo(x, 19f); close() }, fill = SolidColor(Color.Black))
-    }
-}.build()
 
 private enum class SetStep { MENU, RINGTONE_ASK, CONTACT_ASK, RULES }
 

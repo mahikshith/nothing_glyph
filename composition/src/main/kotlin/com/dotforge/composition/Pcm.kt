@@ -50,4 +50,16 @@ class Pcm(val sampleRate: Int, val channels: Int, val samples: ShortArray) {
         }
         return Pcm(sampleRate, channels, out)
     }
+
+    /** Linear fade from silence over the first [ms] (avoids a click when a song is cut mid-note). */
+    fun fadedIn(ms: Int): Pcm {
+        val n = (ms.toLong() * sampleRate / 1000).toInt().coerceAtMost(frames)
+        if (n <= 0) return this
+        val out = samples.copyOf()
+        for (f in 0 until n) {
+            val g = f.toFloat() / n
+            for (c in 0 until channels) out[f * channels + c] = (out[f * channels + c] * g).toInt().toShort()
+        }
+        return Pcm(sampleRate, channels, out)
+    }
 }

@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import com.dotforge.composition.PeakEnvelope
 import com.dotforge.composition.Pcm
 import java.io.File
 import java.io.IOException
@@ -21,8 +22,43 @@ object AudioCodec {
 
     class Decoded(val pcm: Pcm, /** True when the audio went on past the limit and was cut. */ val cut: Boolean)
 
-    /** The first audio track of [file] as 16-bit PCM, stopping after [maxMs]. */
-    fun decode(file: File, maxMs: Long = Long.MAX_VALUE): Decoded {
+    /** A whole song at a glance: its peak envelope (for the waveform) and length. */
+    class Scan(val envelope: FloatArray, val bucketMs: Int, val durationMs: Long)
+
+    /** The first audio track of [file] as 16-bit PCM from [startMs], stopping after [maxMs]. */
+    fun decode(file: File, maxMs: Long = Long.MAX_VALUE, startMs: Long = 0L): Decoded {
+        val out = ShortBuilder()
+        var cut = false
+        var limit = -1L
+        val (rate, channels) = pump(file, startMs) { chunk, n, rate, ch ->
+            if (limit < 0) limit = if (maxMs == Long.MAX_VALUE) Long.MAX_VALUE else maxMs * rate / 1000 * ch
+            val room = (limit - out.size).coerceAtMost(n.toLong()).toInt()
+            out.addAll(chunk, room)
+            if (room < n || out.size.toLong() >= limit) { cut = true; false } else true
+        }
+        val keep = out.size / channels * channels
+        return Decoded(Pcm(rate, channels, out.toArray(keep)), cut)
+    }
+
+    /** Reads the whole song (up to [maxMs]) without keeping the samples: peaks every 50 ms and the length. */
+    fun scan(file: File, maxMs: Long = 15 * 60_000L): Scan {
+        var env: PeakEnvelope? = null
+        var samples = 0L
+        val (rate, channels) = pump(file, 0L) { chunk, n, rate, ch ->
+            val e = env ?: PeakEnvelope(rate, ch).also { env = it }
+            e.add(chunk, n)
+            samples += n
+            samples / ch * 1000 / rate < maxMs
+        }
+        val e = env ?: PeakEnvelope(rate, channels)
+        return Scan(e.result(), e.bucketMs, samples / channels.coerceAtLeast(1) * 1000 / rate.coerceAtLeast(1))
+    }
+
+    /**
+     * Decodes [file] from [startMs] and hands each block of interleaved samples to [sink] (which returns false to
+     * stop). Returns the sample rate and channel count.
+     */
+    private fun pump(file: File, startMs: Long, sink: (ShortArray, Int, Int, Int) -> Boolean): Pair<Int, Int> {
         val ex = MediaExtractor()
         try {
             ex.setDataSource(file.path)
@@ -30,14 +66,15 @@ object AudioCodec {
                 ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
             } ?: throw IOException("There's no sound in this file.")
             ex.selectTrack(track)
+            val startUs = startMs * 1000
+            if (startUs > 0) ex.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
             val format = ex.getTrackFormat(track)
             val mime = format.getString(MediaFormat.KEY_MIME)!!
             var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var isFloat = false
+            var chunk = ShortArray(16 * 1024)
             val codec = MediaCodec.createDecoderByType(mime)
-            val out = ShortBuilder()
-            var cut = false
             try {
                 codec.configure(format, null, null, 0)
                 codec.start()
@@ -69,27 +106,31 @@ object AudioCodec {
                         val buf = codec.getOutputBuffer(o)!!.order(ByteOrder.nativeOrder())
                         buf.position(info.offset)
                         buf.limit(info.offset + info.size)
+                        val n = if (isFloat) info.size / 4 else info.size / 2
+                        if (chunk.size < n) chunk = ShortArray(n)
                         if (isFloat) {
                             val fb = buf.asFloatBuffer()
-                            while (fb.hasRemaining()) out.add((fb.get() * 32767f).toInt().coerceIn(-32768, 32767).toShort())
+                            for (k in 0 until n) chunk[k] = (fb.get() * 32767f).toInt().coerceIn(-32768, 32767).toShort()
                         } else {
-                            val sb = buf.asShortBuffer()
-                            while (sb.hasRemaining()) out.add(sb.get())
+                            buf.asShortBuffer().get(chunk, 0, n)
                         }
                         codec.releaseOutputBuffer(o, false)
-                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
-                        if (maxMs != Long.MAX_VALUE && out.size / channels.coerceAtLeast(1) >= maxMs * rate / 1000) {
-                            cut = true
-                            break
+                        // drop what the decoder gives before the start (seeking lands on the sync point before it)
+                        val ch = channels.coerceAtLeast(1)
+                        val skipFrames = if (startUs > info.presentationTimeUs) ((startUs - info.presentationTimeUs) * rate / 1_000_000L) else 0L
+                        val skip = (skipFrames * ch).coerceAtMost(n.toLong()).toInt() / ch * ch
+                        if (skip < n) {
+                            if (skip > 0) System.arraycopy(chunk, skip, chunk, 0, n - skip)
+                            if (!sink(chunk, n - skip, rate, ch)) break
                         }
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
                     }
                 }
             } finally {
                 runCatching { codec.stop() }
                 codec.release()
             }
-            val keep = if (cut) (maxMs * rate / 1000).toInt() * channels else out.size / channels * channels
-            return Decoded(Pcm(rate, channels, out.toArray(keep)), cut)
+            return rate to channels.coerceAtLeast(1)
         } finally {
             ex.release()
         }
@@ -162,9 +203,11 @@ object AudioCodec {
         var size = 0
             private set
 
-        fun add(v: Short) {
-            if (size == data.size) data = data.copyOf(data.size * 2)
-            data[size++] = v
+        fun addAll(src: ShortArray, n: Int) {
+            if (n <= 0) return
+            if (size + n > data.size) data = data.copyOf(maxOf(data.size * 2, size + n))
+            System.arraycopy(src, 0, data, size, n)
+            size += n
         }
 
         fun toArray(n: Int): ShortArray = data.copyOf(n.coerceIn(0, size))
