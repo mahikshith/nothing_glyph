@@ -59,12 +59,12 @@ fun ComponentGallery(onBack: () -> Unit, sheet: Boolean = false, timingKind: Tim
             SectionLabel("Home tiles, 104")
             TilePair(
                 { EqualTile("Torch", if (on) "On · off in 4:12" else "Off", it, checked = on, onToggle = { v -> on = v }, onOpen = {}) },
-                { EqualTile("Music visualiser", "Needs Phone (3)", it, checked = false, enabled = false, onOpen = {}) },
+                { EqualTile("Visualiser", "Needs Phone (3)", it, checked = false, enabled = false, onOpen = {}) },
             )
             SectionLabel("Features cards, 120")
             TilePair(
                 { EqualTile("Toys", "3 of 15 on", it, height = Tokens.FeatureCard, icon = { LibraryGlyph("game") }, onOpen = {}) },
-                { EqualTile("Progress rings", "Off", it, height = Tokens.FeatureCard, icon = { LibraryGlyph("download") }, onOpen = {}) },
+                { EqualTile("Live progress", "Off", it, height = Tokens.FeatureCard, icon = { LibraryGlyph("download") }, onOpen = {}) },
             )
         }
         item {

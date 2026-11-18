@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
@@ -73,6 +74,7 @@ fun TimingPanel(
     placeName: String? = null,
     animated: Boolean = kind != TimingKind.STILL,
     animationMs: Int? = null,
+    showLine: Boolean = true,
     onChange: (Timing) -> Unit,
 ) {
     val t = timing.clamped()
@@ -88,10 +90,10 @@ fun TimingPanel(
                 TextButton(onClick = { onChange(b) }) { Text("Reset", style = MaterialTheme.typography.labelLarge, color = Color.White) }
             }
         }
-        Text(timingLine(t, kind, animated, animationMs), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = Tokens.Tiny))
+        if (showLine) Text(timingLine(t, kind, animated, animationMs), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = Tokens.Tiny))
 
         // ---- Show for
-        Part("Show for")
+        Part("Show for", first = !showLine)
         FlowRow(horizontalArrangement = chips) {
             if (b != null) OwnChip(showForText(b, kind), sameShowFor(b, t)) { onChange(t.copy(showFor = b.showFor, seconds = b.seconds, remindMinutes = b.remindMinutes)) }
             val own = b != null && sameShowFor(b, t)
@@ -205,13 +207,31 @@ fun TimingSheet(
 ) {
     val animated = kind != TimingKind.STILL && (animation?.frames?.size ?: 2) > 1
     val live = animation?.let { Timings.plan(it, timing).animation }
+    // on a short screen the preview shrinks and sits beside the plain line, so the first controls show at half height
+    val short = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < SHORT_SCREEN_DP
+    val line = timingLine(timing, kind, animated, animation?.totalMs)
+    // no subtitle: the plain line already says it
     FullSheet(
-        onDismiss, "Timing", timingSummary(timing, kind, animated), half = true,
-        pinned = live?.let { a -> { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { GlyphPreview(a, name, size = PreviewSize.MEDIUM) } } },
+        onDismiss, "Timing", half = true,
+        pinned = live?.let { a ->
+            {
+                if (short) Row(verticalAlignment = Alignment.CenterVertically) {
+                    GlyphPreview(a, name, Modifier.size(SHORT_PREVIEW), size = PreviewSize.MEDIUM)
+                    Text(line, Modifier.padding(start = Tokens.Gutter), style = MaterialTheme.typography.bodyMedium)
+                } else Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { GlyphPreview(a, name, size = PreviewSize.MEDIUM) }
+            }
+        },
     ) {
-        TimingPanel(timing, kind, base = base, placeName = placeName, animated = animated, animationMs = animation?.totalMs, onChange = onChange)
+        TimingPanel(
+            timing, kind, base = base, placeName = placeName, animated = animated, animationMs = animation?.totalMs,
+            showLine = !(short && live != null), onChange = onChange,
+        )
     }
 }
+
+/** Below this screen height (dp) the timing sheet's preview shrinks to [SHORT_PREVIEW]. */
+private const val SHORT_SCREEN_DP = 700
+private val SHORT_PREVIEW = 64.dp
 
 private fun sameShowFor(a: Timing, b: Timing) =
     a.showFor == b.showFor && (a.showFor != ShowFor.SECONDS || a.seconds == b.seconds) && (a.showFor != ShowFor.UNTIL_CHECKED || a.remindMinutes == b.remindMinutes)
@@ -221,8 +241,8 @@ private fun OwnChip(value: String, selected: Boolean, onClick: () -> Unit) = Chi
 
 /** A part's title. The chips under it show what is picked, so no value is repeated on the right. */
 @Composable
-private fun Part(title: String) =
-    Text(title, Modifier.fillMaxWidth().padding(top = Tokens.Section, bottom = Tokens.Tiny), style = MaterialTheme.typography.titleMedium)
+private fun Part(title: String, first: Boolean = false) =
+    Text(title, Modifier.fillMaxWidth().padding(top = if (first) Tokens.Tiny else Tokens.Section, bottom = Tokens.Tiny), style = MaterialTheme.typography.titleMedium)
 
 @Composable
 private fun Label(text: String) =

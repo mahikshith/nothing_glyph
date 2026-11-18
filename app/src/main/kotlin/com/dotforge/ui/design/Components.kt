@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -332,11 +335,11 @@ fun AddRow(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) =
 // ---------------------------------------------------------------- tiles
 
 /**
- * An equal tile for a 2-column grid. Every tile in a grid has the same fixed height ([height]: 104 dp for Home
- * tiles, 120 dp for Features cards, grown evenly with the font scale) and the same slots: a top row with the icon
- * on the left and the switch on the right (either may be empty), then a one-line name and a one-line status, both
- * ending in "…" when they don't fit. With a switch the tile has two targets: the switch toggles, the rest of the
- * tile opens [onOpen]; TalkBack also gets an "Open settings" action on the switch.
+ * An equal tile for a 2-column grid. Tiles in a [TilePair] share one height: at least [height] (104 dp for Home
+ * tiles, 120 dp for Features cards), or the tallest one needs at this font scale. Slots, top to bottom: an
+ * optional icon; the name (up to 2 lines) with the switch, when there is one, on its right; the status on one
+ * line across the full width. The whole tile opens [onOpen]; the switch is its own target, and TalkBack also gets
+ * an "Open settings" action on it.
  */
 @Composable
 fun EqualTile(
@@ -351,18 +354,25 @@ fun EqualTile(
     onOpen: (() -> Unit)? = null,
 ) {
     val haptic = rememberHaptics()
-    val fs = androidx.compose.ui.platform.LocalDensity.current.fontScale
-    // one height for every tile at this font scale: the two text lines grow, the top row doesn't
-    val h = height + TILE_TEXT_LINES * (fs - 1f).coerceAtLeast(0f)
-    Surface(color = Tokens.Card, shape = Tokens.CardShape, modifier = modifier.height(h)) {
+    Surface(color = Tokens.Card, shape = Tokens.CardShape, modifier = modifier.heightIn(min = height)) {
         Column(
             Modifier.fillMaxSize()
                 .then(if (onOpen != null) Modifier.clickable(onClickLabel = "Open settings", role = Role.Button, onClick = onOpen) else Modifier)
-                .padding(start = Tokens.Gutter, end = Tokens.Tiny, bottom = Tokens.Gap),
+                .padding(start = Tokens.Gutter, end = if (checked != null) Tokens.Tiny else Tokens.Gutter, top = Tokens.Gap, bottom = Tokens.Gap),
         ) {
-            Row(Modifier.fillMaxWidth().height(Tokens.Target), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f).then(if (enabled) Modifier else Modifier.alpha(0.5f))) { icon?.invoke() }
-                if (checked != null) {
+            if (icon != null) Box(Modifier.padding(bottom = Tokens.Small).then(if (enabled) Modifier else Modifier.alpha(0.5f))) { icon() }
+            // the name sits beside the switch, unless a word would break there: then it goes under the switch
+            var under by remember(title) { mutableStateOf(false) }
+            val name: @Composable (Modifier) -> Unit = { m ->
+                Text(
+                    title, m, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (enabled) Tokens.Text else Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { r -> if (checked != null && !under && breaksWord(r, title)) under = true },
+                )
+            }
+            if (checked != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                if (under) Spacer(Modifier.weight(1f)) else name(Modifier.weight(1f).padding(top = Tokens.Gap))
+                run {
                     Box(
                         Modifier.size(width = 64.dp, height = Tokens.Target)
                             .toggleable(checked, enabled = enabled, role = Role.Switch) { haptic.toggle(it); onToggle(it) }
@@ -374,29 +384,29 @@ fun EqualTile(
                     ) { Switch(checked = checked, onCheckedChange = null, enabled = enabled, colors = switchColors()) }
                 }
             }
-            Spacer(Modifier.weight(1f))
-            Row(Modifier.padding(end = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
-                // one size for every tile; a long name ends in "…" rather than shrinking one tile's text
-                Text(
-                    title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (enabled) Tokens.Text else Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                if (onOpen != null) Chevron()
-            }
-            Text(status, Modifier.padding(end = Tokens.Small), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (checked == null || under) name(Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp))
+            Spacer(Modifier.weight(1f).heightIn(min = Tokens.Tiny))
+            Text(status, Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
-/** How much a tile grows per 1x of extra font scale: its two text lines. */
-private val TILE_TEXT_LINES = 40.dp
+/** True when a line of [r] ends inside a word of [text] (so it was broken mid-word). */
+private fun breaksWord(r: androidx.compose.ui.text.TextLayoutResult, text: String): Boolean =
+    (0 until r.lineCount).any { i ->
+        val end = r.getLineEnd(i, visibleEnd = true)
+        end in 1 until text.length && text[end - 1].isLetterOrDigit() && text[end].isLetterOrDigit()
+    }
 
-/** Two equal tiles side by side, 12 dp apart; a lone tile keeps half the width. */
+/** Two equal tiles side by side, 12 dp apart, as tall as the taller one; a lone tile keeps half the width. */
 @Composable
 fun TilePair(first: @Composable (Modifier) -> Unit, second: (@Composable (Modifier) -> Unit)?) =
-    Row(Modifier.fillMaxWidth().padding(bottom = Tokens.Gap), horizontalArrangement = Arrangement.spacedBy(Tokens.Gap)) {
-        first(Modifier.weight(1f))
-        if (second != null) second(Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
+    Row(
+        Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min).padding(bottom = Tokens.Gap),
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Gap),
+    ) {
+        first(Modifier.weight(1f).fillMaxHeight())
+        if (second != null) second(Modifier.weight(1f).fillMaxHeight()) else Spacer(Modifier.weight(1f))
     }
 
 // ---------------------------------------------------------------- glyph previews
@@ -671,24 +681,23 @@ fun SecondaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolea
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 
 /**
- * A 36 dp chip, 44 dp tall in layout (at least 48 wide) so wrapped rows sit 8 dp apart; selected is white with
- * black text.
+ * A 36 dp chip, 44 dp tall in layout (at least 48 wide) so wrapped rows sit 8 dp apart. The whole 44 dp pill is
+ * the target, and Compose widens a target smaller than 48 dp to 48 when touched (minimum touch target), so every
+ * chip still takes a 48 dp touch. Selected is white with black text.
  */
 @Composable
 fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    CompositionLocalProvider(androidx.compose.material3.LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Box(modifier.heightIn(min = CHIP_ROW).widthIn(min = Tokens.Target), contentAlignment = Alignment.Center) {
-            Surface(
-                onClick = onClick,
-                selected = selected,
-                shape = RoundedCornerShape(18.dp),
-                color = if (selected) Color.White else Tokens.Raised,
-                contentColor = if (selected) Color.Black else Color.White,
-            ) {
-                Box(Modifier.heightIn(min = 36.dp).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                    Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                }
-            }
+    Box(
+        modifier.heightIn(min = CHIP_ROW).widthIn(min = Tokens.Target)
+            .clip(RoundedCornerShape(CHIP_ROW / 2))
+            .selectable(selected = selected, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.heightIn(min = 36.dp).background(if (selected) Color.White else Tokens.Raised, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = if (selected) Color.Black else Color.White, maxLines = 1)
         }
     }
 }

@@ -36,7 +36,7 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
         "Nothing's Glyph Toys list decides which toys you can switch to. Add DotForge's toys there. Toys rest after 30 s.",
     ),
     MUSIC(
-        "music", "Music visualiser", "The Glyph moves with whatever is playing.",
+        "music", "Visualiser", "The Glyph moves with whatever is playing.",
         listOf("Style" to "Bars", "Brightness" to "100%"),
         "It reads the sound that is playing on this phone. Android counts that as microphone access; nothing is recorded.",
     ),
@@ -46,12 +46,12 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
         "The torch uses the Glyph at full brightness and turns itself off so it never drains the battery by accident.",
     ),
     BATTERY(
-        "battery", "Battery and volume", "The Glyph shows the battery while charging and the volume as you change it.",
+        "battery", "Battery & volume", "The Glyph shows the battery while charging and the volume as you change it.",
         listOf("While charging" to "Battery ring", "Volume" to "Bar"),
         "When you plug in, a ring fills to the battery level. When you press the volume keys, a bar shows the level.",
     ),
     PROGRESS(
-        "progress", "Progress rings", "A ring that fills for downloads, deliveries and timers.",
+        "progress", "Live progress", "A ring that fills for deliveries, rides, downloads and timers.",
         listOf("Apps" to "Any app", "Show minutes left" to "On"),
         "It works when the app shows progress or an arrival time in its notification.",
     ),
