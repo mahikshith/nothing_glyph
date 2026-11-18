@@ -131,8 +131,10 @@ fun MatrixView(
     modifier: Modifier = Modifier,
     version: Int = 0,
     onCell: ((Int, Int) -> Unit)? = null,
+    onRelease: (() -> Unit)? = null,
 ) {
     val cb by rememberUpdatedState(onCell)
+    val end by rememberUpdatedState(onRelease)
     var input = Modifier.aspectRatio(1f)
     if (onCell != null) {
         input = input
@@ -140,10 +142,11 @@ fun MatrixView(
                 detectTapGestures { o ->
                     val cell = size.width / profile.size.toFloat()
                     cb?.invoke((o.x / cell).toInt(), (o.y / cell).toInt())
+                    end?.invoke()
                 }
             }
             .pointerInput(profile) {
-                detectDragGestures { change, _ ->
+                detectDragGestures(onDragEnd = { end?.invoke() }, onDragCancel = { end?.invoke() }) { change, _ ->
                     val cell = size.width / profile.size.toFloat()
                     cb?.invoke((change.position.x / cell).toInt(), (change.position.y / cell).toInt())
                 }

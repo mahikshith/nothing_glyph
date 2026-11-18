@@ -62,6 +62,7 @@ import com.dotforge.AppGraph
 import com.dotforge.device.AnimFrame
 import com.dotforge.device.AnimationLibrary
 import com.dotforge.device.DesignEffect
+import com.dotforge.device.Draw
 import com.dotforge.device.Animation
 import com.dotforge.device.Frame
 import com.dotforge.engine.DisplayRequest
@@ -224,6 +225,11 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
     var index by remember { mutableIntStateOf(0) }
     var version by remember { mutableIntStateOf(0) }
     var erase by rememberSaveable { mutableStateOf(false) }
+    var tool by rememberSaveable { mutableStateOf(Tool.PEN) }
+    var onion by rememberSaveable { mutableStateOf(false) }
+    // a shape being drawn: where it started and the frame before it
+    var anchor by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var before by remember { mutableStateOf<IntArray?>(null) }
     var level by rememberSaveable { mutableFloatStateOf(255f) }
     var live by rememberSaveable { mutableStateOf(true) }
     var confirmLeave by remember { mutableStateOf(false) }
@@ -291,20 +297,43 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
         },
     ) {
         Box(Modifier.fillMaxWidth()) {
+            val shown = if (onion && hasFrames && index > 0) Draw.onion(current(), frames[index - 1]) else current().pixels
             MatrixView(
-                current().pixels, profile, Modifier.fillMaxWidth().padding(top = 8.dp), version = version,
+                shown, profile, Modifier.fillMaxWidth().padding(top = 8.dp), version = version,
                 onCell = { x, y ->
-                    current()[x, y] = if (erase) 0 else level.roundToInt()
+                    val v = if (erase) 0 else level.roundToInt()
+                    val f = current()
+                    when (tool) {
+                        Tool.PEN -> f[x, y] = v
+                        Tool.FILL -> Draw.fill(f, x, y, v)
+                        else -> {
+                            val start = anchor ?: (x to y).also { anchor = it; before = f.pixels.copyOf() }
+                            before?.copyInto(f.pixels)
+                            when (tool) {
+                                Tool.LINE -> Draw.line(f, start.first, start.second, x, y, v)
+                                Tool.BOX -> Draw.rect(f, start.first, start.second, x, y, v)
+                                else -> Draw.circle(f, start.first, start.second, x, y, v)
+                            }
+                        }
+                    }
                     version++
                 },
+                onRelease = { anchor = null; before = null },
             )
             MatrixView(corner?.pixels, profile, Modifier.size(72.dp).align(Alignment.TopEnd))
         }
 
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            Tool.entries.forEachIndexed { i, t ->
+                SegmentedButton(selected = tool == t, onClick = { tool = t }, shape = SegmentedButtonDefaults.itemShape(i, Tool.entries.size)) {
+                    Text(t.label, fontSize = 12.sp, maxLines = 1)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
-                SegmentedButton(selected = !erase, onClick = { erase = false }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Pen") }
-                SegmentedButton(selected = erase, onClick = { erase = true }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("Eraser") }
+                SegmentedButton(selected = !erase, onClick = { erase = false }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Light") }
+                SegmentedButton(selected = erase, onClick = { erase = true }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("Erase") }
             }
             TextButton(onClick = { current().fill(0); version++ }, Modifier.padding(start = 8.dp)) { Text("Clear", color = Color.White) }
         }
@@ -342,6 +371,7 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
                     }) { Icon(Icons.Filled.Add, "Add frame (copy of this one)") }
                 }
             }
+            SwitchRow("Onion skin", "The previous frame shows faintly while you draw", onion) { onion = it }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Frame ${index + 1} of ${frames.size}", color = Muted, modifier = Modifier.weight(1f))
                 if (frames.size > 1) {
@@ -353,11 +383,15 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
                     }) { Text("Delete frame", color = Color.White) }
                 }
             }
+            var thisFrame by rememberSaveable { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Speed", Modifier.padding(end = 12.dp))
+                TextButton(onClick = { thisFrame = !thisFrame }) { Text(if (thisFrame) "This frame" else "All frames", color = NothingRed) }
                 Slider(
                     value = durations[index].coerceAtMost(MAX_FRAME_MS).toFloat(),
-                    onValueChange = { v -> durations.indices.forEach { durations[it] = v.roundToInt() }; version++ },
+                    onValueChange = { v ->
+                        if (thisFrame) durations[index] = v.roundToInt() else durations.indices.forEach { durations[it] = v.roundToInt() }
+                        version++
+                    },
                     valueRange = Animation.MIN_FRAME_MS.toFloat()..MAX_FRAME_MS.toFloat(),
                     modifier = Modifier.weight(1f),
                     colors = sliderColors(),
@@ -404,6 +438,9 @@ fun DesignEditorPage(designId: String?, animated: Boolean, onClose: () -> Unit) 
         }, onDismiss = { confirmDelete = false })
     }
 }
+
+/** The editor's drawing tools; shapes are dragged from one corner (or the centre) to the other. */
+private enum class Tool(val label: String) { PEN("Pen"), FILL("Fill"), LINE("Line"), BOX("Box"), CIRCLE("Circle") }
 
 @Composable
 private fun sliderColors() = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Surface2)
