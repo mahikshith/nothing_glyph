@@ -160,8 +160,8 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             onLongClick = { pickStyle = true },
         )
         FeatureTile(
-            "Battery and volume",
-            summary = "Charging meter, full and low flashes, volume ring",
+            "Battery, volume and torch",
+            summary = "Charging meter, full and low flashes, volume ring, shake for torch",
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
             onClick = { nav.push(Page.SystemGlyphs) },
         )

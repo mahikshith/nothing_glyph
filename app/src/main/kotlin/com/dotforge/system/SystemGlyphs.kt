@@ -55,6 +55,11 @@ object BatteryEvents {
         return d > threshold
     }
 
+    /** Two shakes within [windowMs] make a torch toggle; returns the new list of recent shake times. */
+    fun shakeTimes(times: List<Long>, now: Long, windowMs: Long = 1_000): List<Long> = (times.filter { now - it <= windowMs } + now)
+
+    fun isDoubleShake(times: List<Long>): Boolean = times.size >= 2
+
     /** The battery meter: the ring for [percent] with the number inside. */
     fun meter(p: DeviceProfile, percent: Int): Animation {
         val f = Effects.ring(p, percent / 100f).overlay(Effects.centredDigits(p, listOf("$percent")), 200)
@@ -81,6 +86,12 @@ class SystemGlyphSettings(private val prefs: SharedPreferences) {
     private val _alarms = flow(KEY_ALARMS)
     private val _wiggle = flow(KEY_WIGGLE)
     private val _volume = flow(KEY_VOLUME)
+    private val _torch = flow(KEY_TORCH)
+    private val _torchFirm = flow(KEY_TORCH_FIRM)
+    /** Shake twice to switch the glyph torch on or off. */
+    val shakeTorch: StateFlow<Boolean> = _torch.asStateFlow()
+    /** Needs a harder shake. */
+    val shakeTorchFirm: StateFlow<Boolean> = _torchFirm.asStateFlow()
     /** Show the battery meter when the charger goes in. */
     val chargingMeter: StateFlow<Boolean> = _charging.asStateFlow()
     /** Full and low battery flashes. */
@@ -98,12 +109,16 @@ class SystemGlyphSettings(private val prefs: SharedPreferences) {
     fun setAlarms(v: Boolean) = set(_alarms, KEY_ALARMS, v)
     fun setWiggle(v: Boolean) = set(_wiggle, KEY_WIGGLE, v)
     fun setVolume(v: Boolean) = set(_volume, KEY_VOLUME, v)
+    fun setShakeTorch(v: Boolean) = set(_torch, KEY_TORCH, v)
+    fun setShakeTorchFirm(v: Boolean) = set(_torchFirm, KEY_TORCH_FIRM, v)
 
     private companion object {
         const val KEY_CHARGING = "charging_meter"
         const val KEY_ALARMS = "battery_alarms"
         const val KEY_WIGGLE = "charging_wiggle"
         const val KEY_VOLUME = "volume_ring"
+        const val KEY_TORCH = "shake_torch"
+        const val KEY_TORCH_FIRM = "shake_torch_firm"
     }
 }
 
@@ -120,6 +135,30 @@ class SystemGlyphs(private val context: Context, private val settings: SystemGly
     private var lastShakeAt = 0L
     private var listening = false
     private var lastVolume = -1
+    private var torchListening = false
+    private var torchLast: FloatArray? = null
+    private var shakes = emptyList<Long>()
+    private var lastToggle = 0L
+
+    private val torchShake = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) {
+            val now = e.values.copyOf()
+            val threshold = if (settings.shakeTorchFirm.value) 20f else 14f
+            val shook = BatteryEvents.isShake(torchLast, now, threshold)
+            torchLast = now
+            if (!shook) return
+            val t = System.currentTimeMillis()
+            if (t - lastToggle < 1_500) return // one shake is several readings
+            shakes = BatteryEvents.shakeTimes(shakes, t)
+            if (BatteryEvents.isDoubleShake(shakes) && shakes.last() - shakes.first() > 250) {
+                shakes = emptyList()
+                lastToggle = t
+                com.dotforge.tile.TorchTileService.toggle()
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
 
     private val battery = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -156,10 +195,17 @@ class SystemGlyphs(private val context: Context, private val settings: SystemGly
         context.contentResolver.registerContentObserver(Settings.System.CONTENT_URI, true, volumeObserver)
     }
 
-    /** Re-reads the battery after a switch changes (starts or stops the shake sensor). */
+    /** Re-reads the switches (starts or stops the shake sensors). */
     fun refresh() {
         val charging = last?.second == true
         listenForShake(charging && settings.wiggle.value)
+        val torch = settings.shakeTorch.value
+        if (torch != torchListening) {
+            torchListening = torch
+            torchLast = null
+            if (torch) sensors?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let { sensors.registerListener(torchShake, it, SensorManager.SENSOR_DELAY_GAME) }
+            else sensors?.unregisterListener(torchShake)
+        }
     }
 
     private fun listenForShake(on: Boolean) {

@@ -171,7 +171,7 @@ object AppGraph {
         automation = AutomationSettings(app.getSharedPreferences("automation", Context.MODE_PRIVATE))
         system = SystemGlyphSettings(app.getSharedPreferences("system_glyphs", Context.MODE_PRIVATE))
         val systemGlyphs = SystemGlyphs(app, system).also { it.start() }
-        MainScope().launch { system.wiggle.collect { systemGlyphs.refresh() } }
+        MainScope().launch { combine(system.wiggle, system.shakeTorch) { a, b -> a to b }.collect { systemGlyphs.refresh() } }
         // the spam list is fetched (and refreshed weekly) only while a rule uses it
         MainScope().launch {
             rules.rules.map { list -> list.any { r -> r.enabled && r.match.allConditions.any { it.field == Field.SPAM_LIST } } }.distinctUntilChanged().collect { on ->

@@ -37,4 +37,12 @@ class BatteryEventsTest {
         assertEquals(Math.round(p.ring.size / 3f), p.ring.count { v.pixels[it] == 255 })
         assertEquals(0, p.ring.count { BatteryEvents.volume(p, 3, 0).pixels[it] == 255 })
     }
+
+    @Test fun twoShakesInASecondToggleTheTorch() {
+        var t = BatteryEvents.shakeTimes(emptyList(), 1_000)
+        assertFalse(BatteryEvents.isDoubleShake(t))
+        t = BatteryEvents.shakeTimes(t, 1_600)
+        assertTrue(BatteryEvents.isDoubleShake(t))
+        assertFalse(BatteryEvents.isDoubleShake(BatteryEvents.shakeTimes(listOf(1_000), 2_500))) // too slow
+    }
 }
