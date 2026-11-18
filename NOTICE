@@ -82,3 +82,18 @@ Fonts (bundled in app/src/main/res/font, SIL Open Font License 1.1):
 
 Both fonts are unmodified variable fonts. The OFL lets them be bundled and redistributed with software,
 provided the copyright notice and licence travel with them; the app shows both under Profile > Licences.
+
+Animation library (core-device/.../library, assets in core-device/src/main/resources/library):
+
+- Pixel-art animation data adapted from "Glyph" by Spandan Kumar, https://github.com/spandan-kumar/glyph,
+  MIT License, Copyright (c) 2026 Spandan Kumar. The sprites were converted to 25x25 brightness frames by
+  tools/library/convert_sprites.py. Data only; the Glyph name and logo are not used. The classic_cartoons pack and
+  sprites that are public domain in one jurisdiction only are left out (tools/library/excluded.log).
+- Includes CC0 artwork by Stealthix (Animated Fires, 16x16 Animated Slimes), MoikMellah (Animated Birds 32x32) and
+  Gabriel "tiopalada" Lima (Tiny RPG - Emoji Pack I), via OpenGameArt.org and Glyph. Courtesy credit; CC0 needs none.
+- Redrawings of public-domain works (storybook, masterpieces, legends packs) carry the per-sprite notice shown in the
+  library, for example "Based on Lewis Carroll's Alice's Adventures in Wonderland (1865), illustrated by John Tenniel,
+  public domain".
+- Some effect generators are re-implemented in Kotlin from the effect descriptions of "Glyph" by Spandan Kumar
+  (MIT, Copyright (c) 2026 Spandan Kumar) and from the Perlin-noise cloud idea of FunkyClouds by Stefan Petrick
+  (MIT); no source code was copied.
