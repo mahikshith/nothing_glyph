@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -110,7 +113,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /** What the Text screen opens with (tests open its sheets this way). */
-enum class TextPanel { NONE, SYMBOLS, TIMING, BACKGROUND, MENU, RENAME }
+enum class TextPanel { NONE, SYMBOLS, TIMING, BACKGROUND, MENU, RENAME, SHARE }
 
 /** The Text screen's working copy: words and look, timing, an optional background. */
 class TextDraft(val id: String, val isNew: Boolean, spec: TextSpec, timing: Timing, background: BackgroundLayer?, behind: BehindText, name: String) {
@@ -121,6 +124,54 @@ class TextDraft(val id: String, val isNew: Boolean, spec: TextSpec, timing: Timi
     var name by mutableStateOf(name)
     private val start = listOf(spec, timing, background, behind, name)
     val changed: Boolean get() = listOf(spec, timing, background, behind, name) != start
+
+    /** Everything Undo brings back. */
+    data class State(val spec: TextSpec, val timing: Timing, val background: BackgroundLayer?, val behind: BehindText, val name: String)
+
+    fun state() = State(spec, timing, background, behind, name)
+
+    private var current = state()
+    private val undos = ArrayList<State>()
+    private val redos = ArrayList<State>()
+    private var lastAt = Long.MIN_VALUE / 2
+    var canUndo by mutableStateOf(false)
+        private set
+    var canRedo by mutableStateOf(false)
+        private set
+
+    /**
+     * Records a change to [next] (the screen calls this for every new state). Changes less than [MERGE_MS]
+     * apart are one step, so typing a word or one slider drag is undone at once.
+     */
+    fun changed(next: State, now: Long) {
+        if (next == current) return
+        if (now - lastAt > MERGE_MS || undos.isEmpty()) { undos += current; if (undos.size > 100) undos.removeAt(0) }
+        redos.clear()
+        current = next
+        lastAt = now
+        flags()
+    }
+
+    fun undo() {
+        val prev = undos.removeLastOrNull() ?: return
+        redos += current
+        restore(prev)
+    }
+
+    fun redo() {
+        val next = redos.removeLastOrNull() ?: return
+        undos += current
+        restore(next)
+    }
+
+    private fun restore(st: State) {
+        spec = st.spec; timing = st.timing; background = st.background; behind = st.behind; name = st.name
+        current = st
+        lastAt = Long.MIN_VALUE / 2
+        flags()
+    }
+
+    private fun flags() { canUndo = undos.isNotEmpty(); canRedo = redos.isNotEmpty() }
 
     /** The design's layers when there is a background; plain text has none. */
     fun layers(): Layers? = background?.let { Layers(background = it, text = TextLayer(spec.clamped()), behind = behind) }
@@ -143,6 +194,8 @@ class TextDraft(val id: String, val isNew: Boolean, spec: TextSpec, timing: Timi
     }
 
     companion object {
+        const val MERGE_MS = 700L
+
         fun open(designId: String?, text: String?): TextDraft {
             val d = AppGraph.designs.get(designId)
             if (d != null) return TextDraft(
@@ -176,8 +229,14 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
         value = withContext(Dispatchers.Default) { t.animation() }
     }
     val live = remember(anim, t.timing) { Timings.plan(anim, t.timing.copy(startDelayMs = 0)).animation }
-    // on the Glyph too, while this screen is open
-    LaunchedEffect(live) {
+    // every change goes on the undo stack; after Undo the text field follows the words
+    LaunchedEffect(t) { androidx.compose.runtime.snapshotFlow { t.state() }.collect { t.changed(it, System.currentTimeMillis()) } }
+    LaunchedEffect(t.spec.text) { if (field.text != t.spec.text) field = TextFieldValue(t.spec.text, TextRange(t.spec.text.length)) }
+    // on the Glyph too, while this screen is open and Show on Glyph is on
+    var glyph by remember { mutableStateOf(true) }
+    val glyphState = com.dotforge.ui.editor.rememberGlyphState(glyph)
+    LaunchedEffect(live, glyph) {
+        if (!glyph) { AppGraph.arbiter.remove(PHONE_ID); return@LaunchedEffect }
         delay(100)
         AppGraph.arbiter.post(DisplayRequest(PHONE_ID, Priority.STUDIO_PREVIEW, live, loop = true, label = "Text: ${t.name}"))
     }
@@ -203,7 +262,16 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
     UndoSnackbarHost {
         val snacks = rememberSnacks()
         Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            com.dotforge.ui.design.TopBar(t.name, onBack = ::close, close = true) {
+            // the editor's top bar: Close, then Glyph, Undo, Redo, ⋮ and Done (the name sits under the preview)
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = ::close) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
+                Spacer(Modifier.weight(1f))
+                com.dotforge.ui.design.GlyphToggle(
+                    on = glyph && glyphState != com.dotforge.ui.editor.PhoneState.NOT_PHONE3, live = glyphState == com.dotforge.ui.editor.PhoneState.ON,
+                    state = glyphState.text, enabled = glyphState != com.dotforge.ui.editor.PhoneState.NOT_PHONE3,
+                ) { glyph = !glyph }
+                TextBarIcon(com.dotforge.ui.design.DfIcons.Undo, "Undo", t.canUndo) { t.undo() }
+                TextBarIcon(com.dotforge.ui.design.DfIcons.Redo, "Redo", t.canRedo) { t.redo() }
                 Box {
                     IconButton(onClick = { panel = TextPanel.MENU }) { Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = Color.White) }
                     DropdownMenu(expanded = panel == TextPanel.MENU, onDismissRequest = { panel = TextPanel.NONE }, containerColor = Tokens.Raised) {
@@ -216,16 +284,39 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
                             nav.push(Page.Editor(null, anim.frames.size > 1, key))
                         })
                         DropdownMenuItem(text = { Text("Rename") }, modifier = Modifier.heightIn(min = Tokens.Target), onClick = { panel = TextPanel.RENAME })
+                        val words = t.spec.text.isNotBlank()
+                        DropdownMenuItem(text = { Text("Share…") }, enabled = words, modifier = Modifier.heightIn(min = Tokens.Target), onClick = { save(); panel = TextPanel.SHARE })
+                        DropdownMenuItem(text = { Text("Duplicate design") }, enabled = words, modifier = Modifier.heightIn(min = Tokens.Target), onClick = {
+                            panel = TextPanel.NONE
+                            save()
+                            AppGraph.designs.duplicate(t.id)?.let { snacks?.show("Made ${it.name}") }
+                        })
+                        DropdownMenuItem(text = { Text("Delete design", color = Tokens.AccentText) }, modifier = Modifier.heightIn(min = Tokens.Target), onClick = {
+                            panel = TextPanel.NONE
+                            val d = AppGraph.designs.get(t.id)
+                            nav.pop()
+                            if (d != null) DesignUse.delete(d, snacks)
+                        })
                     }
                 }
                 TextButton(onClick = ::done, enabled = t.spec.text.isNotBlank(), modifier = Modifier.heightIn(min = Tokens.Target)) {
-                    Text("Done", color = if (t.spec.text.isNotBlank()) Color.White else Color.White.copy(alpha = DISABLED_ALPHA), style = MaterialTheme.typography.labelLarge)
+                    Text("Done", color = if (t.spec.text.isNotBlank()) Color.White else Color.White.copy(alpha = DISABLED_ALPHA), style = MaterialTheme.typography.labelLarge.capped())
                 }
             }
             // the matrix stays pinned while the controls scroll under it
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = Tokens.Small), contentAlignment = Alignment.Center) {
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(bottom = Tokens.Small), contentAlignment = Alignment.Center) {
                 val side = minOf(maxWidth * 0.5f, 200.dp)
-                GlyphPreview(live, t.spec.text.ifBlank { "No text" }, Modifier.size(side), userPlay = true)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    GlyphPreview(live, t.spec.text.ifBlank { "No text" }, Modifier.size(side), userPlay = true)
+                    // the design's name: a tap renames it
+                    Row(
+                        Modifier.heightIn(min = 32.dp).clickable(onClickLabel = "Rename") { panel = TextPanel.RENAME }.padding(horizontal = Tokens.Small),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(t.name, style = MaterialTheme.typography.titleSmall.capped(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 240.dp))
+                        Icon(com.dotforge.ui.design.DfIcons.Pencil, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(14.dp))
+                    }
+                }
             }
             HorizontalDivider(color = Tokens.Hairline)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Tokens.Gutter).padding(bottom = Tokens.Section)) {
@@ -316,11 +407,11 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
                         BackgroundEffect.entries.forEach { e -> Chip(e.label, bg.effect == e) { t.background = bg.copy(effect = e) } }
                     }
-                    Text("Words", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Tokens.Gap))
+                    Text("Text position", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Tokens.Gap))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
                         TextBand.entries.forEach { b -> Chip(b.label, t.spec.band == b) { t.spec = t.spec.copy(band = b) } }
                     }
-                    Text("Behind the words", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Tokens.Gap))
+                    Text("Behind the text", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Tokens.Gap))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
                         BehindText.entries.forEach { b -> Chip(b.label, t.behind == b) { t.behind = b } }
                     }
@@ -337,6 +428,7 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
                 panel = TextPanel.NONE
             }
             TextPanel.RENAME -> RenameDialog(t.name, onDismiss = { panel = TextPanel.NONE }) { t.name = it.take(30); named = true; panel = TextPanel.NONE }
+            TextPanel.SHARE -> AppGraph.designs.get(t.id)?.let { d -> ShareSheet(d, onDismiss = { panel = TextPanel.NONE }) } ?: run { panel = TextPanel.NONE }
             else -> Unit
         }
     }
@@ -364,7 +456,22 @@ private fun SymbolGrid(onPick: (Char) -> Unit) {
                     .clickable(role = Role.Button, onClickLabel = "Insert ${s.name}") { onPick(s.char) }
                     .semantics { contentDescription = s.name },
                 contentAlignment = Alignment.Center,
-            ) { Text(s.char.toString(), color = Color.White, style = MaterialTheme.typography.titleMedium) }
+            ) { SymbolDots(s.rows, Modifier.size(26.dp)) }
+        }
+    }
+}
+
+/** A symbol as the Glyph shows it: its 5x5 dots in white, never the phone's colour emoji. */
+@Composable
+private fun SymbolDots(rows: List<String>, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val n = maxOf(rows.size, rows.maxOf { it.length })
+        val cell = size.minDimension / n
+        rows.forEachIndexed { y, r ->
+            r.forEachIndexed { x, c ->
+                val o = androidx.compose.ui.geometry.Offset((x + 0.5f) * cell, (y + 0.5f) * cell)
+                drawCircle(if (c == '#') Color.White else Tokens.DotOff, cell * 0.38f, o)
+            }
         }
     }
 }
@@ -435,3 +542,9 @@ fun <T> kotlinx.coroutines.CoroutineScope.launchCatching(work: suspend () -> T, 
     val r = withContext(Dispatchers.Default) { runCatching { work() } }
     done(r)
 }
+
+@Composable
+private fun TextBarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) =
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.semantics { contentDescription = if (enabled) label else "$label, unavailable" }) {
+        Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = if (enabled) 1f else DISABLED_ALPHA))
+    }
