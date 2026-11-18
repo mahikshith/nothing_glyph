@@ -34,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,6 +45,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -271,12 +273,16 @@ private fun DesignCard(
                 }
             }
         }
-        // the name on up to two lines; the details ("4 frames · 0.6 s") never split inside "4 frames" or "0.6 s":
-        // with large text they wrap at the dot instead of being cut
+        // the name on up to two lines; the details ("4 frames · 600 ms") on one line that never splits inside
+        // "4 frames" or "600 ms": when it doesn't fit (large text), the length is dropped first
         Text(d.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Tokens.Small))
+        val parts = subtitle.split(" · ").map { it.replace(' ', '\u00A0') }
+        var keep by remember(subtitle) { mutableIntStateOf(parts.size) }
         Text(
-            subtitle.replace(" · ", "\u0000").replace(' ', '\u00A0').replace("\u0000", " · "),
-            style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            parts.take(keep).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+            onTextLayout = { r -> if (r.hasVisualOverflow && keep > 1) keep-- },
+            modifier = Modifier.semantics { contentDescription = subtitle },
         )
     }
 }

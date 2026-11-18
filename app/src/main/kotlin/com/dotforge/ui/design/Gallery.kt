@@ -120,7 +120,7 @@ fun ComponentGallery(onBack: () -> Unit, sheet: Boolean = false, timingKind: Tim
             OptionRow("Copy of frame 2", "Starts with the dots of frame 2", preview = { LibraryGlyph("heart") }) { open = false }
             OptionRow("Blank frame", "Starts empty", preview = { LibraryGlyph("dot") }) { open = false }
             OptionRow("Selected option", "Shows a check", selected = true) {}
-            OptionRow("Clear all 5 frames", "Start over with one blank frame.", destructive = true) { open = false }
+            OptionRow("Clear all 5 frames (keeps the frames)", "Blanks every frame. The frames and their times stay.", destructive = true) { open = false }
         }
     }
     if (confirm) {

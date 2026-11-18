@@ -307,6 +307,8 @@ abstract class StudioScreens : ScreenshotTest() {
         rule.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText("Pulse"))
         rule.onNodeWithText("Pulse").performClick()
         rule.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText("Apply", substring = true))
+        // then back up to the section's heading, so nothing reads cut under the pinned preview
+        rule.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText("Make it move"))
         settle()
         capture(f, "29-editor-effects-make-it-move")
         editor(d, EditorStart(EditorPanel.TIMING, phone = PhoneState.ON))
@@ -418,7 +420,7 @@ abstract class StudioScreens : ScreenshotTest() {
         val d = animation()
         editor(d, EditorStart(phone = PhoneState.ON, prepare = { it.select(2) }))
         rule.onNodeWithContentDescription("Clear", substring = true).performClick()
-        rule.onNodeWithText("Clear frame 3").performClick()
+        rule.onNodeWithText("Clear this frame").performClick()
         capture(f, "91-editor-cleared-frame-3")
         stroke()
         capture(f, "92-editor-drawing-after-clear")
@@ -500,19 +502,34 @@ abstract class StudioScreens : ScreenshotTest() {
 
     // ---------------------------------------------------------------- Photo
 
-    /** Real photos: a face (zoomed on it), a pet, a logo with text and a landscape. */
-    private fun photo(name: String, settings: com.dotforge.device.PhotoSettings = com.dotforge.device.PhotoSettings()) =
-        PhotoSession(p, name.replaceFirstChar { it.uppercase() }, listOf(testPhoto(name)), listOf(1000), settings)
-
-    private val onFace = com.dotforge.device.PhotoSettings(crop = com.dotforge.device.PhotoCrop(zoom = 1.8f, cx = 0.52f, cy = 0.33f))
+    /**
+     * Real photos: a face, a pet, a logo with text and a landscape, opened the way the app opens a picked photo
+     * (faces found, defaults by content). The JVM has no face detector, so the face in face.jpg is given as
+     * Android's FaceDetector reports it (between the eyes, the eye distance), measured on the photo.
+     */
+    private fun photo(name: String): PhotoSession {
+        val pic = testPhoto(name)
+        com.dotforge.ui.studio.PhotoLoader.faces = { if (name == "face") listOf(com.dotforge.device.FaceSpot(167f, 127f, 40f)) else emptyList() }
+        return try {
+            com.dotforge.ui.studio.PhotoLoader.session(name.replaceFirstChar { it.uppercase() }, listOf(pic), listOf(1000))
+        } finally {
+            com.dotforge.ui.studio.PhotoLoader.faces = com.dotforge.ui.studio.FaceFinder::find
+        }
+    }
 
     private fun photos() = PhotoSession(p, "Trip", listOf("face", "pet", "landscape").map(::testPhoto), List(3) { 500 })
 
     @Test fun photoTabs() {
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("face", onFace))) }
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("face"))) }
         settle()
         capture(f, "60-photo-style-face")
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("logo", com.dotforge.device.PhotoSettings(style = com.dotforge.device.PhotoStyle.TONES2)))) }
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.CROP, PhotoLoad.Ready(photo("face"))) }
+        settle()
+        capture(f, "60c-photo-crop-face")
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.CROP, PhotoLoad.Ready(photo("face").also { it.face(false) })) }
+        settle()
+        capture(f, "60d-photo-crop-face-off")
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("logo"))) }
         settle()
         capture(f, "60b-photo-style-logo")
         show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.CROP, PhotoLoad.Ready(photo("pet"))) }
@@ -521,7 +538,7 @@ abstract class StudioScreens : ScreenshotTest() {
         show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.ADJUST, PhotoLoad.Ready(photo("landscape"))) }
         settle()
         capture(f, "62-photo-adjust-landscape")
-        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("face", onFace)), startAnimate = true) }
+        show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photo("face")), startAnimate = true) }
         settle()
         capture(f, "63-photo-animate")
         show { PhotoScreen(null, null, Nav(Tab.STUDIO), PhotoTab.STYLE, PhotoLoad.Ready(photos())) }

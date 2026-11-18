@@ -150,12 +150,13 @@ fun EffectsSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
             }
         },
     ) {
-        SectionLabel("Change it")
+        // one scope for the whole sheet, at the top: Change it and Replace shade both follow it
         if (s.doc.size > 1) {
-            Text("Apply to", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(bottom = Tokens.Tiny))
+            SectionLabel("Apply to")
             Segmented(listOf("This frame", "All frames"), if (all) 1 else 0) { all = it == 1 }
-            Spacer(Modifier.height(Tokens.Small))
+            Hint("For Change it and Replace shade. Make it move works on this frame.")
         }
+        SectionLabel("Change it")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
             FrameOp.entries.forEach { op ->
                 Chip(op.label, false) {
@@ -172,10 +173,11 @@ fun EffectsSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
             MoveEffect.entries.forEach { m -> Chip(m.label, move == m) { move = if (move == m) null else m } }
         }
         if (move != null) {
+            // labels above their sliders, as everywhere else
+            Text("Strength ${(strength * 100).roundToInt()}%", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Tokens.Small))
             DotSlider("Strength", strength, 0.2f..1f, readout = "${(strength * 100).roundToInt()}%") { strength = it }
-            Text("Strength ${(strength * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary)
+            Text("Length ${"%.1f".format(length)}x", style = MaterialTheme.typography.bodyLarge)
             DotSlider("Length", length, 0.5f..2f, readout = "${"%.1f".format(length)}x", mark = 1f) { length = it }
-            Text("Length ${"%.1f".format(length)}x", style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary)
             if (move == MoveEffect.BLINK && length < 1f) Hint("Flashes quickly")
             val a = moving
             PrimaryButton(
@@ -194,7 +196,7 @@ fun EffectsSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?) {
 
 /**
  * Replace shade, all in this sheet: pick the shade to replace (from those in the frame, or in every frame with
- * All frames), pick the new one, and apply to This frame or All frames (the scope above, shared with Change it).
+ * All frames), pick the new one, and apply to This frame or All frames (the sheet's one scope, at the top).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

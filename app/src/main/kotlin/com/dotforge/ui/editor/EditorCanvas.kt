@@ -179,13 +179,6 @@ fun EditorCanvas(s: EditorSession, side: Dp, modifier: Modifier = Modifier, onPi
                 )
             }
         }
-        if (s.zoom > 1f) {
-            TextButton(
-                onClick = { s.zoom = 1f; s.pan = Offset.Zero },
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(18.dp))
-                    .semantics { contentDescription = "Fit: zoomed ${"%.1f".format(s.zoom)}x" },
-            ) { Text("Fit · ${"%.1f".format(s.zoom).removeSuffix(".0")}x", color = Color.White) }
-        }
     }
 }
 

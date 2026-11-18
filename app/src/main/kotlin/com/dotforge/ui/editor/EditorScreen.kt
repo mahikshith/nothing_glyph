@@ -9,6 +9,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -53,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -146,7 +148,8 @@ class EditorStart(
 /** Show on Glyph's state (row 29): the top bar's Glyph button, and a notice line when the Glyph can't show it. */
 enum class PhoneState(val text: String) {
     ON("Live on Glyph"), OFF("Not on the Glyph"), TORCH("The Glyph torch is on, so your design waits"),
-    BUSY("Another light is using the Glyph"), FACE_DOWN("Phone face down: the Glyph is paused"), NOT_PHONE3("Show on Glyph needs a Phone (3)");
+    BUSY("Another light is using the Glyph. Your design shows when it ends."),
+    FACE_DOWN("Face down: the Glyph is off. Turn the phone over to see it."), NOT_PHONE3("Show on Glyph needs a Phone (3)");
 }
 
 /**
@@ -229,13 +232,13 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
     // a polite TalkBack announcement for frame changes ("Frame 4 added, copy of frame 3"), shown on the status line for 2 s
     var announce by remember { mutableStateOf("") }
     LaunchedEffect(announce) { if (announce.isNotEmpty()) { delay(2_000); announce = "" } }
-    val fontScale = LocalDensity.current.fontScale
     @Suppress("UNUSED_EXPRESSION") s.tick
     // one pattern for stills and animations: the strip is always there; playback only when something plays
     val playable = s.doc.size > 1 || s.doc.layers != null
-    val bottomRows: Dp = if (playable) PLAYBACK + STRIP else STRIP
+    // the snackbar sits above the tool rows (options, tools, actions, playback, strip), so it never covers a tool
+    var toolsHeight by remember { mutableStateOf(0.dp) }
 
-    UndoSnackbarHost(above = bottomRows) {
+    UndoSnackbarHost(above = toolsHeight) {
         val snacks = rememberSnacks()
         val scope = rememberCoroutineScope()
         val pickFrames = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
@@ -273,11 +276,13 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
                 val side = minOf(maxWidth - Tokens.Gutter * 2, maxHeight - STATUS_LINE)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     EditorCanvas(s, side, onPicked = { v -> s.brush = s.brush.copy(value = v, mode = BrushMode.PAINT); s.picking = false; s.edit { } })
-                    StatusLine(announce.ifEmpty { statusLine(s) }, onTiming = { panel = EditorPanel.TIMING })
+                    StatusLine(announce.ifEmpty { statusLine(s) }, zoom = s.zoom, onFit = { s.zoom = 1f; s.pan = androidx.compose.ui.geometry.Offset.Zero }, onTiming = { panel = EditorPanel.TIMING })
                 }
             }
+            val density = LocalDensity.current
+            Column(Modifier.fillMaxWidth().onSizeChanged { toolsHeight = with(density) { it.height.toDp() } }) {
             if (s.layer == LayerKind.DRAWING) {
-                OptionsBar(s, onShade = { panel = EditorPanel.SHADE }, onPaste = {
+                OptionsBar(s, onShade = { panel = EditorPanel.SHADE }, onBrush = { panel = EditorPanel.BRUSH }, onPaste = {
                     val clip = EditorClipboard.clip
                     if (clip == null) snacks?.show("Copy something first") else {
                         val at = EditorClipboard.from ?: Region(0, 0, clip.width - 1, clip.height - 1)
@@ -291,26 +296,23 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
                     EditorClipboard.from = sel
                     snacks?.show("Copied")
                 })
-                ToolsRow(s, compact = fontScale >= 1.75f)
-            } else {
-                LayerPanel(s, onEditText = { panel = EditorPanel.LAYER_TEXT }, onChangeBackground = { panel = EditorPanel.LAYER_BG })
-            }
-            ActionsRow(
-                s, compact = fontScale >= 1.75f,
-                onClear = {
-                    if (s.doc.size > 1) panel = EditorPanel.CLEAR else {
-                        s.edit { clearFrame() }
-                        snacks?.show("Cleared frame 1") { s.edit { undo() } }
-                    }
-                },
-                brushPanel = panel == EditorPanel.BRUSH,
-                onBrush = { panel = EditorPanel.BRUSH },
-                onBrushChoice = { m ->
+                ToolsRow(s, brushPanel = panel == EditorPanel.BRUSH, onBrush = { panel = EditorPanel.BRUSH }, onBrushChoice = { m ->
                     panel = EditorPanel.NONE
                     s.brush = s.brush.copy(mode = m)
                     if (s.tool != Tool.DRAW) { s.tool = Tool.DRAW; s.selection = null }
                     s.picking = false
                     s.edit { }
+                }, onDismiss = { panel = EditorPanel.NONE })
+            } else {
+                LayerPanel(s, onEditText = { panel = EditorPanel.LAYER_TEXT }, onChangeBackground = { panel = EditorPanel.LAYER_BG })
+            }
+            ActionsRow(
+                s,
+                onClear = {
+                    if (s.doc.size > 1) panel = EditorPanel.CLEAR else {
+                        s.edit { clearFrame() }
+                        snacks?.show("Cleared frame 1") { s.edit { undo() } }
+                    }
                 },
                 onTiming = { panel = EditorPanel.TIMING },
                 onEffects = { panel = EditorPanel.EFFECTS },
@@ -318,16 +320,17 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
                 morePanel = panel == EditorPanel.MORE,
                 clearPanel = panel == EditorPanel.CLEAR,
                 onPanelDismiss = { panel = EditorPanel.NONE },
-                onClearChoice = { all ->
+                onClearChoice = { choice ->
                     panel = EditorPanel.NONE
-                    if (all) {
-                        val n = s.doc.size
-                        s.edit { clearAll() }
-                        snacks?.show("Cleared all $n frames") { s.edit { undo() } }
-                    } else {
-                        val i = s.doc.cur + 1
-                        s.edit { clearFrame() }
-                        snacks?.show("Cleared frame $i") { s.edit { undo() } }
+                    val i = s.doc.cur + 1
+                    when (choice) {
+                        ClearItem.FRAME -> { s.edit { clearFrame() }; snacks?.show("Cleared frame $i") { s.edit { undo() } } }
+                        ClearItem.ALL -> {
+                            val n = s.doc.size
+                            s.edit { clearAll() }
+                            snacks?.show("Cleared the dots in all $n frames") { s.edit { undo() } }
+                        }
+                        ClearItem.DELETE -> if (s.doc.size > 1) { s.edit { deleteFrame() }; snacks?.show("Deleted frame $i") { s.edit { undo() } } }
                     }
                 },
                 onMoreChoice = { item ->
@@ -369,6 +372,7 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
                     if (s.doc.size > 1) s.animatedView = true
                 },
             )
+            }
         }
 
         when (panel) {
@@ -420,9 +424,9 @@ fun EditorScreen(designId: String?, animated: Boolean, draft: String?, nav: Nav,
     }
 }
 
-private val STATUS_LINE = 32.dp
+private val STATUS_LINE = 44.dp
 private val PLAYBACK = 48.dp
-private val STRIP = 80.dp
+private val STRIP = 96.dp
 
 @Composable
 private fun rememberPhoneState(s: EditorSession): PhoneState = rememberGlyphState(s.showOnPhone)
@@ -463,36 +467,51 @@ private fun timingChip(s: EditorSession): String {
     return "${speedText(t.speed)} · ${StudioText.seconds(s.doc.totalMs)} · ${t.brightness}%"
 }
 
-/** The line under the matrix: the timing summary with a timer icon; a tap opens Timing. */
+/**
+ * The line under the matrix: the timing summary with a timer icon (a tap opens Timing). While zoomed, the Fit
+ * chip leads it: its own place, outside the circle, so it never covers dots.
+ */
 @Composable
-private fun StatusLine(text: String, onTiming: () -> Unit) {
-    Row(
-        Modifier.height(STATUS_LINE).clickable(onClickLabel = "Timing", role = Role.Button, onClick = onTiming)
-            .semantics { liveRegion = LiveRegionMode.Polite }.padding(horizontal = Tokens.Small, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(DfIcons.Timer, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(14.dp))
-        Text(
-            text, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 6.dp),
-        )
+private fun StatusLine(text: String, zoom: Float, onFit: () -> Unit, onTiming: () -> Unit) {
+    Row(Modifier.height(STATUS_LINE), verticalAlignment = Alignment.CenterVertically) {
+        if (zoom > 1f) {
+            val x = "%.1f".format(zoom).removeSuffix(".0")
+            OptionChip("Fit · ${x}x", "Fit: zoomed ${x}x") { onFit() }
+        }
+        Row(
+            Modifier.fillMaxHeight().clickable(onClickLabel = "Timing", role = Role.Button, onClick = onTiming)
+                .semantics { liveRegion = LiveRegionMode.Polite }.padding(horizontal = Tokens.Small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(DfIcons.Timer, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(14.dp))
+            Text(
+                text, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
     }
 }
 
-/** When Show on Glyph is on but the Glyph can't show the design: why, and the way out when there is one. */
+/**
+ * When Show on Glyph is on but the Glyph can't show the design: why, and the way out only when there is one.
+ * Face down has none (turning the phone over is the way). Busy offers Stop showing only when what holds the
+ * Glyph is something DotForge is showing on request (a toy, a design shown from the library), which it stops.
+ */
 @Composable
 private fun GlyphNotice(s: EditorSession, phone: PhoneState) {
     if (phone != PhoneState.TORCH && phone != PhoneState.BUSY && phone != PhoneState.FACE_DOWN) return
+    val active by AppGraph.arbiter.active.collectAsStateWithLifecycle()
+    val ours = active.filter { it.priority > Priority.STUDIO_PREVIEW && it.loop && !it.isAmbient && it.id != com.dotforge.tile.TorchTileService.ID }.maxByOrNull { it.priority }
     Row(
         Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = Tokens.Gutter).background(Tokens.Raised, RoundedCornerShape(12.dp))
-            .padding(start = 12.dp, end = 4.dp),
+            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(phone.text, style = MaterialTheme.typography.bodySmall.capped(), color = Color.White, modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite })
         if (phone == PhoneState.TORCH) TextButton(onClick = { com.dotforge.tile.TorchTileService.toggle() }, modifier = Modifier.heightIn(min = Tokens.Target)) {
             Text("Turn off torch", color = Tokens.AccentText, style = MaterialTheme.typography.labelLarge.capped())
         }
-        if (phone == PhoneState.FACE_DOWN || phone == PhoneState.BUSY) TextButton(onClick = { s.showOnPhone = false; s.release() }, modifier = Modifier.heightIn(min = Tokens.Target)) {
+        if (phone == PhoneState.BUSY && ours != null) TextButton(onClick = { AppGraph.arbiter.remove(ours.id) }, modifier = Modifier.heightIn(min = Tokens.Target)) {
             Text("Stop showing", color = Color.White, style = MaterialTheme.typography.labelLarge.capped())
         }
     }
@@ -503,30 +522,50 @@ private fun GlyphNotice(s: EditorSession, phone: PhoneState) {
 @Composable
 private fun TopBar(s: EditorSession, phone: PhoneState, onClose: () -> Unit, onDone: () -> Unit, onRename: () -> Unit, onGlyph: () -> Unit) {
     @Suppress("UNUSED_EXPRESSION") s.tick
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
-        Column(
-            Modifier.weight(1f).clickable(onClickLabel = "Rename", onClick = onRename).padding(horizontal = Tokens.Tiny),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                Icon(DfIcons.Pencil, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
+    val saved = if (s.saving) "Saving…" else if (s.everSaved && !s.dirty) "Saved" else if (s.isNew && !s.hasDots) "Not saved yet" else "Saving…"
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // with large text or a narrow screen the name would be squeezed by the pill and buttons: it moves to its
+        // own line under the bar, so it is never cut to a letter
+        val stacked = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f) < NAME_ROOM
+        Column {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
+                if (stacked) Spacer(Modifier.weight(1f))
+                else Column(Modifier.weight(1f).clickable(onClickLabel = "Rename", onClick = onRename).padding(horizontal = Tokens.Tiny)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // the name gets the room up to the Glyph pill, on up to 2 lines
+                        Text(s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Icon(DfIcons.Pencil, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
+                    }
+                    Text(saved, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                }
+                com.dotforge.ui.design.GlyphToggle(
+                    on = s.showOnPhone && phone != PhoneState.NOT_PHONE3, live = phone == PhoneState.ON, state = phone.text,
+                    enabled = phone != PhoneState.NOT_PHONE3, onToggle = onGlyph,
+                )
+                BarIcon(DfIcons.Undo, "Undo", s.doc.canUndo) { s.edit { undo() } }
+                BarIcon(DfIcons.Redo, "Redo", s.doc.canRedo) { s.edit { redo() } }
+                TextButton(onClick = onDone, modifier = Modifier.heightIn(min = Tokens.Target)) {
+                    Text("Done", color = Color.White, style = MaterialTheme.typography.labelLarge.capped(), maxLines = 1, softWrap = false)
+                }
             }
-            Text(
-                if (s.saving) "Saving…" else if (s.everSaved && !s.dirty) "Saved" else if (s.isNew && !s.hasDots) "Not saved yet" else "Saving…",
-                style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            )
+            if (stacked) Row(
+                Modifier.fillMaxWidth().clickable(onClickLabel = "Rename", onClick = onRename).padding(horizontal = Tokens.Gutter).padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Icon(DfIcons.Pencil, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
+                Text(
+                    saved, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, softWrap = false,
+                    modifier = Modifier.padding(start = Tokens.Small).semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
         }
-        com.dotforge.ui.design.GlyphToggle(
-            on = s.showOnPhone && phone != PhoneState.NOT_PHONE3, live = phone == PhoneState.ON, state = phone.text,
-            enabled = phone != PhoneState.NOT_PHONE3, onToggle = onGlyph,
-        )
-        BarIcon(DfIcons.Undo, "Undo", s.doc.canUndo) { s.edit { undo() } }
-        BarIcon(DfIcons.Redo, "Redo", s.doc.canRedo) { s.edit { redo() } }
-        TextButton(onClick = onDone, modifier = Modifier.heightIn(min = Tokens.Target)) { Text("Done", color = Color.White, style = MaterialTheme.typography.labelLarge.capped()) }
     }
 }
+
+/** Below this width (in dp at 1x text) the editor's name moves under the top bar. */
+private val NAME_ROOM = 400.dp
 
 @Composable
 private fun BarIcon(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
@@ -598,7 +637,7 @@ private fun LayerStrip(s: EditorSession) {
 // ---------------------------------------------------------------- tool options
 
 @Composable
-private fun OptionsBar(s: EditorSession, onShade: () -> Unit, onPaste: () -> Unit, onCopy: () -> Unit) {
+private fun OptionsBar(s: EditorSession, onShade: () -> Unit, onPaste: () -> Unit, onCopy: () -> Unit, onBrush: () -> Unit) {
     @Suppress("UNUSED_EXPRESSION") s.tick
     val scroll = rememberScrollState()
     Row(
@@ -608,6 +647,7 @@ private fun OptionsBar(s: EditorSession, onShade: () -> Unit, onPaste: () -> Uni
         val b = s.brush
         when (s.tool) {
             Tool.DRAW -> {
+                OptionChip("${b.mode.label} ▾", "Brush: ${b.mode.label}", icon = DfIcons.Paintbrush) { onBrush() }
                 OptionChip("Size ${b.size}", "Dot size ${b.size}") { s.brush = b.copy(size = b.size % 3 + 1) }
                 ShadeChip(b.value) { onShade() }
                 OptionChip(null, "Pick a shade", icon = DfIcons.Pick, selected = s.picking) { s.picking = !s.picking }
@@ -689,41 +729,78 @@ fun OptionChip(text: String?, label: String, icon: ImageVector? = null, selected
 
 // ---------------------------------------------------------------- tools and actions rows
 
+/**
+ * The tools: Draw, Erase, Fill, Shapes, Select. One selected pill at a time; the Brush mode (Paint, Brighten,
+ * Dim) is a mode of Draw, named on its button ("Draw · Dim") and chosen from its menu (a second tap on Draw, or
+ * the mode chip in Draw's options).
+ */
 @Composable
-private fun ToolsRow(s: EditorSession, compact: Boolean) {
-    Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
+private fun ToolsRow(s: EditorSession, brushPanel: Boolean, onBrush: () -> Unit, onBrushChoice: (BrushMode) -> Unit, onDismiss: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).height(IntrinsicSize.Min).padding(horizontal = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
         for (t in Tool.entries) {
             val icon = when (t) { Tool.DRAW -> DfIcons.Brush; Tool.ERASE -> DfIcons.Eraser; Tool.FILL -> DfIcons.Fill; Tool.SHAPES -> DfIcons.Shapes; Tool.SELECT -> DfIcons.Select }
-            LabelledButton(icon, t.label, compact, selected = s.tool == t) {
-                s.tool = t
-                s.picking = false
-                if (t != Tool.SELECT) s.selection = null
-                s.edit { }
+            val mode = s.brush.mode
+            val label = if (t == Tool.DRAW && mode != BrushMode.PAINT) "${t.label} · ${mode.label}" else t.label
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                Row(Modifier.fillMaxSize()) {
+                    LabelledButton(icon, label, selected = s.tool == t, chip = if (t == Tool.DRAW) "Brush: ${mode.label}" else null) {
+                        if (t == Tool.DRAW && s.tool == Tool.DRAW) { onBrush(); return@LabelledButton }
+                        s.tool = t
+                        s.picking = false
+                        if (t != Tool.SELECT) s.selection = null
+                        s.edit { }
+                    }
+                }
+                if (t == Tool.DRAW) BrushMenu(mode, brushPanel, onBrushChoice, onDismiss)
             }
         }
     }
 }
 
+/** What the Draw tool does to the dots it touches: Paint, Brighten or Dim, each with a line of help. */
 @Composable
-private fun RowScope.LabelledButton(icon: ImageVector, label: String, compact: Boolean, selected: Boolean = false, enabled: Boolean = true, chip: String? = null, onClick: () -> Unit) {
+private fun BrushMenu(mode: BrushMode, expanded: Boolean, onChoice: (BrushMode) -> Unit, onDismiss: () -> Unit) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = Tokens.Raised) {
+        BrushHelp.entries.forEach { h ->
+            DropdownMenuItem(
+                text = {
+                    Column(Modifier.padding(vertical = 6.dp)) {
+                        Text(h.mode.label, color = Color.White)
+                        Text(h.text, color = Tokens.Secondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                },
+                trailingIcon = { if (mode == h.mode) Icon(androidx.compose.material.icons.Icons.Filled.Check, contentDescription = "Selected", tint = Color.White) },
+                onClick = { onChoice(h.mode) }, modifier = Modifier.heightIn(min = 56.dp),
+            )
+        }
+    }
+}
+
+/**
+ * A 48 dp tool button with its label under the icon at every font size: the label grows with the font up to
+ * 1.5x and wraps to 2 lines rather than being cut.
+ */
+@Composable
+private fun RowScope.LabelledButton(icon: ImageVector, label: String, selected: Boolean = false, enabled: Boolean = true, chip: String? = null, onClick: () -> Unit) {
     Column(
-        Modifier.weight(1f).fillMaxHeight().clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
+        Modifier.weight(1f).fillMaxHeight().heightIn(min = Tokens.Target).clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
             .semantics { contentDescription = if (chip != null) "$label, $chip" else label; if (selected) stateDescription = "Selected" }
-            .alpha(if (enabled) 1f else DISABLED_ALPHA),
+            .alpha(if (enabled) 1f else DISABLED_ALPHA).padding(horizontal = 2.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
         Box(
             Modifier.size(width = 52.dp, height = 30.dp).background(if (selected) Color.White else Color.Transparent, RoundedCornerShape(15.dp)),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, contentDescription = null, tint = if (selected) Color.Black else Color.White, modifier = Modifier.size(22.dp)) }
-        if (!compact) {
-            // labels grow with the font up to 1.3x, then the row shows icons only (row 86)
-            val fs = LocalDensity.current.fontScale
-            val style = MaterialTheme.typography.labelMedium.let { it.copy(fontSize = it.fontSize * (minOf(fs, 1.3f) / fs)) }
-            Text(label, style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp))
-        }
+        Text(
+            label, style = MaterialTheme.typography.labelMedium.capped(LABEL_SCALE), color = Color.White, maxLines = 2, softWrap = true,
+            textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
+
+/** Tool labels grow with the font up to this, then wrap. */
+private const val LABEL_SCALE = 1.5f
 
 /** The Brush button's menu: what the Draw tool does to the dots it touches. */
 enum class BrushHelp(val mode: BrushMode, val text: String) {
@@ -736,54 +813,43 @@ enum class MoreItem(val label: String) {
     GUIDE("How animation works"), FLATTEN("Flatten to frames"), DELETE("Delete design"),
 }
 
+/** The Clear menu with several frames: blank this frame, blank them all (frames and times stay), or delete this one. */
+enum class ClearItem { FRAME, ALL, DELETE }
+
 /** The frame strip's + tile menu (row 17); a long-press on + is Copy of this frame. */
 enum class AddItem(val label: String) { BLANK("Blank frame"), COPY("Copy of this frame"), PHOTO("Photo as a frame…"), LIBRARY("From the library…") }
 
 @Composable
 private fun ActionsRow(
-    s: EditorSession, compact: Boolean,
+    s: EditorSession,
     onClear: () -> Unit, onTiming: () -> Unit, onEffects: () -> Unit, onMore: () -> Unit,
-    brushPanel: Boolean, onBrush: () -> Unit, onBrushChoice: (BrushMode) -> Unit,
-    morePanel: Boolean, clearPanel: Boolean, onPanelDismiss: () -> Unit, onClearChoice: (Boolean) -> Unit, onMoreChoice: (MoreItem) -> Unit,
+    morePanel: Boolean, clearPanel: Boolean, onPanelDismiss: () -> Unit, onClearChoice: (ClearItem) -> Unit, onMoreChoice: (MoreItem) -> Unit,
 ) {
     @Suppress("UNUSED_EXPRESSION") s.tick
     val t = s.doc.timing
     val chip = "${speedText(t.speed)} · ${StudioText.seconds(s.doc.totalMs)} · ${t.brightness}%"
-    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).height(IntrinsicSize.Min).padding(horizontal = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f).fillMaxHeight()) {
             Row(Modifier.fillMaxSize()) {
-                LabelledButton(DfIcons.Clear, if (s.doc.size > 1) "Clear ▾" else "Clear", compact) { onClear() }
+                LabelledButton(DfIcons.Clear, if (s.doc.size > 1) "Clear ▾" else "Clear") { onClear() }
             }
             DropdownMenu(expanded = clearPanel, onDismissRequest = onPanelDismiss, containerColor = Tokens.Raised) {
-                DropdownMenuItem(text = { Text("Clear frame ${s.doc.cur + 1}") }, onClick = { onClearChoice(false) }, modifier = Modifier.heightIn(min = Tokens.Target))
-                DropdownMenuItem(text = { Text("Clear all ${s.doc.size} frames") }, onClick = { onClearChoice(true) }, modifier = Modifier.heightIn(min = Tokens.Target))
+                DropdownMenuItem(text = { Text("Clear this frame") }, onClick = { onClearChoice(ClearItem.FRAME) }, modifier = Modifier.heightIn(min = Tokens.Target))
+                DropdownMenuItem(
+                    text = { Text("Clear all ${s.doc.size} frames (keeps the frames)") },
+                    onClick = { onClearChoice(ClearItem.ALL) }, modifier = Modifier.heightIn(min = Tokens.Target),
+                )
+                androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
+                DropdownMenuItem(
+                    text = { Text("Delete this frame", color = Tokens.AccentText) },
+                    onClick = { onClearChoice(ClearItem.DELETE) }, modifier = Modifier.heightIn(min = Tokens.Target),
+                )
             }
         }
-        LabelledButton(DfIcons.Timer, "Timing", compact, chip = chip) { onTiming() }
-        LabelledButton(DfIcons.Sparkle, "Effects", compact) { onEffects() }
-        // Brush: Paint, Brighten or Dim (row 20); the button names the mode when it isn't Paint
+        LabelledButton(DfIcons.Timer, "Timing", chip = chip) { onTiming() }
+        LabelledButton(DfIcons.Sparkle, "Effects") { onEffects() }
         Box(Modifier.weight(1f).fillMaxHeight()) {
-            val mode = s.brush.mode
-            Row(Modifier.fillMaxSize()) {
-                LabelledButton(DfIcons.Paintbrush, if (mode == BrushMode.PAINT) "Brush" else mode.label, compact, selected = mode != BrushMode.PAINT, chip = "Brush: ${mode.label}") { onBrush() }
-            }
-            DropdownMenu(expanded = brushPanel, onDismissRequest = onPanelDismiss, containerColor = Tokens.Raised) {
-                BrushHelp.entries.forEach { h ->
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(h.mode.label, color = Color.White)
-                                Text(h.text, color = Tokens.Secondary, style = MaterialTheme.typography.bodySmall)
-                            }
-                        },
-                        trailingIcon = { if (mode == h.mode) Icon(androidx.compose.material.icons.Icons.Filled.Check, contentDescription = "Selected", tint = Color.White) },
-                        onClick = { onBrushChoice(h.mode) }, modifier = Modifier.heightIn(min = Tokens.Target),
-                    )
-                }
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            Row(Modifier.fillMaxSize()) { LabelledButton(Icons.Filled.MoreVert, "More", compact) { onMore() } }
+            Row(Modifier.fillMaxSize()) { LabelledButton(Icons.Filled.MoreVert, "More") { onMore() } }
             DropdownMenu(expanded = morePanel, onDismissRequest = onPanelDismiss, containerColor = Tokens.Raised) {
                 MoreItem.entries.forEach { item ->
                     val show = when (item) {
@@ -822,7 +888,7 @@ private fun PlaybackRow(s: EditorSession) {
         IconButton(onClick = { s.step(true) }) { Icon(DfIcons.StepForward, contentDescription = "Step forward", tint = Color.White) }
         Column(Modifier.weight(1f).padding(horizontal = Tokens.Small)) {
             Text(
-                "${i + 1}/${s.doc.size} · ${StudioText.seconds(at).removeSuffix(" s")}/${StudioText.seconds(total)}",
+                "${i + 1}/${s.doc.size} · ${StudioText.seconds(at)} of ${StudioText.seconds(total)}",
                 style = MaterialTheme.typography.bodySmall.capped(), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Scrubber(at.toFloat() / total.coerceAtLeast(1)) { f -> s.scrub((f * total).toInt()) }
@@ -870,13 +936,19 @@ private fun FrameStrip(
     var dragging by remember { mutableStateOf<Int?>(null) }
     var dragDx by remember { mutableStateOf(0f) }
     Row(Modifier.fillMaxWidth().height(STRIP).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
-        // the Frame menu, pinned left (row 16)
+        // the Frame menu, pinned left (row 16): a raised frame button over the frame's number, "3/6"
         Column(
-            Modifier.width(60.dp).fillMaxHeight().clickable(role = Role.Button, onClickLabel = "Frame ${s.doc.cur + 1} menu", onClick = onFrameMenu),
+            Modifier.width(60.dp).fillMaxHeight().clickable(role = Role.Button, onClickLabel = "Frame menu", onClick = onFrameMenu)
+                .semantics { contentDescription = "Frame ${s.doc.cur + 1} of ${s.doc.size}, frame menu" },
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
         ) {
-            Icon(DfIcons.Frame, contentDescription = null, tint = Color.White)
-            Text("Frame ${s.doc.cur + 1}", style = MaterialTheme.typography.labelSmall.capped(), color = Color.White, maxLines = 1)
+            Box(Modifier.background(Tokens.Raised, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
+                Icon(DfIcons.Frame, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+            Text(
+                "${s.doc.cur + 1}/${s.doc.size}", style = MaterialTheme.typography.labelMedium.capped(LABEL_SCALE), color = Color.White,
+                maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 2.dp),
+            )
         }
         // the frames read here, so the row's content (a remembered lambda) changes with every edit
         val frames = s.doc.frames
@@ -909,23 +981,23 @@ private fun FrameStrip(
                             }
                             .padding(3.dp),
                     ) {
-                        FrameThumb(f, s.tick, Modifier.fillMaxSize())
+                        // with layers, the frame as it shows (background and text too), so a tile never looks empty
+                        FrameThumb(if (s.doc.layers != null) s.composed(i) else f, s.tick, Modifier.fillMaxSize())
                         // the frame's number, top left
                         Text(
                             "${i + 1}", style = MaterialTheme.typography.labelSmall.capped(1f), color = if (on) Color.Black else Color.White,
                             modifier = Modifier.align(Alignment.TopStart).background(if (on) Color.White else Color.Black.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 4.dp),
                         )
-                        Text(
-                            StudioText.duration(s.doc.durations[i]).replace(" ", ""),
-                            style = MaterialTheme.typography.labelSmall.capped(1f), color = Color.White,
-                            modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(6.dp)).padding(horizontal = 3.dp),
-                        )
                     }
-                    // what plays after the current frame
+                    // the frame's time under the tile (never over the dots), then what plays now and next
+                    Text(
+                        StudioText.duration(s.doc.durations[i]), style = MaterialTheme.typography.labelSmall.capped(1f),
+                        color = if (on) Color.White else Tokens.Secondary, maxLines = 1, softWrap = false, modifier = Modifier.height(16.dp).padding(top = 2.dp),
+                    )
                     Text(
                         if (next) "Next ›" else if (on) "Now" else "", style = MaterialTheme.typography.labelSmall.capped(1f),
-                        color = if (on) Color.White else Tokens.Secondary, maxLines = 1, modifier = Modifier.height(16.dp).padding(top = 2.dp),
+                        color = if (on) Color.White else Tokens.Secondary, maxLines = 1, modifier = Modifier.height(16.dp),
                     )
                 }
             }
@@ -950,7 +1022,7 @@ private fun FrameStrip(
                             }
                         }
                     }
-                    Text("Add", style = MaterialTheme.typography.labelSmall.capped(1f), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.height(16.dp).padding(top = 2.dp))
+                    Text("Add", style = MaterialTheme.typography.labelSmall.capped(1f), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.height(32.dp).padding(top = 2.dp))
                 }
             }
         }

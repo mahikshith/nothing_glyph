@@ -331,7 +331,15 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
                     placeholder = { Text("Type something", color = Tokens.Secondary) },
                     supportingText = { Text("${field.text.length} / ${TextSpec.MAX_CHARS}", color = Tokens.Secondary) },
                     trailingIcon = {
-                        TextButton(onClick = { panel = if (panel == TextPanel.SYMBOLS) TextPanel.NONE else TextPanel.SYMBOLS }) { Text("♥ ★", color = Color.White) }
+                        // one 48 dp button that says what it adds
+                        TextButton(
+                            onClick = { panel = if (panel == TextPanel.SYMBOLS) TextPanel.NONE else TextPanel.SYMBOLS },
+                            modifier = Modifier.heightIn(min = Tokens.Target).padding(end = 4.dp)
+                                .semantics { stateDescription = if (panel == TextPanel.SYMBOLS) "Open" else "Closed" },
+                        ) {
+                            Icon(com.dotforge.ui.design.DfIcons.Face, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            Text("Symbols", color = Color.White, style = MaterialTheme.typography.labelLarge.capped(), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 6.dp))
+                        }
                     },
                     colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, unfocusedBorderColor = Tokens.Hairline, cursorColor = Color.White),
                     shape = RoundedCornerShape(14.dp),
@@ -403,7 +411,8 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
                     }
                 }
                 if (bg != null) {
-                    Text("Background", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Tokens.Gap))
+                    // what the background does: the editor's word for it too
+                    Text("Effect", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Tokens.Gap))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
                         BackgroundEffect.entries.forEach { e -> Chip(e.label, bg.effect == e) { t.background = bg.copy(effect = e) } }
                     }
@@ -500,7 +509,8 @@ private fun StyleStrip(spec: TextSpec, onPick: (TextStyle) -> Unit) {
                     contentAlignment = Alignment.Center,
                 ) {
                     val a = previews[st]
-                    if (a != null) GlyphPreview(a, st.label, Modifier.fillMaxSize(), playing = true)
+                    // a still that shows something (the poster), never a blank moment of a scroll
+                    if (a != null) GlyphPreview(remember(a) { com.dotforge.device.Posters.of(a) }, st.label, Modifier.fillMaxSize())
                     else DotMatrix(null, p, Modifier.fillMaxSize())
                 }
                 Text(

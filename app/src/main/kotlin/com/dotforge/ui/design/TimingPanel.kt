@@ -115,8 +115,9 @@ fun TimingPanel(
             // the slider shows the time it shows for now (the whole design's length too) and follows the chips;
             // moving it picks an exact number of seconds
             val shownMs = if (t.showFor == ShowFor.SECONDS) t.seconds * 1000 else (animationMs ?: 1000).coerceAtLeast(100)
-            SliderLine("Show for", secondsText(shownMs))
-            DotSlider("Show for, seconds", (shownMs / 1000f).coerceIn(1f, 60f), 1f..60f, steps = 58, readout = secondsText(shownMs)) {
+            // "Show for" heads the chips above; the slider is the exact time
+            SliderLine("Exact time", secondsText(shownMs))
+            DotSlider("Exact time, seconds", (shownMs / 1000f).coerceIn(1f, 60f), 1f..60f, steps = 58, readout = secondsText(shownMs)) {
                 onChange(t.copy(showFor = ShowFor.SECONDS, seconds = it.roundToInt()))
             }
         }
@@ -267,7 +268,7 @@ fun speedText(s: Float): String {
     return if (r == r.roundToInt().toFloat()) "${r.roundToInt()}x" else "${r}x"
 }
 
-fun delayText(ms: Int): String = if (ms == 0) "None" else if (ms % 1000 == 0) "${ms / 1000} s" else "${ms / 1000f} s"
+fun delayText(ms: Int): String = if (ms == 0) "None" else if (ms < 1000) "$ms ms" else if (ms % 1000 == 0) "${ms / 1000} s" else "${ms / 1000f} s"
 
 private fun wholeLabel(kind: TimingKind) = when (kind) {
     TimingKind.TEXT -> "Until scrolled"
@@ -295,6 +296,7 @@ private fun moreText(t: Timing, direction: Boolean): String =
     ).joinToString(" · ")
 
 private fun secondsText(ms: Int): String {
+    if (ms < 1000) return "$ms ms"
     val s = ms / 1000f
     return if (s == s.roundToInt().toFloat()) "${s.roundToInt()} s" else "%.1f s".format(java.util.Locale.ROOT, s)
 }

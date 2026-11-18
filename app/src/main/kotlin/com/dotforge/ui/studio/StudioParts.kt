@@ -45,11 +45,15 @@ object StudioText {
         else -> "${a.frames.size} frames · ${seconds(a.totalMs)}"
     }
 
-    /** A frame's time: "170 ms" under a second, "1.2 s" from a second up. */
-    fun duration(ms: Int): String = if (ms < 1000) "$ms ms" else seconds(ms)
+    /** A frame's time: the one format, [seconds]. */
+    fun duration(ms: Int): String = seconds(ms)
 
-    /** 2400 → "2.4 s", 12000 → "12 s". */
+    /**
+     * Every length in the app, one format: under a second in ms ("170 ms", never "0.2 s"); from a second up in
+     * seconds with one decimal ("1.2 s", "12 s").
+     */
     fun seconds(ms: Int): String {
+        if (ms < 1000) return "$ms ms"
         val tenths = (ms + 50) / 100
         return if (tenths % 10 == 0 || ms >= 10_000) "${(ms + 500) / 1000} s" else "${tenths / 10}.${tenths % 10} s"
     }

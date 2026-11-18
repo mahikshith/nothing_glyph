@@ -324,10 +324,10 @@ fun RingtoneReady(
             }
             if (ui.kind == ImportKind.AudioOnly) {
                 val sync = ui.sync
-                SectionLabel("Lights earlier / later · ${if (sync == 0) "in time" else if (sync < 0) "${-sync} ms earlier" else "$sync ms later"}")
+                SectionLabel("Lights earlier / later · ${if (sync == 0) "0 ms (in sync)" else if (sync < 0) "${-sync} ms earlier" else "$sync ms later"}")
                 DotSlider(
                     "Lights earlier or later", sync.toFloat(), -com.dotforge.ringtones.SYNC_MAX_MS.toFloat()..com.dotforge.ringtones.SYNC_MAX_MS.toFloat(),
-                    readout = if (sync == 0) "in time" else "$sync milliseconds", mark = 0f,
+                    readout = if (sync == 0) "0 milliseconds, in sync" else "$sync milliseconds", mark = 0f,
                 ) { onSync(((it / 50).toInt() * 50)) }
             }
             if (onEditLights != null) {

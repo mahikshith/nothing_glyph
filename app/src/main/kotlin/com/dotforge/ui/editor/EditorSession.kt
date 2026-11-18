@@ -181,9 +181,11 @@ class EditorSession(
     }
 
     /** What the matrix shows now: the composited layers, or the frame being drawn. */
-    fun visible(): IntArray {
+    fun visible(): IntArray = composed(if (playing) shown else doc.cur)
+
+    /** Frame [i] as it shows: with its background and text layers when there are any (the strip's thumbnails). */
+    fun composed(i: Int): IntArray {
         val l = doc.layers
-        val i = if (playing) shown else doc.cur
         if (l == null) return doc.frames[i]
         val start = doc.durations.take(i).sum()
         return com.dotforge.device.Compositor.frameAt(AppGraph.profile, l, Animation(AppGraph.profile, listOf(com.dotforge.device.AnimFrame(Frame(AppGraph.profile, doc.frames[i]), doc.durations[i]))), start)

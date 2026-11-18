@@ -89,4 +89,38 @@ class EditorUndoUiTest {
         rule.waitForIdle()
         assertEquals(drawn, lit(s))
     }
+
+    @Test fun clearAllKeepsEveryFrameAndItsTimeAndOffersUndo() {
+        val frames = (0 until 6).map { i -> com.dotforge.device.AnimFrame(Frame.of(p, IntArray(p.cellCount) { c -> if (c % 7 == i) 255 else 0 }), 150 + i * 100) }
+        val d = Design(name = "Six", animated = true, frames = Animation(p, frames).toMuseumJson()).also { AppGraph.designs.save(it) }
+        lateinit var s: EditorSession
+        rule.setContent {
+            DotForgeTheme { EditorScreen(d.id, true, null, Nav(Tab.STUDIO), EditorStart(phone = PhoneState.OFF, prepare = { s = it; it.select(2) })) }
+        }
+        val durations = s.doc.durations.toList()
+        rule.onNodeWithContentDescription("Clear", substring = true).performClick()
+        rule.onNodeWithText("Clear this frame").assertExists()
+        rule.onNodeWithText("Delete this frame").assertExists()
+        rule.onNodeWithText("Clear all 6 frames (keeps the frames)").performClick()
+        rule.waitForIdle()
+        assertEquals(6, s.doc.size)
+        assertEquals(durations, s.doc.durations.toList())
+        assertEquals(2, s.doc.cur)
+        assertTrue(s.doc.frames.all { f -> f.none { it > 0 } })
+        rule.onNodeWithText("Cleared the dots in all 6 frames").assertExists()
+        rule.onNodeWithContentDescription("Frame 1, 150 ms, empty").assertExists()
+        rule.onNodeWithContentDescription("Frame 6, 650 ms, empty").assertExists()
+        // Undo brings the dots back
+        rule.onNodeWithText("Undo").performClick()
+        rule.waitForIdle()
+        assertEquals(6, s.doc.size)
+        assertTrue(s.doc.frames.all { f -> f.any { it > 0 } })
+
+        // Delete this frame is the separate, red item, and has Undo too
+        rule.onNodeWithContentDescription("Clear", substring = true).performClick()
+        rule.onNodeWithText("Delete this frame").performClick()
+        rule.waitForIdle()
+        assertEquals(5, s.doc.size)
+        rule.onNodeWithText("Deleted frame 3").assertExists()
+    }
 }
