@@ -1,0 +1,31 @@
+DotForge - third-party notices
+
+Code adapted from permissively licensed projects (each MIT):
+
+1. glyph-tuner - https://github.com/Swapnil-Kar/glyph-tuner
+   MIT License, Copyright (c) 2026 Swapnil Kar
+   Used as the model for glyph-driver/.../GlyphDriver.kt (one shared connection, single IO thread,
+   newest-frame coalescing, close timeout; adapted from its GlyphLink).
+
+2. glyph-decibel - https://github.com/OttoCliman/glyph-decibel
+   MIT License, Copyright (c) 2026 Otto Climan
+   Used as the model for the Messenger-based toy service in app/.../toys/GlyphToyService.kt.
+
+3. GlyphMatrix-Example-Project - https://github.com/KenFeng04/GlyphMatrix-Example-Project
+   MIT License, Copyright (c) 2025 Nothing Technology Limited
+   Reference for the toy service lifecycle (onBind/onUnbind, GlyphToy events).
+
+4. GlyphType - https://github.com/deepudxd/GlyphType
+   MIT License, Copyright (c) 2026 Deepu
+   core-device/.../PixelFont.kt is adapted from its 5x5 PixelFont.
+
+The MIT licence text of each project permits use, copying, modification and distribution provided the
+copyright notice and permission notice are included. Their notices are reproduced above by reference;
+see each repository's LICENSE file for the full text.
+
+Not included in this repository:
+
+- Nothing Glyph Matrix SDK (glyph-matrix-sdk-2.0.aar), (c) Nothing Technology Limited, from
+  https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit . Its licence (Glyph SDK End
+  User License Agreement) does not allow redistribution, so it is downloaded by scripts/fetch-glyph-sdk.sh
+  into app/libs/ (gitignored) and must not be committed or shared.
