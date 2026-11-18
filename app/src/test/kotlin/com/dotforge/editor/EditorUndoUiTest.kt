@@ -61,6 +61,7 @@ class EditorUndoUiTest {
         assertTrue("the stroke lit dots", drawn > 5)
         rule.onNodeWithContentDescription("Undo").assertIsEnabled()
         rule.onNodeWithContentDescription("Redo, unavailable").assertIsNotEnabled()
+        // the frame strip's thumbnail follows the stroke
 
         rule.onNodeWithContentDescription("Undo").performClick()
         rule.waitForIdle()
@@ -74,6 +75,7 @@ class EditorUndoUiTest {
         rule.waitForIdle()
         assertEquals(0, lit(s))
         rule.onNodeWithText("Cleared frame 1").assertExists()
+        rule.onNodeWithContentDescription("Frame 1, 1 s, empty, current").assertExists()
         rule.onNodeWithContentDescription("Undo").assertIsEnabled()
 
         // drawing right after Clear

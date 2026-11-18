@@ -878,12 +878,14 @@ private fun FrameStrip(
             Icon(DfIcons.Frame, contentDescription = null, tint = Color.White)
             Text("Frame ${s.doc.cur + 1}", style = MaterialTheme.typography.labelSmall.capped(), color = Color.White, maxLines = 1)
         }
+        // the frames read here, so the row's content (a remembered lambda) changes with every edit
+        val frames = s.doc.frames
         LazyRow(
             Modifier.weight(1f).fillMaxHeight().edgeFade(list.canScrollBackward, list.canScrollForward), state = list,
             horizontalArrangement = Arrangement.spacedBy(TILE_GAP), verticalAlignment = Alignment.CenterVertically,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
         ) {
-            itemsIndexed(s.doc.frames, key = { i, f -> System.identityHashCode(f) * 31 + i }) { i, f ->
+            itemsIndexed(frames, key = { i, f -> System.identityHashCode(f) * 31 + i }) { i, f ->
                 val on = i == now
                 val next = i == (now + 1).takeIf { it < s.doc.size }
                 Column(
@@ -901,7 +903,9 @@ private fun FrameStrip(
                                 if (to != i) s.edit { moveFrame(i, to) }
                             })
                             .semantics {
-                                contentDescription = "Frame ${i + 1}, ${StudioText.duration(s.doc.durations[i])}" + when { on -> ", current"; next -> ", next"; else -> "" }
+                                val blank = f.none { it > 0 }
+                                contentDescription = "Frame ${i + 1}, ${StudioText.duration(s.doc.durations[i])}" + (if (blank) ", empty" else "") +
+                                    when { on -> ", current"; next -> ", next"; else -> "" }
                             }
                             .padding(3.dp),
                     ) {
