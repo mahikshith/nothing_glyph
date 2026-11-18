@@ -46,7 +46,8 @@ fun interface AmbientGate {
  *
  * The firmware ranks system lights above app frames (ringtone > active toy > notification glyph > app frames)
  * and never tells the app when its frame was covered, so while something is showing the current frame is
- * re-sent every [resendMs], and [refresh] re-sends it at once (called on screen-on and unlock).
+ * re-sent every [resendMs], [refresh] re-sends it at once and [refreshAfter] a moment later (on screen-on,
+ * unlock, and when a notification we handle arrives together with Nothing's own notification glyph).
  *
  * All state lives on [scope], which must be single-threaded.
  */
@@ -64,6 +65,7 @@ class DisplayArbiter(
     private var job: Job? = null
     private var seq = 0L
     private var suspended = false
+    private var pendingRefresh: Job? = null
 
     private val _frame = MutableStateFlow<Frame?>(null)
     /** Current frame, mirrored in the in-app preview. */
@@ -136,11 +138,27 @@ class DisplayArbiter(
 
     /** Re-check the gate and re-send the current frame now (it may have been covered by system lights). */
     fun refresh() {
+        scope.launch { refreshNow() }
+    }
+
+    /**
+     * Re-send the current frame once [delayMs] from now, after a system light that is likely covering it
+     * (a notification glyph, the unlock animation) has finished. A newer call replaces a pending one.
+     */
+    fun refreshAfter(delayMs: Long) {
         scope.launch {
-            val before = playing
-            reschedule(force = false)
-            if (playing != null && playing == before) _frame.value?.let(device::show)
+            pendingRefresh?.cancel()
+            pendingRefresh = scope.launch {
+                delay(delayMs)
+                refreshNow()
+            }
         }
+    }
+
+    private fun refreshNow() {
+        val before = playing
+        reschedule(force = false)
+        if (playing != null && playing == before) _frame.value?.let(device::show)
     }
 
     private fun top(): DisplayRequest? {

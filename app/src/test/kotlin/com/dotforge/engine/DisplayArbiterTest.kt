@@ -169,6 +169,23 @@ class DisplayArbiterTest {
         assertEquals(before + 1, device.shown.size)
     }
 
+    @Test fun refreshAfterResendsOnceAfterTheLastCall() = runTest {
+        val device = FakeDevice()
+        val a = DisplayArbiter(backgroundScope, device, FakeGate(), resendMs = 60_000)
+        a.post(request("torch", Priority.TORCH, 70, frameMs = 60_000))
+        runCurrent()
+        val before = device.shown.size
+        a.refreshAfter(1_000)
+        advanceTimeBy(500)
+        a.refreshAfter(1_000) // restarts the wait
+        advanceTimeBy(900)
+        assertEquals(before, device.shown.size)
+        advanceTimeBy(200)
+        assertEquals(before + 1, device.shown.size)
+        advanceTimeBy(5_000)
+        assertEquals(before + 1, device.shown.size)
+    }
+
     @Test fun heartbeatDropsAmbientWhenGateCloses() = runTest {
         val device = FakeDevice()
         val gate = FakeGate()

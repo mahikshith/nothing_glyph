@@ -23,6 +23,22 @@ The MIT licence text of each project permits use, copying, modification and dist
 copyright notice and permission notice are included. Their notices are reproduced above by reference;
 see each repository's LICENSE file for the full text.
 
+Code adapted from Apache-2.0 licensed projects:
+
+5. Glyphifier - https://github.com/AhmedYasser5/Glyphifier
+   Apache License 2.0, Copyright 2026 Ahmed Ezzat. Full licence text: licenses/Glyphifier-LICENSE.txt
+   (also https://www.apache.org/licenses/LICENSE-2.0). Glyphifier has no NOTICE file.
+   Its logic was adapted, with changes, into:
+   - app/.../engine/AlertQueue.kt: calls queued ahead of other alerts, bounded queue dropping the oldest
+     non-call, re-posts updated in place, never preempting what is playing, and the per-conversation
+     re-post cooldown (from PlaybackQueue.kt and the cooldown in its GlyphNotificationListener.kt).
+     Changed: hold-until-read / until-unlock alerts, cycle-boundary switching, no staleness expiry.
+   - app/.../rules/Rules.kt (RuleEngine.match, RuleEngine.regex): match by specificity tier rather than list
+     order, and the compiled-regex cache (from rules/RuleMatcher.kt). Changed: contact tier, manual
+     priority tiebreak, any/all/none keyword modes, match explanations.
+   - app/.../notify/GlyphNotificationListener.kt: ringing calls posted as group summaries are kept (from its
+     GlyphNotificationListener.kt).
+
 Not included in this repository:
 
 - Nothing Glyph Matrix SDK (glyph-matrix-sdk-2.0.aar), (c) Nothing Technology Limited, from

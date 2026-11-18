@@ -76,8 +76,27 @@ object Effects {
             AnimFrame(Frame.blank(profile).fill(v), periodMs / steps)
         })
 
-    fun ringChase(profile: DeviceProfile, tail: Int = 8, stepMs: Int = 30): Animation =
-        Animation(profile, profile.ring.indices.map { AnimFrame(comet(profile, it, tail), stepMs) })
+    /** One lap of [heads] evenly spaced comets, each with a [tail], round the outer ring. */
+    fun ringChase(profile: DeviceProfile, tail: Int = 8, stepMs: Int = 30, heads: Int = 1): Animation {
+        val n = profile.ring.size
+        return Animation(profile, profile.ring.indices.map { step ->
+            val f = Frame.blank(profile)
+            repeat(heads) { h ->
+                val c = comet(profile, step + h * n / heads, tail)
+                for (cell in profile.ring) f.pixels[cell] = maxOf(f.pixels[cell], c.pixels[cell])
+            }
+            AnimFrame(f, stepMs)
+        })
+    }
+
+    /** Ring chase for notifications: three short comets chasing each other. */
+    fun chase(profile: DeviceProfile): Animation = ringChase(profile, tail = 4, stepMs = 30, heads = 3)
+
+    /** A single bright comet with a long tail, two fast laps. */
+    fun cometLaps(profile: DeviceProfile): Animation {
+        val lap = ringChase(profile, tail = 20, stepMs = 15).frames
+        return Animation(profile, lap + lap)
+    }
 
     fun flash(profile: DeviceProfile, times: Int = 3): Animation {
         val on = Frame.blank(profile).fill(255)

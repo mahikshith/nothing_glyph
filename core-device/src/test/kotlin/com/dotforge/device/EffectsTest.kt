@@ -31,6 +31,14 @@ class EffectsTest {
 
     @Test fun ringChaseHasOneFramePerRingLed() = assertEquals(68, Effects.ringChase(p).frames.size)
 
+    @Test fun chaseLightsThreeHeadsOnTheRingOnly() {
+        val f = Effects.chase(p).frames.first().frame.pixels
+        assertEquals(3, p.ring.count { f[it] == 255 })
+        assertEquals(0, p.ledCells.filterNot { it in p.ring }.count { f[it] > 0 })
+    }
+
+    @Test fun cometLapsGoesRoundTwice() = assertEquals(2 * 68, Effects.cometLaps(p).frames.size)
+
     @Test fun ringFillsClockwiseFromTop() {
         val f = Effects.ring(p, 0.25f, on = 255, off = 0).pixels
         assertEquals(17, f.count { it == 255 })
