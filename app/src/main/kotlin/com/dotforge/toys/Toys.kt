@@ -24,7 +24,7 @@ import kotlin.random.Random
 
 private const val INFO_MS = 3_000L
 
-/** Big two-line dot clock, redrawn each minute and on AOD ticks. Long press shows the date for 3 s. */
+/** Big two-line dot clock (12 or 24 hour), redrawn each minute and on AOD ticks. Long press shows the date for 3 s. */
 class ClockToy : GlyphToyService() {
     private var showDate = false
     private var revert: Job? = null
@@ -55,11 +55,12 @@ class ClockToy : GlyphToyService() {
 
     private fun render() {
         val now = LocalDateTime.now()
-        show(if (showDate) Effects.clock(profile, now.dayOfMonth, now.monthValue) else Effects.clock(profile, now.hour, now.minute))
+        val hour = ToySettings.displayHour(now.hour, AppGraph.toys.clock24h)
+        show(if (showDate) Effects.clock(profile, now.dayOfMonth, now.monthValue) else Effects.clock(profile, hour, now.minute))
     }
 }
 
-/** Battery ring, with a dot running along it while charging. Long press shows the percentage for 3 s. */
+/** Battery ring, with a dot running along it while charging (optional). Long press shows the percentage for 3 s. */
 class BatteryToy : GlyphToyService() {
     private var level = 0f
     private var charging = false
@@ -100,9 +101,10 @@ class BatteryToy : GlyphToyService() {
     }
 
     private fun updateChargeAnimation() {
-        if (charging == (chargeAnim?.isActive == true)) return
+        val animate = charging && AppGraph.toys.batteryChargeAnimation
+        if (animate == (chargeAnim?.isActive == true)) return
         chargeAnim?.cancel()
-        chargeAnim = if (!charging) null else toyScope.launch {
+        chargeAnim = if (!animate) null else toyScope.launch {
             while (isActive) {
                 delay(120)
                 phase++
@@ -113,7 +115,7 @@ class BatteryToy : GlyphToyService() {
 
     private fun render() {
         val f = Effects.ring(profile, level)
-        if (charging) {
+        if (chargeAnim?.isActive == true) {
             val filled = (profile.ring.size * level).toInt().coerceAtLeast(1)
             for (i in 0 until filled) f.pixels[profile.ring[i]] = 140
             f.pixels[profile.ring[phase % filled]] = 255
@@ -123,13 +125,14 @@ class BatteryToy : GlyphToyService() {
     }
 }
 
-/** Dice: the Glyph Button or a shake rolls it. */
+/** Dice: the Glyph Button or (optional) a shake rolls it. */
 class DiceToy : GlyphToyService(), SensorEventListener {
     private val sensors by lazy { getSystemService(SensorManager::class.java) }
     private var lastShake = 0L
 
     override fun onToyStart() {
         show(Effects.dice(profile, 6))
+        if (!AppGraph.toys.diceShake) return
         sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
             sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
@@ -164,13 +167,13 @@ class DiceToy : GlyphToyService(), SensorEventListener {
     }
 }
 
-/** Loops the animation saved in the Studio (a ring chase until one is saved). Long press pauses, double press restarts. */
+/** Loops the chosen design from the Create tab (a ring chase until one is saved). Long press pauses, double press restarts. */
 class PlayerToy : GlyphToyService() {
     private var paused = false
 
     override fun onToyStart() = start()
 
-    private fun start() = play(AppGraph.studio.load() ?: Effects.ringChase(profile), loop = true)
+    private fun start() = play(AppGraph.playerAnimation() ?: Effects.ringChase(profile), loop = true)
 
     override fun onPress(press: Press) {
         when (press) {

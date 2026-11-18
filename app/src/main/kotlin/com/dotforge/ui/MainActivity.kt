@@ -5,75 +5,129 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.List
-import androidx.compose.material.icons.outlined.Create
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Star
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dotforge.AppGraph
 import com.dotforge.diagnostics.DiagnosticsScreen
 import com.dotforge.diagnostics.EventLog
-
-private enum class Tab(val label: String, val icon: ImageVector) {
-    HOME("Home", Icons.Outlined.Home),
-    RULES("Rules", Icons.AutoMirrored.Outlined.List),
-    STUDIO("Studio", Icons.Outlined.Create),
-    TOYS("Toys", Icons.Outlined.Star),
-    SETTINGS("Settings", Icons.Outlined.Settings),
-}
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         EventLog.init(this)
+        val setup = Setup(this)
         setContent {
             DotForgeTheme {
-                var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
-                var diagnostics by rememberSaveable { mutableStateOf(false) }
-                if (diagnostics) {
-                    BackHandler { diagnostics = false }
-                    DiagnosticsScreen(onClose = { diagnostics = false })
-                } else Scaffold(
-                    containerColor = Color.Black,
-                    bottomBar = {
-                        NavigationBar(containerColor = Color(0xFF0A0A0A)) {
-                            Tab.entries.forEach { t ->
-                                NavigationBarItem(
-                                    selected = tab == t,
-                                    onClick = { tab = t },
-                                    icon = { Icon(t.icon, contentDescription = t.label) },
-                                    label = { Text(t.label) },
-                                )
-                            }
-                        }
-                    },
-                ) { pad ->
-                    Box(Modifier.padding(pad)) {
-                        when (tab) {
-                            Tab.HOME -> HomeScreen()
-                            Tab.RULES -> RulesScreen()
-                            Tab.STUDIO -> StudioScreen()
-                            Tab.TOYS -> ToysScreen()
-                            Tab.SETTINGS -> SettingsScreen(onOpenDiagnostics = { diagnostics = true })
-                        }
+                val nav = rememberSaveable(saver = Nav.saver) { Nav() }
+                val scrolls = Tab.entries.associateWith { rememberScrollState() }
+                // keeps each tab's remembered UI state while a page is open or another tab is shown
+                val saved = rememberSaveableStateHolder()
+                Box(Modifier.fillMaxSize().background(Color.Black)) {
+                    AnimatedContent(
+                        targetState = nav.page,
+                        transitionSpec = {
+                            val dir = if (nav.forward) 1 else -1
+                            (slideInHorizontally { it / 4 * dir } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 * dir } + fadeOut())
+                        },
+                        label = "page",
+                    ) { page ->
+                        if (page == null) saved.SaveableStateProvider("tabs") { Tabs(nav, setup, scrolls) } else PageContent(page, nav, setup)
                     }
                 }
+                SetupSheets(setup)
             }
+        }
+    }
+}
+
+@Composable
+private fun Tabs(nav: Nav, setup: Setup, scrolls: Map<Tab, ScrollState>) {
+    val scope = rememberCoroutineScope()
+    val saved = rememberSaveableStateHolder()
+    val spam by AppGraph.spam.settings.collectAsStateWithLifecycle()
+    val needsSetup = !setup.notificationAccess || (spam.needsContacts && !setup.contacts)
+    BackHandler(enabled = nav.tab != Tab.GLYPH) { nav.tab = Tab.GLYPH }
+    Scaffold(
+        containerColor = Color.Black,
+        bottomBar = {
+            NavigationBar(containerColor = Color(0xFF0A0A0A)) {
+                Tab.entries.forEach { t ->
+                    val selected = nav.tab == t
+                    NavigationBarItem(
+                        selected = selected,
+                        onClick = {
+                            if (selected) scope.launch { scrolls.getValue(t).animateScrollTo(0) } else nav.tab = t
+                        },
+                        icon = {
+                            BadgedBox(badge = { if (t == Tab.SETTINGS && needsSetup) Badge(containerColor = NothingRed) }) {
+                                Icon(if (selected) t.selectedIcon else t.icon, contentDescription = t.label)
+                            }
+                        },
+                        label = { Text(t.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color.White,
+                            selectedTextColor = Color.White,
+                            indicatorColor = Color(0xFF262626),
+                            unselectedIconColor = Muted,
+                            unselectedTextColor = Muted,
+                        ),
+                    )
+                }
+            }
+        },
+    ) { pad ->
+        Crossfade(nav.tab, Modifier.padding(pad), label = "tab") { tab ->
+            saved.SaveableStateProvider(tab.name) {
+                when (tab) {
+                    Tab.GLYPH -> GlyphScreen(nav, setup, scrolls.getValue(tab))
+                    Tab.CREATE -> CreateScreen(nav, scrolls.getValue(tab))
+                    Tab.SETTINGS -> SettingsScreen(nav, setup, scrolls.getValue(tab))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageContent(page: Page, nav: Nav, setup: Setup) {
+    when (page) {
+        Page.Rules -> RulesPage(nav, setup)
+        is Page.RuleEditor -> RuleEditorPage(page.ruleId, onClose = nav::pop)
+        Page.Spam -> SpamPage(setup, onBack = nav::pop)
+        is Page.ToySettings -> ToySettingsPage(page.toy, nav)
+        is Page.DesignEditor -> DesignEditorPage(page.designId, page.animated, onClose = nav::pop)
+        Page.Diagnostics -> {
+            BackHandler(onBack = nav::pop)
+            DiagnosticsScreen(onClose = nav::pop)
         }
     }
 }

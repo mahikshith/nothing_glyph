@@ -84,15 +84,18 @@ class RuleEngineTest {
 
     @Test fun noRulesMeansNoMatch() = assertEquals(MatchResult.NoMatch, RuleEngine.match(note(), emptyList()))
 
-    @Test fun starterRulesFilterSpamThenMessagesThenEverythingElse() {
-        val rules = RuleEngine.starterRules()
-        assertEquals(3, rules.size)
-        assertTrue(RuleEngine.match(note(text = "Loan approved!"), rules) is MatchResult.Suppressed)
-        assertEquals("Messages", (RuleEngine.match(note(pkg = "com.whatsapp"), rules) as MatchResult.Show).rule.name)
-        assertEquals("Everything else", (RuleEngine.match(note(), rules) as MatchResult.Show).rule.name)
+    @Test fun presetsCatchCallsOtpCodesAndMessages() {
+        val rules = RuleEngine.presets()
+        fun name(n: NotificationInfo) = (RuleEngine.match(n, rules) as? MatchResult.Show)?.rule?.name
+        assertEquals(listOf("Calls", "OTP", "Messages"), rules.map { it.name })
+        assertEquals("Calls", name(note(pkg = "com.google.android.dialer", text = "Incoming call")))
+        assertEquals("OTP", name(note(pkg = "com.google.android.apps.messaging", text = "Your OTP is 482913. Do not share it.")))
+        assertEquals("OTP", name(note(text = "482913 is your verification code")))
+        assertEquals("Messages", name(note(pkg = "com.whatsapp", text = "See you at 1830")))
+        assertEquals(null, name(note(text = "Order 12345678 shipped")))
     }
 
-    @Test fun customEffectFallsBackToPulseWithoutStudioAnimation() {
+    @Test fun customEffectFallsBackToPulseWithoutADesign() {
         val p = DeviceProfile.Phone3
         val anim = RuleEngine.animationFor(Rule(effect = Effect.CUSTOM), note(), p, custom = null)
         assertEquals(Effects.pulse(p).frames.size, anim.frames.size)

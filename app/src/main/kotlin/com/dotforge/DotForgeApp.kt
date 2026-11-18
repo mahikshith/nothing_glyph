@@ -5,15 +5,20 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
+import com.dotforge.device.Animation
 import com.dotforge.device.DeviceProfile
 import com.dotforge.driver.Channel
 import com.dotforge.driver.GlyphDriver
 import com.dotforge.engine.DisplayArbiter
 import com.dotforge.engine.MatrixDevice
 import com.dotforge.engine.MatrixDevices
+import com.dotforge.engine.Priority
 import com.dotforge.rules.NotificationInfo
 import com.dotforge.rules.RulesRepository
-import com.dotforge.studio.StudioRepository
+import com.dotforge.rules.SpamRepository
+import com.dotforge.studio.DesignsRepository
+import com.dotforge.toys.ToySettings
 import com.dotforge.system.NothingSettingsGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,37 +39,62 @@ object AppGraph {
         private set
     lateinit var rules: RulesRepository
         private set
-    lateinit var studio: StudioRepository
+    lateinit var spam: SpamRepository
         private set
+    lateinit var designs: DesignsRepository
+        private set
+    lateinit var toys: ToySettings
+        private set
+    private lateinit var prefs: SharedPreferences
 
-    private const val PREFS = "dotforge"
-    private const val KEY_LIGHTS_ON = "lights_on"
+    private const val KEY_BRIGHTNESS = "brightness"
+    private const val KEY_PROGRESS = "progress_rings"
     private const val RECENT_MAX = 30
 
     private val _recent = MutableStateFlow<List<NotificationInfo>>(emptyList())
-    /** Last notifications seen, newest first, for the rule tester. */
+    /** Last notifications seen, newest first, for the rule editor's "would match" list. */
     val recent: StateFlow<List<NotificationInfo>> = _recent.asStateFlow()
 
     fun remember(info: NotificationInfo) =
         _recent.update { list -> (listOf(info) + list.filterNot { it.key == info.key }).take(RECENT_MAX) }
 
-    /** Master switch, persisted. */
-    fun setLightsOn(context: Context, on: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_LIGHTS_ON, on).apply()
-        arbiter.setEnabled(on)
+    private val _progressRings = MutableStateFlow(true)
+    /** Progress rings for downloads, deliveries and timers. */
+    val progressRings: StateFlow<Boolean> = _progressRings.asStateFlow()
+
+    fun setProgressRings(on: Boolean) {
+        prefs.edit().putBoolean(KEY_PROGRESS, on).apply()
+        _progressRings.value = on
+        if (!on) arbiter.removeIf { it.priority == Priority.PROGRESS }
+    }
+
+    /** Brightness of DotForge's own lights (not toys), 0-255. */
+    val brightness: StateFlow<Int> get() = GlyphDriver.brightness
+
+    fun setBrightness(level: Int) {
+        prefs.edit().putInt(KEY_BRIGHTNESS, level).apply()
+        GlyphDriver.setBrightness(level)
+        arbiter.refresh()
+    }
+
+    /** What DF Player and the "My design" effect play: the chosen design, else the newest. */
+    fun playerAnimation(): Animation? {
+        val list = designs.designs.value
+        val design = designs.get(toys.playerDesignId) ?: list.firstOrNull() ?: return null
+        return designs.animation(design)
     }
 
     internal fun init(app: Application) {
+        prefs = app.getSharedPreferences("dotforge", Context.MODE_PRIVATE)
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
         device = MatrixDevices.create(app, Channel.APP)
-        arbiter = DisplayArbiter(
-            scope = engineScope,
-            device = device,
-            gate = NothingSettingsGate(app.contentResolver),
-            enabled = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LIGHTS_ON, true),
-        )
+        arbiter = DisplayArbiter(scope = engineScope, device = device, gate = NothingSettingsGate(app.contentResolver))
+        GlyphDriver.setBrightness(prefs.getInt(KEY_BRIGHTNESS, 255))
+        _progressRings.value = prefs.getBoolean(KEY_PROGRESS, true)
         rules = RulesRepository(File(app.filesDir, "rules.json"))
-        studio = StudioRepository(profile, File(app.filesDir, "studio_current.json"))
+        spam = SpamRepository(File(app.filesDir, "spam.json"))
+        designs = DesignsRepository(profile, File(app.filesDir, "designs.json"), legacyFile = File(app.filesDir, "studio_current.json"))
+        toys = ToySettings(app.getSharedPreferences("toys", Context.MODE_PRIVATE))
     }
 }
 

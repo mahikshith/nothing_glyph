@@ -3,6 +3,16 @@
 
     <!-- Glyph SDK access (a normal permission on Nothing phones). -->
     <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
+    <!-- Only asked for when the spam filter's "Always allow: Contacts / Starred" is switched on. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- The rule editor's app picker lists launcher apps; no QUERY_ALL_PACKAGES needed. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".DotForgeApp"

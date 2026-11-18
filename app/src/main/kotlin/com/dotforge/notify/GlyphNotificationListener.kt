@@ -2,6 +2,7 @@ package com.dotforge.notify
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.Person
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -16,18 +17,20 @@ import com.dotforge.engine.Priority
 import com.dotforge.rules.MatchResult
 import com.dotforge.rules.NotificationInfo
 import com.dotforge.rules.RuleEngine
+import com.dotforge.rules.SpamFilter
 
 /**
  * Turns notifications into matrix animations:
  *  - ongoing notifications with a determinate progress value (downloads, deliveries, timers, Android 16
- *    ProgressStyle / Live Updates) become a progress ring;
- *  - everything else goes through the rule list (first match wins; "suppress" is the spam filter).
+ *    ProgressStyle / Live Updates) become a progress ring, when progress rings are on;
+ *  - incoming calls and everything else first pass the spam filter, then the rule list (first match wins).
  */
 class GlyphNotificationListener : NotificationListenerService() {
 
     /** Notification keys that should stop showing when the phone is unlocked. */
     private val clearOnUnlock = mutableSetOf<String>()
     private var receiverRegistered = false
+    private val contacts by lazy { ContactLookup(this) }
 
     private val unlockReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -52,11 +55,12 @@ class GlyphNotificationListener : NotificationListenerService() {
         val n = sbn.notification
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
 
-        if (sbn.isOngoing) {
-            // Ongoing notifications (music, foreground services) are not alerts; only progress is shown.
-            val fraction = progressOf(n)
+        if (sbn.isOngoing && !isIncomingCall(n)) {
+            // Ongoing notifications (music, calls in progress, foreground services) are not alerts; only progress is shown.
+            AppGraph.arbiter.remove(notificationId(sbn.key)) // e.g. an incoming call that was answered
+            val fraction = progressOf(n)?.takeIf { AppGraph.progressRings.value }
             if (fraction == null) {
-                AppGraph.arbiter.remove(progressId(sbn.key)) // finished or became indeterminate
+                AppGraph.arbiter.remove(progressId(sbn.key)) // finished, indeterminate or switched off
                 return
             }
             AppGraph.arbiter.post(
@@ -75,12 +79,18 @@ class GlyphNotificationListener : NotificationListenerService() {
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))
             ?.toString().orEmpty()
-        val info = NotificationInfo(sbn.key, sbn.packageName, appLabel(sbn.packageName), title, text, sbn.postTime)
+        val people = extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, Person::class.java)
+            ?.mapNotNull { it.uri }.orEmpty()
+        val info = NotificationInfo(sbn.key, sbn.packageName, appLabel(sbn.packageName), title, text, sbn.postTime, people)
         AppGraph.remember(info)
 
+        if (SpamFilter.isSpam(info, AppGraph.spam.settings.value) { contacts.lookup(info) }) {
+            AppGraph.spam.record(info)
+            return
+        }
         val rule = (RuleEngine.match(info, AppGraph.rules.rules.value) as? MatchResult.Show)?.rule ?: return
         if (inDnd() && !rule.breakDnd) return
-        val anim = RuleEngine.animationFor(rule, info, AppGraph.profile, AppGraph.studio.load())
+        val anim = RuleEngine.animationFor(rule, info, AppGraph.profile, AppGraph.playerAnimation())
         if (rule.clearOnUnlock) clearOnUnlock += sbn.key
         AppGraph.arbiter.post(
             DisplayRequest(
@@ -93,6 +103,9 @@ class GlyphNotificationListener : NotificationListenerService() {
             ),
         )
     }
+
+    /** A ringing call: ongoing, but an alert. Calls in progress have no full-screen intent. */
+    private fun isIncomingCall(n: Notification) = n.category == Notification.CATEGORY_CALL && n.fullScreenIntent != null
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         clearOnUnlock -= sbn.key

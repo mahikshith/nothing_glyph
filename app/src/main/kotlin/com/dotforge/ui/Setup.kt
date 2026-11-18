@@ -1,0 +1,230 @@
+package com.dotforge.ui
+
+import android.Manifest
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.dotforge.notify.GlyphNotificationListener
+import com.dotforge.setup.AccessFlow
+
+/**
+ * Live permission state and the ask-when-first-used flows. Notification access goes through [AccessFlow]
+ * (explain, open settings, and the restricted-settings unlock steps if Android blocked it); Contacts is a
+ * normal runtime permission, asked only when the spam filter's "Always allow" needs it.
+ */
+class Setup(private val activity: ComponentActivity) {
+    private val flow = AccessFlow()
+    private val prefs = activity.getSharedPreferences("setup", Context.MODE_PRIVATE)
+
+    var notificationAccess by mutableStateOf(hasNotificationAccess())
+        private set
+    var contacts by mutableStateOf(hasContacts())
+        private set
+    var accessStep by mutableStateOf(AccessFlow.Step.NONE)
+        private set
+    var contactsSheet by mutableStateOf(false)
+        private set
+    /** Bumped on every resume, so screens can re-read system state. */
+    var resumes by mutableIntStateOf(0)
+        private set
+
+    private fun hasNotificationAccess() =
+        NotificationManagerCompat.getEnabledListenerPackages(activity).contains(activity.packageName)
+
+    private fun hasContacts() =
+        activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+
+    private fun sync() {
+        accessStep = flow.step
+    }
+
+    fun onResume() {
+        notificationAccess = hasNotificationAccess()
+        contacts = hasContacts()
+        flow.resumed(notificationAccess)
+        sync()
+        resumes++
+    }
+
+    /** A feature that reads notifications was switched on or opened. Returns true when access is there. */
+    fun needNotificationAccess(): Boolean = flow.request(notificationAccess).also { sync() }
+
+    fun openAccessSettings() {
+        flow.openedAccessSettings()
+        sync()
+        launchAccessSettings()
+    }
+
+    /** Opens the access page without starting the flow, e.g. to turn access off again. */
+    fun manageAccess() = launchAccessSettings()
+
+    private fun launchAccessSettings() {
+        val component = ComponentName(activity, GlyphNotificationListener::class.java).flattenToString()
+        val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+            .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component)
+        if (runCatching { activity.startActivity(detail) }.isFailure) {
+            activity.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+    }
+
+    fun openAppInfo() {
+        flow.openedAppInfo()
+        sync()
+        openAppDetails()
+    }
+
+    private fun openAppDetails() = activity.startActivity(
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)),
+    )
+
+    fun accessNotNow() {
+        flow.notNow()
+        sync()
+    }
+
+    /** The spam filter's "Always allow" was switched on. Returns true when Contacts can be read. */
+    fun needContacts(): Boolean {
+        if (contacts) return true
+        contactsSheet = true
+        return false
+    }
+
+    fun contactsNotNow() {
+        contactsSheet = false
+    }
+
+    /** Ask with the system dialog, or open App info once Android stops showing it (denied twice). */
+    fun allowContacts(launch: () -> Unit) {
+        contactsSheet = false
+        val asked = prefs.getBoolean(KEY_CONTACTS_ASKED, false)
+        if (asked && !activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_CONTACTS)) {
+            openAppDetails()
+        } else {
+            prefs.edit().putBoolean(KEY_CONTACTS_ASKED, true).apply()
+            launch()
+        }
+    }
+
+    fun onContactsResult() {
+        contacts = hasContacts()
+    }
+
+    private companion object {
+        const val KEY_CONTACTS_ASKED = "contacts_asked"
+    }
+}
+
+/** The permission sheets, shown over every screen. Also re-reads permission state on each resume. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SetupSheets(setup: Setup) {
+    LifecycleResumeEffect(setup) {
+        setup.onResume()
+        onPauseOrDispose { }
+    }
+    val contactsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        setup.onContactsResult()
+    }
+
+    when (setup.accessStep) {
+        AccessFlow.Step.NONE -> Unit
+        AccessFlow.Step.EXPLAIN -> Sheet(
+            onDismiss = setup::accessNotNow,
+            title = "Allow notification access",
+            body = "DotForge reads notifications on this phone to light the Glyph Matrix. Nothing leaves the phone.",
+            primary = "Open settings" to setup::openAccessSettings,
+            secondary = null,
+        )
+        AccessFlow.Step.UNLOCK -> Sheet(
+            onDismiss = setup::accessNotNow,
+            title = "Android blocked access",
+            body = "DotForge was installed from a file, so Android locks this setting until you allow it:\n\n" +
+                "1.  Tap Open App info.\n" +
+                "2.  Tap ⋮ (top right), then Allow restricted settings.\n" +
+                "3.  Come back and tap Try again.\n\n" +
+                "No such option? Tap Try again, tap the greyed-out switch once, then come back here.",
+            primary = "Open App info" to setup::openAppInfo,
+            secondary = "Try again" to setup::openAccessSettings,
+        )
+    }
+
+    if (setup.contactsSheet) {
+        Sheet(
+            onDismiss = setup::contactsNotNow,
+            title = "Allow Contacts",
+            body = "Lets the spam filter skip people you know. Contacts are only read on this phone.",
+            primary = "Allow" to { setup.allowContacts { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) } },
+            secondary = null,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun Sheet(
+    onDismiss: () -> Unit,
+    title: String,
+    body: String,
+    primary: Pair<String, () -> Unit>,
+    secondary: Pair<String, () -> Unit>?,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Surface1,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp).navigationBarsPadding()) {
+            Text(title, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+            Text(body, color = Muted, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
+            PrimaryButton(primary.first, Modifier.fillMaxWidth(), onClick = primary.second)
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = onDismiss) { Text("Not now", color = Color.White) }
+                secondary?.let { (label, action) -> TextButton(onClick = action) { Text(label, color = Color.White) } }
+            }
+        }
+    }
+}
+
+/** A card shown on pages whose feature needs notification access while it is missing. */
+@Composable
+fun AccessBanner(setup: Setup, text: String) {
+    if (setup.notificationAccess) return
+    Surface(color = Surface2, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, Modifier.weight(1f), fontSize = 14.sp)
+            TextButton(onClick = { setup.needNotificationAccess() }) { Text("Allow", color = NothingRed) }
+        }
+    }
+}
