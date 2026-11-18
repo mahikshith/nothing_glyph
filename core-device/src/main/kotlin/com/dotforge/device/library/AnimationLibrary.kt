@@ -5,6 +5,8 @@ import com.dotforge.device.Frame
 
 /** The categories of the library, in the order they are listed. */
 object Categories {
+    /** A curated first page: bold shapes and smooth motion that read well on 25x25. Its items also live in a real category. */
+    val Featured = Category("featured", "Featured")
     val Alerts = Category("alerts", "Alerts")
     val LoveEmoji = Category("love_emoji", "Love & emoji")
     val NatureWeather = Category("nature_weather", "Nature & weather")
@@ -19,7 +21,7 @@ object Categories {
     val Symbols = Category("symbols", "Symbols")
     val StoriesArt = Category("stories_art", "Stories & art")
 
-    val all = listOf(Alerts, LoveEmoji, NatureWeather, Loaders, Music, Games, Time, Abstract, Text, Seasonal, AnimalsFood, Symbols, StoriesArt)
+    val all = listOf(Featured, Alerts, LoveEmoji, NatureWeather, Loaders, Music, Games, Time, Abstract, Text, Seasonal, AnimalsFood, Symbols, StoriesArt)
     fun byId(id: String): Category = all.first { it.id == id }
 }
 
@@ -44,7 +46,20 @@ object AnimationLibrary {
     private val byCategory by lazy { all.groupBy { it.category } }
     private val byId by lazy { all.associateBy { it.id } }
 
-    fun items(category: Category): List<LibraryItem> = byCategory[category].orEmpty()
+    /** Ids of the Featured items, in display order. */
+    private val featuredIds = listOf(
+        "sprite-mini-heart", "gen-heartbeat", "orig-heart-fill", "orig-wink", "orig-thumbs-up", "orig-bell", "orig-call-rings",
+        "orig-ripple-ping", "orig-charging", "orig-rim-breathing", "gen-ripple", "gen-radar", "gen-loading", "gen-spinner",
+        "orig-pulse-dots", "orig-radial-fill", "orig-hourglass", "gen-fireworks", "gen-spiral", "gen-swirl", "gen-rings",
+        "gen-metaballs", "gen-galaxy", "orig-breathing-circle", "gen-bounce", "orig-dice", "orig-sun-pulse", "orig-moon-phases",
+        "gen-snow", "gen-lightning", "gen-aurora", "gen-ocean-waves", "gen-fire", "gen-candle", "orig-beat-pulse", "orig-vinyl",
+        "gen-equalizer", "orig-clock-analog", "orig-tree", "orig-pumpkin",
+    )
+
+    private val featured by lazy { featuredIds.map { requireNotNull(byId[it]) { "unknown featured id $it" } } }
+
+    /** Items of [category]; [Categories.Featured] lists the curated picks, which keep their own real category too. */
+    fun items(category: Category): List<LibraryItem> = if (category == Categories.Featured) featured else byCategory[category].orEmpty()
 
     fun item(id: String): LibraryItem? = byId[id]
 

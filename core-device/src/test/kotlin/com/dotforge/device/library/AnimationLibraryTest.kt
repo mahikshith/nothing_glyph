@@ -75,4 +75,23 @@ class AnimationLibraryTest {
         assertTrue(AnimationLibrary.search("rain").any { it.name.contains("rain", ignoreCase = true) })
         assertTrue(AnimationLibrary.search("zzzzqq").isEmpty())
     }
+
+    @Test fun featuredIsCuratedAndFirst() {
+        assertEquals(Categories.Featured, AnimationLibrary.categories.first())
+        val featured = AnimationLibrary.items(Categories.Featured)
+        assertTrue("featured has ${featured.size}", featured.size in 30..50)
+        assertEquals(featured.size, featured.map { it.id }.toSet().size)
+        for (item in featured) {
+            assertTrue(item.id, item.category != Categories.Featured && item.category in AnimationLibrary.categories)
+            assertTrue(item.id, AnimationLibrary.items(item.category).contains(item))
+        }
+    }
+
+    @Test fun everyCategoryHasItems() {
+        for (c in AnimationLibrary.categories) assertTrue(c.title, AnimationLibrary.items(c).isNotEmpty())
+    }
+
+    @Test fun nothingIsBlank() {
+        for (item in all) assertTrue(item.id, AnimationLibrary.thumbnail(item).pixels.any { it > 0 })
+    }
 }
