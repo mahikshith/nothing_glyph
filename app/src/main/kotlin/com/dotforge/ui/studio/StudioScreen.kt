@@ -271,9 +271,13 @@ private fun DesignCard(
                 }
             }
         }
-        // the name on up to two lines; the details on one line ("4 frames · 1 s")
+        // the name on up to two lines; the details ("4 frames · 0.6 s") never split inside "4 frames" or "0.6 s":
+        // with large text they wrap at the dot instead of being cut
         Text(d.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Tokens.Small))
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            subtitle.replace(" · ", "\u0000").replace(' ', '\u00A0').replace("\u0000", " · "),
+            style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
