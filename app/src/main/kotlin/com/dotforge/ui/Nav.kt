@@ -48,6 +48,7 @@ sealed interface Page {
     data class RuleEditor(val ruleId: String?, val template: String? = null) : Page
     data object Calls : Page
     data object Spam : Page
+    data object Toys : Page
     data class ToySettings(val toy: Toy) : Page
     data class DesignEditor(val designId: String?, val animated: Boolean) : Page
     data object Diagnostics : Page
@@ -61,6 +62,7 @@ private fun Page.encode(): String = when (this) {
     Page.Notifications -> "notifications"
     Page.Calls -> "calls"
     Page.Spam -> "spam"
+    Page.Toys -> "toys"
     Page.Diagnostics -> "diagnostics"
     Page.Ringtones -> "ringtones"
     Page.RingtoneEdit -> "ringedit"
@@ -76,6 +78,7 @@ private fun decode(s: String): Page? {
         "notifications" -> Page.Notifications
         "calls" -> Page.Calls
         "spam" -> Page.Spam
+        "toys" -> Page.Toys
         "diagnostics" -> Page.Diagnostics
         "ringtones" -> Page.Ringtones
         "ringedit" -> Page.RingtoneEdit

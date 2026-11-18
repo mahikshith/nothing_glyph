@@ -171,6 +171,7 @@ private fun PageContent(page: Page, nav: Nav, setup: Setup) {
         is Page.RuleEditor -> RuleEditorPage(page.ruleId, page.template, setup, onClose = nav::pop)
         Page.Calls -> CallsPage(nav, setup)
         Page.Spam -> SpamPage(nav, setup)
+        Page.Toys -> ToysPage(nav, setup)
         is Page.ToySettings -> ToySettingsPage(page.toy, nav)
         is Page.DesignEditor -> DesignEditorPage(page.designId, page.animated, onClose = nav::pop)
         Page.Ringtones -> RingtonesPage(nav)

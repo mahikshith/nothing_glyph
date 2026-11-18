@@ -79,6 +79,9 @@ class Setup(private val activity: ComponentActivity) {
     /** The sheet for posting notifications (quiet copies of silenced ones). */
     var postSheet by mutableStateOf(false)
         private set
+    /** The sheet for installing toys (Android's "Install unknown apps" switch). */
+    var installSheet by mutableStateOf(false)
+        private set
     /** Bumped on every resume, so screens can re-read system state. */
     var resumes by mutableIntStateOf(0)
         private set
@@ -137,6 +140,24 @@ class Setup(private val activity: ComponentActivity) {
         val asked = prefs.getBoolean(KEY_POST_ASKED, false)
         prefs.edit().putBoolean(KEY_POST_ASKED, true).apply()
         if (asked && !activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) openAppDetails() else launch()
+    }
+
+    /** A toy is about to be installed. Returns true when Android lets DotForge install apps. */
+    fun needInstallPermission(): Boolean {
+        if (activity.packageManager.canRequestPackageInstalls()) return true
+        installSheet = true
+        return false
+    }
+
+    fun installNotNow() {
+        installSheet = false
+    }
+
+    fun allowInstall() {
+        installSheet = false
+        runCatching {
+            activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+        }.onFailure { openAppDetails() }
     }
 
     private fun sync() {
@@ -320,6 +341,17 @@ fun SetupSheets(setup: Setup) {
             body = "Android can't mute another app's notification, so DotForge removes it and puts a quiet copy in " +
                 "your shade. That copy needs permission to post notifications; without it, silenced ones are hidden.",
             primary = "Allow" to { setup.allowPost { postLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) } },
+            secondary = null,
+        )
+    }
+
+    if (setup.installSheet) {
+        Sheet(
+            onDismiss = setup::installNotNow,
+            title = "Allow installing toys",
+            body = "Toys from GitHub are apps, so Android asks you to let DotForge install apps. Turn on Allow from " +
+                "this source, come back and tap Install again. Android still asks before each install.",
+            primary = "Open settings" to setup::allowInstall,
             secondary = null,
         )
     }

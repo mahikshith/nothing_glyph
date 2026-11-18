@@ -161,6 +161,12 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
         )
 
         GroupTitle("TOYS")
+        FeatureTile(
+            "All toys",
+            summary = "Every installed toy, toys to get from GitHub, Nothing Playground",
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            onClick = { nav.push(Page.Toys) },
+        )
         Toy.entries.chunked(2).forEach { pair ->
             TileRow {
                 pair.forEach { toy ->

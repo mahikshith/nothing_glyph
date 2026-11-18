@@ -25,7 +25,15 @@
         android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- Toys page > Get toys: installs a toy APK from GitHub; Android's "Install unknown apps" switch is asked
+         for then, with Not now, and Android confirms each install. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <queries>
+        <!-- Toys page: every installed Glyph Toy (services answering Nothing's toy action). -->
+        <intent>
+            <action android:name="com.nothing.glyph.TOY" />
+        </intent>
         <!-- The rule editor's app picker lists launcher apps; no QUERY_ALL_PACKAGES needed. -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -92,6 +100,11 @@
                 <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
+
+        <!-- PackageInstaller results for toy installs; only our own PendingIntent reaches it. -->
+        <receiver
+            android:name=".toys.InstallResultReceiver"
+            android:exported="false" />
 
         <!-- Quick Settings tile: glyph torch. -->
         <service

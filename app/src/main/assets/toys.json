@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "toys": [
+    {"owner": "Swapnil-Kar", "repo": "glyph-tuner", "name": "Glyph Tuner", "summary": "A guitar tuner on the matrix", "licence": "MIT"},
+    {"owner": "deepudxd", "repo": "GlyphType", "name": "GlyphType", "summary": "Text as scrolling dot letters", "licence": "MIT"},
+    {"owner": "aero-md", "repo": "justadice", "name": "Just a Dice", "summary": "Shake to roll a die", "licence": "MIT"},
+    {"owner": "aero-md", "repo": "glyphslot", "name": "GlyphSlot", "summary": "A slot machine", "licence": "MIT"},
+    {"owner": "PzmuV1517", "repo": "BetterBatery", "name": "Better Battery", "summary": "Battery level as moving liquid", "licence": "MIT"},
+    {"owner": "lukas-findeis", "repo": "Glyph_180BPM_metronome", "name": "180 BPM Metronome", "summary": "A metronome for runners", "licence": "MIT"},
+    {"owner": "uzugu", "repo": "V-pet-Glyph-Matrix", "name": "Digimon V-pet", "summary": "A virtual pet to raise", "licence": "MIT"},
+    {"owner": "samkex", "repo": "orbit-dial", "name": "Orbit Dial", "summary": "A minimal orbiting clock", "licence": "MIT", "device": "phone3"},
+    {"owner": "Fr4nKB", "repo": "Star-Map", "name": "Star Map", "summary": "The stars above you", "licence": "Apache-2.0"}
+  ]
+}

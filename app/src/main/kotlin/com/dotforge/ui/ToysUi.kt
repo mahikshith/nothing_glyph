@@ -1,9 +1,7 @@
 package com.dotforge.ui
 
 import android.Manifest
-import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,6 +39,7 @@ import com.dotforge.composition.VisualiserRenderer
 import com.dotforge.device.DeviceProfile
 import com.dotforge.device.Effects
 import com.dotforge.device.Frame
+import com.dotforge.toys.InstalledToys
 import com.dotforge.toys.ToySettings
 import java.time.LocalTime
 import kotlinx.coroutines.delay
@@ -63,13 +62,8 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
     }
 }
 
-/** Nothing's Glyph Toys manager (system version 20250829 or later), else the system settings. */
-fun openToysManager(ctx: Context) {
-    val manager = Intent().setComponent(
-        ComponentName("com.nothing.thirdparty", "com.nothing.thirdparty.matrix.toys.manager.ToysManagerActivity"),
-    )
-    if (runCatching { ctx.startActivity(manager) }.isFailure) ctx.startActivity(Intent(Settings.ACTION_SETTINGS))
-}
+/** Nothing's Glyph Toys manager, else the Glyph settings, else system Settings. */
+fun openToysManager(ctx: Context) = InstalledToys.openManager(ctx)
 
 @Composable
 private fun howToSteps(toy: Toy) =
