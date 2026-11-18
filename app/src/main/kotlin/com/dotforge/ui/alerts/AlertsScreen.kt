@@ -232,10 +232,10 @@ private fun LazyListScope.appsItems(rules: List<Rule>, label: (String) -> String
     }
 }
 
-/** "Unlock, Shake" when some are on, else "Unlock, shake, camera and more · all off". */
+/** "Unlock, Shake" when some are on, else "Unlock, shake, camera… · Off". */
 fun momentsText(moments: List<Rule>): String {
     val on = moments.filter { it.enabled }.sortedBy { it.moment!!.ordinal }
-    return if (on.isEmpty()) "Unlock, shake, camera and more · all off" else on.joinToString(", ") { it.name }
+    return if (on.isEmpty()) "Unlock, shake, camera… · Off" else on.joinToString(", ") { it.name }
 }
 
 /** A rule row: where it listens, its name and line, then its glyph (40 dp still) and its own switch. The row opens the sheet. */
