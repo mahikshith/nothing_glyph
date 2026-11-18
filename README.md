@@ -10,7 +10,7 @@ Three tabs; detail pages open full screen with a back arrow.
 
 - **Glyph**: live matrix preview and brightness, then feature tiles. *Notifications* opens one page (below).
   *Live*: Progress rings and Torch (switches). *Toys*: tap for how to add it in Glyph Toys, hold for its
-  settings. *Customise*: Essential Key, Ringtones, App integrations and Import, all marked Coming soon.
+  settings. *Customise*: Ringtones (below); Essential Key, App integrations and Import are marked Coming soon.
 - **Notifications** page, top to bottom:
   - *Rules*: each reads "When [apps] from [people] mention [keywords], show [glyph] until [read / unlock /
     timeout]"; slots default to Any. Preset chips add Calls, Messages, OTP codes and Delivery. The editor's
@@ -25,6 +25,22 @@ Three tabs; detail pages open full screen with a back arrow.
     it back); tap one to replay its glyph.
   - *Nothing glyphs*: Nothing's own notification glyphs outrank ours, so a button opens Nothing's Glyph
     notification settings (or Glyph Interface, or Settings) to set those apps to Sound only.
+- **Ringtones** page: the user's DotForge glyph ringtones (tap to preview and Set as, hold to delete) and a
+  note to keep Nothing's Glyph ringtone setting on (the OS plays the light track itself while ringing). + gives
+  *Import a file* (audio or .ogg) or *From a song* (audio only); "Open with" or Share of an audio / .ogg file
+  lands in the same import page. On import:
+  - a Phone (3) glyph ringtone (625 columns) keeps its lights;
+  - a glyph ringtone for another phone (Phone (1) 5/15, (2) 33, (2a) 26, (3a) 36, or any other count, read as
+    an ordered list of zones) is converted with a layout card: Rings, Arcs, Bars or Radial burst; timing is kept;
+  - anything else is audio only, and lights are composed from it (first 40 s, faded out) with a style card:
+    Pulse, Spectrum, Ripple or Sparkle.
+  The preview plays the sound with the lights on screen and on the matrix, with a scrubber, Intensity and
+  (for songs) Speed. Save writes an Ogg Opus file (Ogg Vorbis inputs stay Vorbis) with COMPOSER
+  `v1-Metroid Glyph Composer`, AUTHOR (625 columns), CUSTOM1 (empty zlib), CUSTOM2 `625cols`, TITLE and ALBUM
+  `DotForge` into `Ringtones/Compositions` through MediaStore (IS_RINGTONE). Set as: Phone ringtone (asks for
+  Modify system settings then), A contact (contact picker; asks for editing Contacts then) or Notification sound
+  for a rule ("... and play [name]"; it plays on the notification stream, at most 8 s, in normal ringer mode,
+  when the rule's glyph shows).
 - **Create**: saved designs; + gives Static or Animated. The editor mirrors the drawing on the matrix while
   open and plays it in a corner preview. Saved designs feed the DF Player toy and the "My design" effect.
 - **Settings**: permission checklist (Notification access, Contacts), Nothing's Glyph switch and bedtime,
@@ -40,8 +56,8 @@ page, the app shows the unlock steps (App info > menu > Allow restricted setting
 | --- | --- |
 | `:core-device` | Pure Kotlin/JVM. `DeviceProfile` (25x25 grid, round mask `(x-12)^2 + (y-12)^2 <= 153` = 489 LEDs, 68-cell outer ring clockwise from 12 o'clock, 625 <-> 489 helpers), `Frame` / `Animation`, `Effects` (pulse, ring chase, flash, sender letter, marquee, sparkle, progress ring, dice, clock, checkerboard), the 5x5 `PixelFont` / `DotText` and 3x5 `BigDigits`, and the Dot Hub / Glyph Museum JSON model (`GlyphMuseumJson`). |
 | `:glyph-driver` | `GlyphDriver`: the only code that touches Nothing's `GlyphMatrixManager`. Process-wide, ref-counted, one IO thread, newest-frame-wins per channel (app / toy), reconnect with backoff, `StateFlow` state, fps and call log. Frames are 0-255; the driver rescales to the SDK's raw 0-4095 range. |
-| `:composition` | Pure Kotlin/JVM. Ogg page reader/writer, Vorbis comment / OpusTags parser, glyph `AUTHOR` codec (base64 -> zlib -> CSV). Used by the Diagnostics ringtone reader. |
-| `:app` | Compose + Material 3 UI (Glyph, Create, Settings tabs, Notifications page, Diagnostics), `DisplayArbiter` and the notification `AlertQueue` / `AlertPlayer`, rules engine, filters and notification listener, designs store, toys, torch tile. |
+| `:composition` | Pure Kotlin/JVM. Ogg page reader/writer and CRC check, Vorbis comment / OpusTags parser, glyph `AUTHOR` codec (base64 -> zlib -> CSV, plus Composer-style output), `OggRepager` (rewrites the comment header of an Ogg Opus / Vorbis file: keeps the identification page, re-pages the comments, renumbers later pages and recomputes CRCs), `GlyphRingtone` writer, `RingtoneConverter` (other phones' zones to the matrix), own FFT, `AudioAnalyzer` (60 fps band energies and spectral-flux onsets) and `AutoComposer`. |
+| `:app` | Compose + Material 3 UI (Glyph, Create, Settings tabs, Notifications and Ringtones pages, Diagnostics), ringtone import (MediaCodec decode, Opus encode, MediaMuxer OGG), MediaStore library and Set as, `DisplayArbiter` and the notification `AlertQueue` / `AlertPlayer`, rules engine, filters and notification listener, designs store, toys, torch tile. |
 
 ### Who owns the matrix
 
@@ -79,7 +95,11 @@ Requirements: JDK 17+, Android SDK platform 36 (set `ANDROID_HOME` or `sdk.dir` 
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`. CI (`.github/workflows/android.yml`) runs the same.
 
-Unit tests cover the device geometry and effects, the JSON model, the Ogg/AUTHOR codec, the rules engine
+Unit tests cover the device geometry and effects, the JSON model, the Ogg/AUTHOR codec, the Ogg re-pager (page
+layout, renumbering, CRCs, audio packets and granules unchanged, Vorbis setup sharing a page, audio on a header
+page), the ringtone writer (read back with identical AUTHOR, Composer-style CSV and base64, empty-zlib CUSTOM1),
+the converter per layout and column count, the analyser and composer (onsets on a synthetic signal,
+determinism, silence, Intensity / Speed, the LED mask), the rules engine
 (keyword modes, regex, people, specificity and priority, explanations, presets), rules persistence and the
 version 1 migration, the spam filter (words, patterns, unknown senders, allow list, catches, spam.json
 migration), quiet hours across midnight and the filter order, the alert queue (calls first, bound, no cut
@@ -110,9 +130,16 @@ Install the APK and open DotForge.
    animation, shake to roll, which design DF Player plays). Check long press and double press.
 7. **Create.** Create > New design > Static: dots should appear on the matrix as you draw. Make an animated
    design, save it and check DF Player plays it.
-8. **Diagnostics (Settings > Advanced).** Driver test bench, Nothing settings keys, ringtone reader and toy
+8. **Ringtones.** Glyph > Ringtones > + > Import a file: try a Phone (3) Composer ringtone (lights kept), a
+   Phone (1) or (2) ringtone (try each layout card) and an MP3 (From a song; try each style, Intensity and
+   Speed). Lights should follow the sound on screen and on the matrix while previewing and scrubbing. Save,
+   then Set as > Phone ringtone (Modify system settings is asked once), A contact (editing Contacts is asked
+   once) and Notification sound (the rule sentence ends "and play [name]"). Check that Nothing's Glyph ringtone
+   picker lists the file, that the lights play while ringing (Glyph ringtone setting on), and that a converted
+   Phone (1) / (2) ringtone lights the matrix. Also try "Open with" and Share of an .ogg from a file manager.
+9. **Diagnostics (Settings > Advanced).** Driver test bench, Nothing settings keys, ringtone reader and toy
    event log.
-9. **Firmware overlap.** While a rule or the torch shows, trigger a call / Nothing notification glyph; the
+10. **Firmware overlap.** While a rule or the torch shows, trigger a call / Nothing notification glyph; the
    DotForge frame should come back about 1.5 s after the notification and on unlock. Turn Glyph off and set a
    bedtime: notifications should stop lighting (if the settings are readable).
 
