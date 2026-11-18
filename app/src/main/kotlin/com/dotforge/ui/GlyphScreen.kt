@@ -64,10 +64,16 @@ fun GlyphScreen(nav: Nav, setup: Setup, scroll: ScrollState) {
             frame?.pixels, profile,
             Modifier.fillMaxWidth(0.62f).align(Alignment.CenterHorizontally).padding(top = 20.dp, bottom = 8.dp),
         )
+        // nothing is posted to the matrix when idle: it stays dark, and Home says so
         Text(
-            active.firstOrNull()?.let { "Showing: ${it.label}" } ?: "Nothing showing",
+            active.firstOrNull()?.let { "Showing: ${it.label}" } ?: "Nothing on the Glyph right now",
             color = Muted, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
         )
+        if (active.isEmpty()) {
+            TextButton(onClick = { TorchTileService.toggle() }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Turn on the torch", color = NothingRed)
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Brightness", Modifier.padding(end = 12.dp))
             Slider(
