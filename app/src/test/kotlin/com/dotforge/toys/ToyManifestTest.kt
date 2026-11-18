@@ -1,8 +1,10 @@
 package com.dotforge.toys
 
+import android.content.pm.PackageManager
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.w3c.dom.Element
@@ -38,6 +40,29 @@ class ToyManifestTest {
             assertTrue(name, m.getValue(ToyMeta.IMAGE).getAttributeNS(android, "resource").startsWith("@drawable/"))
             assertTrue(name, m.getValue(ToyMeta.SUMMARY).getAttributeNS(android, "resource").startsWith("@string/"))
             for (flag in listOf(ToyMeta.LONG_PRESS, ToyMeta.AOD)) m[flag]?.let { assertEquals(name, "1", it.getAttributeNS(android, "value")) }
+        }
+    }
+
+    @Test fun onlyClockBatteryAndNowPlayingStartOn() {
+        val on = toys().filter { it.getAttributeNS(android, "enabled") != "false" }.map { it.getAttributeNS(android, "name").substringAfterLast('.') }
+        assertEquals(ToyComponents.DEFAULT_ON, on.toSet())
+    }
+
+    @Test fun toggledStatesFollowTheDefault() {
+        val default = PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+        val enabled = PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        val disabled = PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        assertTrue(ToyComponents.isOn(default, "ClockToy"))
+        assertFalse(ToyComponents.isOn(default, "SnakeToy"))
+        assertTrue(ToyComponents.isOn(enabled, "SnakeToy"))
+        assertFalse(ToyComponents.isOn(disabled, "ClockToy"))
+        // switching back to the manifest's value writes DEFAULT
+        assertEquals(enabled, ToyComponents.stateFor(true, "SnakeToy"))
+        assertEquals(default, ToyComponents.stateFor(false, "SnakeToy"))
+        assertEquals(disabled, ToyComponents.stateFor(false, "ClockToy"))
+        assertEquals(default, ToyComponents.stateFor(true, "ClockToy"))
+        for ((s, name) in listOf(enabled to "SnakeToy", disabled to "ClockToy", default to "MoonToy")) {
+            assertEquals(ToyComponents.isOn(s, name), ToyComponents.isOn(ToyComponents.stateFor(ToyComponents.isOn(s, name), name), name))
         }
     }
 

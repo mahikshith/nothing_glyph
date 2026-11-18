@@ -49,21 +49,22 @@ import java.time.LocalTime
 import kotlinx.coroutines.delay
 
 /** The four Glyph Toys as the app shows them. */
-enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String) {
-    CLOCK(R.string.toy_clock_name, R.string.toy_clock_summary, "Big dot clock"),
-    BATTERY(R.string.toy_battery_name, R.string.toy_battery_summary, "Battery ring"),
-    DICE(R.string.toy_dice_name, R.string.toy_dice_summary, "Shake to roll"),
-    PLAYER(R.string.toy_player_name, R.string.toy_player_summary, "Plays your design"),
-    MUSIC(R.string.toy_music_name, R.string.toy_music_summary, "Lights to the music"),
-    HUB(R.string.toy_hub_name, R.string.toy_hub_summary, "Always-on faces"),
-    GALLERY(R.string.toy_gallery_name, R.string.toy_gallery_summary, "Designs in turn"),
-    NOW_PLAYING(R.string.toy_nowplaying_name, R.string.toy_nowplaying_summary, "Play, pause, skip"),
-    TIMER(R.string.toy_timer_name, R.string.toy_timer_summary, "Stopwatch, countdown"),
-    COMPASS(R.string.toy_compass_name, R.string.toy_compass_summary, "Compass and level"),
-    SNAKE(R.string.toy_snake_name, R.string.toy_snake_summary, "The classic game"),
-    BREATHE(R.string.toy_breathe_name, R.string.toy_breathe_summary, "Slow breathing"),
-    MOON(R.string.toy_moon_name, R.string.toy_moon_summary, "Moon phase"),
-    SPEED(R.string.toy_speed_name, R.string.toy_speed_summary, "Download speed"),
+/** DotForge's toys; [cls] is the service's simple class name (its component). */
+enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String, val cls: String) {
+    CLOCK(R.string.toy_clock_name, R.string.toy_clock_summary, "Big dot clock", "ClockToy"),
+    BATTERY(R.string.toy_battery_name, R.string.toy_battery_summary, "Battery ring", "BatteryToy"),
+    DICE(R.string.toy_dice_name, R.string.toy_dice_summary, "Shake to roll", "DiceToy"),
+    PLAYER(R.string.toy_player_name, R.string.toy_player_summary, "Plays your design", "PlayerToy"),
+    MUSIC(R.string.toy_music_name, R.string.toy_music_summary, "Lights to the music", "MusicToy"),
+    HUB(R.string.toy_hub_name, R.string.toy_hub_summary, "Always-on faces", "HubToy"),
+    GALLERY(R.string.toy_gallery_name, R.string.toy_gallery_summary, "Designs in turn", "GalleryToy"),
+    NOW_PLAYING(R.string.toy_nowplaying_name, R.string.toy_nowplaying_summary, "Play, pause, skip", "NowPlayingToy"),
+    TIMER(R.string.toy_timer_name, R.string.toy_timer_summary, "Stopwatch, countdown", "TimerToy"),
+    COMPASS(R.string.toy_compass_name, R.string.toy_compass_summary, "Compass and level", "CompassToy"),
+    SNAKE(R.string.toy_snake_name, R.string.toy_snake_summary, "The classic game", "SnakeToy"),
+    BREATHE(R.string.toy_breathe_name, R.string.toy_breathe_summary, "Slow breathing", "BreatheToy"),
+    MOON(R.string.toy_moon_name, R.string.toy_moon_summary, "Moon phase", "MoonToy"),
+    SPEED(R.string.toy_speed_name, R.string.toy_speed_summary, "Download speed", "SpeedToy"),
     ;
 
     fun preview(profile: DeviceProfile): Frame = when (this) {
@@ -267,4 +268,18 @@ private fun AccessNote() {
         "Reads what's playing through notification access (Settings > Notification access). Nothing else is read.",
         color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp),
     )
+}
+
+/** A switch per DF toy: on means it is in Nothing's toy list and the Glyph Button carousel. */
+@Composable
+fun DfToySwitches(onOpen: (Toy) -> Unit = {}) {
+    val ctx = LocalContext.current
+    Text("The Glyph Button cycles through the toys turned on here.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
+    Toy.entries.forEach { toy ->
+        var on by remember(toy) { mutableStateOf(com.dotforge.toys.ToyComponents.isOn(ctx, toy.cls)) }
+        SwitchRow(stringResource(toy.nameRes), toy.short, on) {
+            com.dotforge.toys.ToyComponents.set(ctx, toy.cls, it)
+            on = it
+        }
+    }
 }

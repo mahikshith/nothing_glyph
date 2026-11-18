@@ -90,6 +90,8 @@ fun ToysPage(nav: Nav, setup: Setup) {
     }
 
     PageScaffold("TOYS", onBack = nav::pop) {
+        GroupTitle("DOTFORGE TOYS")
+        DfToySwitches()
         GroupTitle("INSTALLED")
         when (val list = installed) {
             null -> CircularProgressIndicator(color = Color.White, modifier = Modifier.padding(8.dp).size(24.dp))

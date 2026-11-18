@@ -183,7 +183,8 @@
                 android:value="true" />
         </service>
 
-        <!-- Glyph Toys: added in Settings > Glyph Interface > Glyph Toys. -->
+        <!-- Glyph Toys: added in Settings > Glyph Interface > Glyph Toys. Only DF Clock, DF Battery and DF Now Playing
+             are on at first, so the Glyph Button carousel isn't flooded; the Toys page switches the rest on. -->
         <service
             android:name=".toys.ClockToy"
             android:exported="true">
@@ -214,6 +215,7 @@
 
         <service
             android:name=".toys.DiceToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -226,6 +228,7 @@
 
         <service
             android:name=".toys.PlayerToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -239,6 +242,7 @@
         </service>
         <service
             android:name=".toys.MusicToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -251,6 +255,7 @@
         </service>
         <service
             android:name=".toys.GalleryToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -264,6 +269,7 @@
         </service>
         <service
             android:name=".toys.HubToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -290,6 +296,7 @@
         </service>
         <service
             android:name=".toys.TimerToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -302,6 +309,7 @@
         </service>
         <service
             android:name=".toys.CompassToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -314,6 +322,7 @@
         </service>
         <service
             android:name=".toys.SnakeToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -326,6 +335,7 @@
         </service>
         <service
             android:name=".toys.BreatheToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -337,6 +347,7 @@
         </service>
         <service
             android:name=".toys.MoonToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
@@ -350,6 +361,7 @@
         </service>
         <service
             android:name=".toys.SpeedToy"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.nothing.glyph.TOY" />
