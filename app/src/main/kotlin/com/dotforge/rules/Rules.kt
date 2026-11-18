@@ -3,6 +3,7 @@ package com.dotforge.rules
 import com.dotforge.device.Animation
 import com.dotforge.device.DeviceProfile
 import com.dotforge.device.Effects
+import com.dotforge.device.GlyphLibrary
 import com.dotforge.engine.Until
 import com.dotforge.filter.Condition
 import com.dotforge.filter.Field
@@ -30,6 +31,8 @@ enum class GlyphStyle(val label: String, val hint: String) {
     NAME("Sender name", "The sender's name scrolls by"),
     SPAM("Spam", "A short warning: ! in a ring"),
     DESIGN("My design", "A design from Create"),
+    /** A glyph from [com.dotforge.device.GlyphLibrary]; [Rule.designId] holds its id. */
+    ICON("Glyph", "A glyph from the library"),
     NONE("No glyph", "Only the sound or vibration"),
 }
 
@@ -84,7 +87,7 @@ data class Rule(
     val match: Match = Match(),
     val action: Action = Action.SHOW,
     val glyph: GlyphStyle = GlyphStyle.PULSE,
-    /** The design for [GlyphStyle.DESIGN]; null = the newest design. */
+    /** The design for [GlyphStyle.DESIGN] (null = the newest design), or the library glyph's id for [GlyphStyle.ICON]. */
     val designId: String? = null,
     val until: Until = Until.READ,
     /** 1 high, 0 normal, -1 low. */
@@ -233,6 +236,7 @@ object RuleEngine {
             GlyphStyle.NAME -> Effects.marquee(profile, info.sender.ifBlank { info.title }.trim().ifBlank { info.appLabel }.take(24))
             GlyphStyle.SPAM -> Effects.spam(profile)
             GlyphStyle.DESIGN -> design(designId) ?: Effects.pulse(profile)
+            GlyphStyle.ICON -> GlyphLibrary.alert(profile, designId)
         }
 
     fun animation(rule: Rule, info: NotificationInfo, profile: DeviceProfile, design: (String?) -> Animation?): Animation =

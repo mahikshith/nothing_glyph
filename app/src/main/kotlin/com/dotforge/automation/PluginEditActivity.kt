@@ -127,7 +127,8 @@ private fun PluginEditor(previous: Command?, onCancel: () -> Unit, onSave: (Comm
             Kind.GLYPH -> {
                 val designs by AppGraph.designs.designs.collectAsStateWithLifecycle()
                 GroupTitle("GLYPH")
-                val styles = GlyphStyle.entries.filter { it != GlyphStyle.DESIGN && it != GlyphStyle.NONE }.map { it.label }
+                val styles = GlyphStyle.entries.filter { it != GlyphStyle.DESIGN && it != GlyphStyle.NONE && it != GlyphStyle.ICON }.map { it.label } +
+                    com.dotforge.device.GlyphLibrary.all.map { it.name }
                 (styles + designs.map { it.name }).forEach { name ->
                     Choice(name, selected = text.isBlank() && glyph == name) { glyph = name; text = "" }
                 }

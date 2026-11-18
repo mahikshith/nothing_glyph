@@ -29,8 +29,11 @@ object RuleText {
         FilterEngine.describe(rule.match, label).ifEmpty { ANYTHING }
 
     /** [designName] names the saved design a [GlyphStyle.DESIGN] rule shows. */
-    fun glyph(rule: Rule, designName: (String?) -> String?): String =
-        if (rule.glyph == GlyphStyle.DESIGN) designName(rule.designId) ?: rule.glyph.label else rule.glyph.label
+    fun glyph(rule: Rule, designName: (String?) -> String?): String = when (rule.glyph) {
+        GlyphStyle.DESIGN -> designName(rule.designId) ?: rule.glyph.label
+        GlyphStyle.ICON -> com.dotforge.device.GlyphLibrary.get(rule.designId)?.name ?: rule.glyph.label
+        else -> rule.glyph.label
+    }
 
     /** The rule's sound, or null when it plays none. */
     fun sound(rule: Rule): String? = rule.soundUri?.let { rule.soundName?.takeIf { n -> n.isNotBlank() } ?: "a ringtone" }

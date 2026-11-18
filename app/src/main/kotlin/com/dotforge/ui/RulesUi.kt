@@ -723,9 +723,10 @@ internal fun UntilDialog(current: Until, onDismiss: () -> Unit, onPick: (Until) 
 internal fun GlyphDialog(rule: Rule, sample: NotificationInfo, onDismiss: () -> Unit, onDone: (Rule) -> Unit) {
     val profile = AppGraph.profile
     val designs by AppGraph.designs.designs.collectAsStateWithLifecycle()
-    var pick by remember { mutableStateOf(rule.copy(designId = rule.designId.takeIf { rule.glyph == GlyphStyle.DESIGN })) }
+    var pick by remember { mutableStateOf(rule.copy(designId = rule.designId.takeIf { rule.glyph == GlyphStyle.DESIGN || rule.glyph == GlyphStyle.ICON })) }
     val options = remember(designs) {
-        GlyphStyle.entries.filter { it != GlyphStyle.DESIGN }.map { rule.copy(glyph = it, designId = null) } +
+        GlyphStyle.entries.filter { it != GlyphStyle.DESIGN && it != GlyphStyle.ICON }.map { rule.copy(glyph = it, designId = null) } +
+            com.dotforge.device.GlyphLibrary.all.map { rule.copy(glyph = GlyphStyle.ICON, designId = it.id) } +
             designs.map { rule.copy(glyph = GlyphStyle.DESIGN, designId = it.id) }
     }
     val animation = remember(pick.glyph, pick.designId) { animationFor(pick, sample) }
@@ -746,7 +747,7 @@ internal fun GlyphDialog(rule: Rule, sample: NotificationInfo, onDismiss: () -> 
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(options, key = { "${it.glyph}:${it.designId}" }) { o ->
-                val selected = o.glyph == pick.glyph && (o.glyph != GlyphStyle.DESIGN || o.designId == pick.designId ||
+                val selected = o.glyph == pick.glyph && (o.glyph != GlyphStyle.DESIGN && o.glyph != GlyphStyle.ICON || o.designId == pick.designId ||
                     (pick.designId == null && o.designId == designs.firstOrNull()?.id))
                 val thumb = remember(o.glyph, o.designId) { animationFor(o, sample).let { it.frames[it.frames.size / 3].frame } }
                 Surface(
@@ -757,7 +758,11 @@ internal fun GlyphDialog(rule: Rule, sample: NotificationInfo, onDismiss: () -> 
                     Column(Modifier.fillMaxWidth().clickable { pick = o }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         MatrixView(thumb.pixels, profile, Modifier.size(64.dp))
                         Text(
-                            if (o.glyph == GlyphStyle.DESIGN) designs.firstOrNull { it.id == o.designId }?.name.orEmpty() else o.glyph.label,
+                            when (o.glyph) {
+                                GlyphStyle.DESIGN -> designs.firstOrNull { it.id == o.designId }?.name.orEmpty()
+                                GlyphStyle.ICON -> com.dotforge.device.GlyphLibrary.get(o.designId)?.name.orEmpty()
+                                else -> o.glyph.label
+                            },
                             fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp),
                         )
                         Text(o.glyph.hint, color = Muted, fontSize = 12.sp, maxLines = 2)

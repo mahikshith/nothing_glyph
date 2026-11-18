@@ -135,7 +135,8 @@ object AutomationRunner {
         val profile = AppGraph.profile
         c.text?.let { return Effects.marquee(profile, it) }
         val name = c.glyph
-        val style = GlyphStyle.entries.firstOrNull { it != GlyphStyle.DESIGN && it != GlyphStyle.NONE && (it.name.equals(name, true) || it.label.equals(name, true)) }
+        com.dotforge.device.GlyphLibrary.all.firstOrNull { it.name.equals(name, true) || it.id.equals(name, true) }?.let { return it.animation(profile) }
+        val style = GlyphStyle.entries.firstOrNull { it != GlyphStyle.DESIGN && it != GlyphStyle.NONE && it != GlyphStyle.ICON && (it.name.equals(name, true) || it.label.equals(name, true)) }
         if (style != null) {
             val info = NotificationInfo("automation", "", "DotForge", "DotForge", "", 0, sender = "DotForge")
             return RuleEngine.animation(style, null, info, profile, AppGraph::designAnimation)
