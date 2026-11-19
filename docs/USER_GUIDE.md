@@ -43,14 +43,15 @@ A few words used in this guide:
 
 ## 2. First run
 
-The first time you open DotForge, a short set-up walks you through it. It takes about a minute. You can tap **Skip setup** at the top right at any time, and tap the back arrow to go back a step. Small dots at the top show which step you are on.
+The first time you open DotForge, a short set-up walks you through it. It takes about a minute. If you already used DotForge before (or you restored a backup), it only shows the permissions that are still missing, then the last screen, and does not touch your apps or designs. You can tap **Skip setup** at the top right at any time, and tap the back arrow to go back a step. Small dots at the top show which step you are on.
 
 <p align="center">
   <img src="images/first-run-welcome.jpg" width="270" alt="The welcome screen with the word HI on the dots">
   <img src="images/first-run-caller-name.jpg" width="270" alt="The optional Show the caller's name step">
   <img src="images/first-run-apps.jpg" width="270" alt="Pick your apps step with three apps ticked">
+  <img src="images/first-run-done.jpg" width="270" alt="The You're set screen">
 </p>
-<p align="center"><em>The welcome screen, the caller name step and the app list.</em></p>
+<p align="center"><em>The welcome screen, the caller name step, the app list and the last screen.</em></p>
 
 ### The welcome screen
 
@@ -61,7 +62,7 @@ You see the word HI on the dots, and the name DotForge.
 
 ### The permission steps
 
-Every step explains why it is needed. Tap **Allow** to open the Android screen for it, or **Not now** to skip it. Nothing breaks if you skip. The part of the app that needs it will ask again later, right when you use it.
+Every step explains why it is needed. Tap **Allow** to open the Android screen for it, or **Not now** to skip it. Nothing breaks if you skip. The part of the app that needs it will ask again later, right when you use it. A step that is already allowed is skipped, and a step you finish shows **Done**.
 
 | Step | What it is for |
 |---|---|
@@ -74,11 +75,11 @@ If you installed DotForge from a file instead of a store, Android may say it **b
 
 ### The "Sound only" tip for caller names
 
-When someone calls, DotForge can scroll their name across the Glyph. But Nothing has its own ringtone lights, and they cover DotForge's lights while the phone rings. To see the name, set Nothing's ringtone lights to **Sound only**:
+When someone calls, DotForge can scroll their name across the Glyph. But Nothing has its own ringtone lights, and they cover DotForge's lights while the phone rings. The step says: "To see who's calling, set Glyph ringtone lights to Sound only. Nothing's own ringtone light show turns off."
 
-1. On the **Show the caller's name** step, tap **Open Glyph settings**. (If your phone cannot open that page directly, the button says **Open Settings** instead.)
-2. Find the Glyph ringtone lights setting and choose **Sound only**.
-3. Come back to DotForge. The step shows **Done**.
+1. On the **Show the caller's name** step, tap **Open Glyph Interface**. (If your phone cannot open that page directly, the button says **Open Settings** and the step tells you where to look.)
+2. Open **Ringtone lights** and pick **Sound only**.
+3. Come back to DotForge. The step shows an **Opened** tick. Tap **Next**, or **Open again** if you want to check it.
 
 This step is optional. You can do it later from the Phone calls row in Alerts.
 
@@ -94,9 +95,9 @@ You can change this at any time in the Alerts tab.
 
 ### You're set
 
-The last screen says **You're set**. Tap **Go to Home**. On a Phone (3) the Glyph plays a hello animation.
+The last screen says **You're set** and "Change your apps in Alerts and your permissions in Profile." Tap **Go to Home**. On a Phone (3) the Glyph plays a hello animation the first time.
 
-If some permissions are still missing, Home shows a small banner, for example "2 things need permission", with a **Fix** button. See [Home](#4-home).
+If a core permission is still missing, the screen says **Almost set** and names what is missing. Home then shows a banner that names it, for example "Call screening and Contacts need permission", or "3 things need permission" when there are more than two, with a **Fix** button. See [Home](#4-home).
 
 ---
 
@@ -155,7 +156,7 @@ Tap the tile itself (not the switch) to open that feature's page. If a tile need
 
 ### The permission banner and the checklist
 
-- At the top, a banner such as **3 things need permission** with a **Fix** button shows when something is missing. Tap **Fix** to see which permissions.
+- At the top, a banner names what is missing, for example "Call screening and Contacts need permission" (or "3 things need permission" when more than two). Tap **Fix** to see which permissions.
 - A card called **Finish setting up** lists what is left, for example **Pick your apps** (button **Pick**) and **Stop double lights** (button **Fix**). Tap **Hide** to hide it. It disappears by itself when everything is done.
 - If notification access gets turned off, the preview shows "Alerts are off. Notification access was turned off." with an **Allow** button.
 
@@ -240,45 +241,54 @@ Below the sentence you will find:
 |---|---|
 | **Words** | Light only when the message contains one of the words you list. |
 | **Only these chats** | Light only for the chats or groups you name, exactly as the app shows them. |
-| **Times** | Light only on chosen days and between chosen hours. |
-| **Brightness** | How bright the glyph is. |
-| **Speed** | How fast it moves. |
+| **When** | Light only on chosen days and between chosen hours, and optionally only when the phone is locked. |
+| **More conditions** | The filter builder described above. |
+| **Brightness and speed** | One row that opens the [On the Glyph controls](#8-the-on-the-glyph-controls). |
 | **Remind me** | Shows again after a rest until you check. |
 | **One alert per chat per minute** | Stops a busy chat from lighting over and over. |
-| **Include group chats** | (People only) Also light when this person writes in a group. |
+| **Also when they write in group chats** | (People only) Also light when this person writes in a group. |
 | **Who wins** | Opens the order of people and apps. Use the arrows to move one up or down. |
 
 <p align="center">
   <img src="images/alerts-phone-calls.jpg" width="270" alt="The Phone calls sheet">
 </p>
 
-### The filter for any app (sender, title, text, number)
+### More conditions: the filter for any app
 
-Words and Only these chats cover most needs. For full control there is a more powerful rule editor. It can match any app by:
+Words, Only these chats and When cover most needs. For full control, every app row has a filter builder, and so does every block rule.
 
-- **sender**, **phone number**, **sender email**, or whether the sender is **in Contacts** or **starred**;
-- **title or text**, **title**, **text**, **long text**, **subtext**, **summary**;
-- the **app**, the **notification channel**, the **category**, whether it is a **group chat** or **ongoing**;
-- for calls: **calling again**, **hidden number**, **caller ID check** and **spam list**;
-- **time**, **day**, **phone locked**, **Do Not Disturb**, **charging** and **quiet hours**.
+1. Open an app's sheet and tap **Advanced**.
+2. Tap **More conditions** (it says **None** until you add one) and tap **Add a condition**.
+3. Under **What to check**, pick one: **Who sent it** (sender), **Title**, **Message** (title or text), **Number**, **Notification type**, **App** or **Contacts**.
+4. Under **How**, pick how to compare: **has**, **doesn't have**, **starts with**, **ends with**, **is**, **isn't**, **is in list** or **isn't in list**. Capital letters do not matter. Phone numbers match in any format, so "+91 98...", "0091 98..." and "098..." count as the same start.
+5. Type the value, or pick a **List** (see below). Tap **Save condition**.
+6. Repeat to add more. Each reads as a line, for example "Title has "OTP"", "and not from "Bank"", "and message isn't in list "Loans"". Tap the X on a line to remove it.
+7. At the top, choose **All of these** (every condition must be true: AND) or **Any of these** (one is enough: OR). The "not" wording is built into **doesn't have**, **isn't** and **isn't in list**.
+8. Tap **Save**.
 
-For each one you choose how to compare: **is**, **is not**, **starts with**, **ends with**, **contains**, **does not contain**, **is in list** (a named list you made), and under **More**, **matches regex** and **Not**. Comparing ignores capital letters. Phone numbers are matched in any format, so "+91 98...", "0091 98..." and "098..." count as the same start.
+The sheet says how many recent notifications it would have caught, or "Wouldn't have lit in the last 30 days". If DotForge cannot count (for example the rule needs your contacts and Contacts is off), it says so.
 
-You can join conditions with **All conditions must hold** (AND) or **Any one condition is enough** (OR). Under **Advanced** you can add **Groups**, for example "(sender is A or sender is B)", and set **Priority**. The editor has a **Would match** list that shows recent notifications the rule catches, and a **Try on the matrix** button.
+<p align="center">
+  <img src="images/alerts-more-conditions.jpg" width="270" alt="More conditions with three conditions and All of these / Any of these">
+</p>
 
-At the end, you choose what happens: show a glyph (with its length, sound and vibration), always allow, silence, hide, or mark as spam. For calls you can also reject.
+**Named lists.** A list is a set of words, senders or numbers you can reuse in many rules.
 
-**Where to find it.** This editor is still in the app but is not on the main screens. To open it:
+1. In the condition editor, pick **is in list** or **isn't in list**.
+2. Under **List**, tap a list, or **+ New list**.
+3. Give it a **Name** and type its **Entries**, separated by commas or new lines. Tap **Save list**.
 
-1. Open **Profile** (the round icon on Home).
-2. Scroll to **About** and tap the **DotForge version** row seven times. A **Developer** section appears.
-3. Tap **Old screens**, then **Notifications and rules**, then **New rule**.
+A list shows "Used by 2 rules. Changes apply to all of them at once." To remove one, tap **Delete "[name]"**. A bar offers **Undo**. If a list is deleted while a rule still uses it, that rule shows **List removed · Fix** on its row. Tap it to pick another list or remove the condition.
 
-Rules you make there work together with the simple sheets.
+**When.** In an app's **Advanced** options, the **When** row sets the **Days**, a **From** and **To** time, and an **Only when the phone is locked** switch ("Not while you're using it").
 
-### People
+### People and groups
 
 People are the ones who matter. One glyph for a person covers their calls and messages in every app. People win over apps: if Mom writes on WhatsApp, Mom's glyph shows instead of the WhatsApp glyph.
+
+<p align="center">
+  <img src="images/alerts-groups.jpg" width="270" alt="People with a group called Family">
+</p>
 
 1. Tap the **People** part, then **Add a person**.
 2. Search your contacts, or type a **Name** (as apps show it) and an optional **Number**. If Contacts is not allowed, tap **Allow** to pick from them.
@@ -286,6 +296,13 @@ People are the ones who matter. One glyph for a person covers their calls and me
 4. Pick a glyph, how long it shows, and the sound. For calls you can also choose **Their glyph** or **A Glyph ringtone** (a ringtone you made in Studio).
 
 Calls need Call screening to be on. "Their glyph" also needs Nothing's ringtone lights set to **Sound only**.
+
+**Groups.** Under **Groups** you can give a whole Contacts group, like Family or Work, one glyph.
+
+1. Tap **Add a group** and pick a Contacts group. (This needs Contacts to be allowed, and at least one group in your contacts.)
+2. In its sheet, choose the glyph ("When someone in Family calls or messages, the People glyph shows..."), how long, and the sound.
+
+Groups cover calls too. The order is: a person you added wins over their group, and a group wins over an app. Open **Alert settings > Who wins** to see the order.
 
 ### The caller's name on the Glyph
 
@@ -304,6 +321,15 @@ To set it up:
 2. Next to **Show**, choose **Name**, **Glyph** or **Both** (the default is Both).
 3. If you see a note "Names show only when Glyph ringtone lights are set to Sound only", tap **Change setting** and choose **Sound only**.
 4. Tap **Try it on the Glyph**.
+
+<p align="center">
+  <img src="images/alerts-missed-calls.jpg" width="270" alt="The Missed calls sheet">
+</p>
+
+The Phone calls sheet also has two more rows:
+
+- **Missed calls**: turn on **Light for missed calls**. The glyph waits until you check the call, and lights again every 5 minutes while it waits. You can change the **Glyph** and its **Timing**.
+- **Calls DotForge stopped**: turn on **Light when DotForge stops a call**. A short glyph shows when a rule silences or declines a call. Spam calls use the spam alert instead. You can pick the **Glyph** or use the built-in one.
 
 If the name never shows while the phone rings, see [Troubleshooting](#11-troubleshooting-and-faq).
 
@@ -324,11 +350,25 @@ What happens when something is blocked:
 
 DotForge never deletes your messages.
 
-The **Spam** part has:
+The **Spam** part has three sections.
 
+**When something is spam**
 - **When something is spam**: tap it to choose the glyph (**A short Blocked glyph** or **Nothing**) and the **Sound** for blocked items (the default is **No sound**).
-- **Block rules**: your list of rules. Each one has a switch, and a three-dot menu.
-- **Always let through**: **Contacts**, **Repeat callers** (the same number twice within 3 minutes), **Numbers and senders you let through**, and the **Community spam list**.
+- **Community spam list**: a public list of spam numbers. It is on by default, updates weekly, and the check happens on your phone. Tap **Update now** to refresh it.
+- **Always let through**: **Contacts**, **Repeat callers** (the same number twice within 3 minutes), and **Numbers and senders you let through**.
+
+**Block rules**
+- Your list of rules. Each one has a switch and a three-dot menu. A starter rule for spam words ("Messages that mention: lottery, you have won...") is included. It is an ordinary rule, so you can edit it, switch it on or off, or delete it.
+- **Add a rule** (steps below).
+
+**Strangers and hidden callers**
+- **People not in your contacts**: pick **Calls**, **Messages** or both to treat unknown senders as spam. It is off until you pick one, and it needs Contacts (and Call screening for calls).
+- **Hidden numbers**: calls with no caller ID do not ring. They stay in your call log.
+- **Faked numbers**: calls where the network says the caller ID is faked are declined and kept in your call log.
+
+<p align="center">
+  <img src="images/alerts-spam-strangers.jpg" width="270" alt="Spam tab, strangers and hidden callers section">
+</p>
 
 To block numbers that start with 140:
 
@@ -336,11 +376,13 @@ To block numbers that start with 140:
 2. Choose how to match: **Starts with**, **Ends with**, **Contains**, **Exactly** or **Words**.
 3. Type **140** in the box. The sheet shows what it matches and how many it would have blocked in the last 30 days.
 4. Under **Where**, tick **Calls**, **SMS**, **WhatsApp** and/or **Other apps**.
-5. Tap **Save**.
+5. Under **What to do**, for calls choose **Silence**, **Decline** (stays in your call log) or **Decline, no log**. Messages in the app are hidden or dismissed.
+6. Optional: tap **More conditions** to add extra checks (see [More conditions](#more-conditions-the-filter-for-any-app)).
+7. Tap **Add** (or **Save** when editing).
+
+If something you deleted from the starter rules is missed, open the three dots on the Alerts page and tap **Restore starter spam rules** (on the Spam part) or **Restore starter app rules** (on the Apps part). A bar offers **Undo**.
 
 To block a single sender in one app, open that app's sheet and tap **Block a sender or group**. Pick someone from **Recent in [app]**, or type a name or number and tap **Block**.
-
-The **Community spam list** is a public list of spam numbers. It is on by default, updates weekly, and the check happens on your phone. Tap **Update now** to refresh it.
 
 If DotForge blocks something by mistake, open **History**, tap the entry, and choose **Not spam**. That always lets them through, and adds them to **Numbers and senders you let through**. The same sheet also offers **Block [name]** for something that lit the Glyph but should not have.
 
@@ -720,6 +762,8 @@ It works with apps like **Zomato**, **Swiggy / Instamart**, **Blinkit**, **Zepto
 - **Middle shows**: **Minutes** (time left) or **Stage** (the order's stage).
 - **Try it** plays a sample.
 
+**Music and video**: turn on **Media progress** and, while music or a video plays, the outer ring shows how far along it is. With **Only when the phone is locked** on, the ring stays dark while you use the phone. It needs notification access.
+
 **Coming up**: rings fill before **Next calendar event** and **Next alarm**. Set **Off**, **5**, **10**, **15** or **30** minutes. For the calendar, DotForge needs Calendar access ("Calendar access is off, so the event ring can't show", with an **Allow** button).
 
 ### Toys
@@ -959,7 +1003,7 @@ Most removals show a bar with **Undo** for a few seconds. Tap it.
 You can draw designs and set up blocking, and previews play on screen, but the Glyph lights need a Phone (3).
 
 **Where did the old tabs and screens go?**
-The app was redesigned. The old screens are kept for now under Profile, in the hidden **Developer** section (tap the version row seven times).
+The app was redesigned. Everything now lives in the four tabs and Profile. Alerts, spam blocking, calls and the full filter builder are all in the Alerts tab.
 
 ---
 
