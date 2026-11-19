@@ -21,6 +21,20 @@ class TextLayoutTest {
 
     private fun rowsLit(px: IntArray) = p.ledCells.filter { px[it] > 0 }.map { it / p.size }.toSet()
 
+    @Test fun wordsInsideARingKeepOneDarkDotFromIt() {
+        val ring = p.ring.toSet()
+        val n = p.size
+        val near = (0 until p.cellCount).filter { c ->
+            c !in ring && (-1..1).any { dy -> (-1..1).any { dx -> val x = c % n + dx; val y = c / n + dy; x in 0 until n && y in 0 until n && (y * n + x) in ring } }
+        }
+        val ringed = texts.filter { it.text!!.border || it.text!!.style == TextStyle.MARQUEE }
+        assertTrue("BUSY, ON A CALL, COME IN and MEMO have rings", ringed.size >= 4)
+        for (item in ringed) for ((i, f) in item.load(p).frames.withIndex()) {
+            val touching = near.filter { f.frame.pixels[it] > 0 }
+            assertTrue("${item.id} frame $i lights $touching next to the ring", touching.isEmpty())
+        }
+    }
+
     @Test fun glyphTextPictureAndWordsKeepTheirRows() {
         val words = TextItems.WORD_ROWS
         for (item in layered) {

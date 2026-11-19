@@ -69,7 +69,7 @@ object AnimationLibrary {
         }
         val sprites = SpriteStore.entries.map { e ->
             LibraryItem(e.id, e.name, spriteCategory(e), e.tags, e.credit, ItemKind.SPRITE,
-                if (e.sourceFrames == 1) ItemForm.STILL else ItemForm.ANIMATION) { p -> SpriteStore.load(e, p) }
+                if (e.sourceFrames == 1) ItemForm.STILL else ItemForm.ANIMATION, posterOf = if (e.id in BANNERS) { p -> bannerPoster(e, p) } else null) { p -> SpriteStore.load(e, p) }
         }
         val drawn = (art + TextItems.texts + TextItems.layered).map { it.name.lowercase() }.toSet()
         val icons = com.dotforge.device.GlyphLibrary.all.filter { it.name.lowercase() !in drawn }.map { g ->
@@ -152,6 +152,18 @@ object AnimationLibrary {
     )
 
     /** Sprite packs were sorted before Love, Heartbreak, Moods and Food & delivery existed. */
+    /**
+     * Festival banners that scroll in from "HAPPY": every frame of theirs is a word cut at the edge or the same
+     * HAPPY, so their posters show their own words whole, like a text poster (DIWALI, NEW / YEAR).
+     */
+    private val BANNERS = mapOf(
+        "sprite-happy-new-year" to "NEW YEAR", "sprite-happy-diwali" to "DIWALI", "sprite-happy-easter" to "EASTER",
+        "sprite-happy-holi" to "HOLI", "sprite-happy-hanukkah" to "HANUKKAH", "sprite-happy-lunar-new-year" to "LUNAR NEW YEAR",
+    )
+
+    private fun bannerPoster(e: SpriteStore.Entry, p: DeviceProfile): Frame =
+        com.dotforge.device.TextRender.poster(p, com.dotforge.device.TextSpec(BANNERS.getValue(e.id), style = com.dotforge.device.TextStyle.SCROLL))
+
     private fun spriteCategory(e: SpriteStore.Entry): Category = when {
         e.category == "animals_food" && e.id.removePrefix("sprite-") in FOOD_SPRITES -> Categories.Food
         e.category != "love_emoji" -> Categories.byId(e.category)

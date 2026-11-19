@@ -29,6 +29,24 @@ class LibraryContentTest {
         }
     }
 
+    /** Two tiles in one category never show the same picture (the festival banners all opened on HAPPY). */
+    @Test fun noTwoPostersInACategoryAreTheSame() {
+        val p = com.dotforge.device.DeviceProfile.Phone3
+        for (c in Categories.all.filter { it != Categories.Featured }) {
+            val same = AnimationLibrary.items(c).groupBy { AnimationLibrary.thumbnail(it, p).pixels.toList() }.values.filter { it.size > 1 }
+            org.junit.Assert.assertTrue("${c.title}: ${same.map { g -> g.map { it.id } }}", same.isEmpty())
+        }
+        System.getProperty("screens.out")?.let { dir ->
+            val out = StringBuilder()
+            for (id in listOf("sprite-happy-hanukkah", "sprite-happy-lunar-new-year", "sprite-happy-easter")) {
+                val f = AnimationLibrary.thumbnail(AnimationLibrary.item(id)!!, p)
+                out.append(id).append('\n')
+                for (y in 0 until p.size) out.append((0 until p.size).joinToString("") { x -> if (f.pixels[y * p.size + x] > 0) "#" else "." }).append('\n')
+            }
+            java.io.File(dir, "banners.txt").writeText(out.toString())
+        }
+    }
+
     @Test fun categoryCounts() {
         val counts = Categories.all.associateWith { AnimationLibrary.items(it).size }
         for ((c, n) in counts) assertTrue("${c.title} is empty", n > 0)
