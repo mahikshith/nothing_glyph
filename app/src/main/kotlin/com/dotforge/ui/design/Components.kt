@@ -358,6 +358,8 @@ fun EqualTile(
     enabled: Boolean = true,
     height: Dp = Tokens.Tile,
     icon: (@Composable () -> Unit)? = null,
+    /** Home lets the status wrap to a second line at large text rather than cut it. */
+    statusLines: Int = 1,
     onToggle: (Boolean) -> Unit = {},
     onOpen: (() -> Unit)? = null,
 ) {
@@ -394,7 +396,7 @@ fun EqualTile(
             }
             if (checked == null || under) name(Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp))
             Spacer(Modifier.weight(1f).heightIn(min = Tokens.Tiny))
-            Text(status, Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(status, Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = statusLines, overflow = TextOverflow.Ellipsis)
         }
     }
 }

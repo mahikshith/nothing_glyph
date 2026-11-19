@@ -47,6 +47,11 @@ class ToySettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(HUB_BATTERY, true)
         set(v) = prefs.edit().putBoolean(HUB_BATTERY, v).apply()
 
+    /** When DF Always-on last got an always-on tick, epoch ms (Home's always-on line). */
+    var aodSeenAt: Long
+        get() = prefs.getLong(AOD_SEEN, 0L)
+        set(v) = prefs.edit().putLong(AOD_SEEN, v).apply()
+
     /** DF Timer's countdown in minutes; 0 = stopwatch. */
     var timerMinutes: Int
         get() = prefs.getInt(TIMER_MINUTES, 0)
@@ -63,6 +68,7 @@ class ToySettings(private val prefs: SharedPreferences) {
         private const val CLOCK_STYLE = "clock_style"
         private const val GALLERY = "gallery"
         private const val HUB_FACE = "hub_face"
+        private const val AOD_SEEN = "aod_seen_at"
         private const val HUB_BATTERY = "hub_battery"
         private const val TIMER_MINUTES = "timer_minutes"
         private const val VISUAL_STYLE = "visual_style"

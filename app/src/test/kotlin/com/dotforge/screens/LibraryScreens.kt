@@ -234,14 +234,21 @@ abstract class LibraryScreens : ScreenshotTest() {
     private fun home() = show {
         UndoSnackbarHost(bottomBar = true) {
             androidx.compose.material3.Scaffold(containerColor = Tokens.Background, bottomBar = { com.dotforge.ui.BottomBar(Tab.HOME) {} }) { pad ->
-                Box(Modifier.padding(pad)) { HomeScreen(Nav(Tab.HOME), Setup(activity), rememberLazyListState()) }
+                Box(Modifier.padding(pad)) { HomeScreen(Nav(Tab.HOME), Setup(activity), rememberLazyListState(), com.dotforge.ui.home.HomeStatus()) }
             }
         }
+    }
+
+    /** Home's designs and "Choose a design" sit under the Glyph card and the switches. */
+    private fun toDesigns() {
+        rule.onNode(androidx.compose.ui.test.hasScrollAction()).performScrollToNode(androidx.compose.ui.test.hasText("Choose a design"))
+        rule.waitForIdle()
     }
 
     @Test fun hostHomeYours() {
         AppGraph.designs.save(LibraryActions.design(item("g-cake")))
         home()
+        toDesigns()
         rule.onNodeWithText("Choose a design").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Yours").tap()
@@ -252,10 +259,12 @@ abstract class LibraryScreens : ScreenshotTest() {
 
     @Test fun hostHome() {
         home()
+        toDesigns()
         settle()
         capture(f, "44-host-home")
         for (id in listOf("g-bell", "gt-sixer")) LibraryPrefs.used(id)
         home()
+        toDesigns()
         settle()
         capture(f, "45-host-home-recent")
         rule.onNodeWithText("Choose a design").tap()

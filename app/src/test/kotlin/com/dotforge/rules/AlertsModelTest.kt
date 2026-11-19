@@ -98,6 +98,10 @@ class AlertsModelTest {
         // switched on by hand until later
         assertEquals("Quiet", (Delivery.gate(match, FilterSettings(quietUntil = 5_000), c(), { false }, false) as Verdict.Quiet).reason)
         assertTrue(Delivery.gate(match, FilterSettings(quietUntil = 500), c(), { false }, false) is Verdict.Show)
+        // Home's Alerts switch off: every app alert is skipped, favourites and repeat callers too
+        val paused = FilterSettings(alertsPaused = true)
+        assertEquals(Verdict.Quiet(match, QuietReason.PAUSED), Delivery.gate(match, paused, c(), { true }, true))
+        assertEquals("Alerts off", QuietReason.PAUSED)
         assertEquals(QuietReason.BEDTIME, Delivery.quietReason(FilterSettings(), c().copy(bedtime = true)))
     }
 

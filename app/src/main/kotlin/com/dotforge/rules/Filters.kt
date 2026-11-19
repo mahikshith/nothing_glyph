@@ -72,6 +72,8 @@ data class FilterSettings(
     val order: List<String> = emptyList(),
     /** Quiet switched on by hand (Home tile) until this time, epoch ms; 0 = not. */
     val quietUntil: Long = 0,
+    /** Home's Alerts switch is off: no app or person alert lights (calls and spam blocking carry on). */
+    val alertsPaused: Boolean = false,
 ) {
     /** The cap in ms for the alert queue, null = never. */
     val capMs: Long? get() = waitCapHours.takeIf { it > 0 }?.let { it * 3_600_000L }
@@ -106,6 +108,7 @@ object QuietReason {
     const val IN_USE = "phone in use"
     const val SCREEN_ON = "screen on"
     const val FACE_DOWN = "phone face down"
+    const val PAUSED = "Alerts off"
 }
 
 /** One line of the rule tester. [cooldown]: a rule matched but the conversation alerted moments ago. */
@@ -177,6 +180,7 @@ object Delivery {
      * hides app lights). [starred] is read only during Quiet.
      */
     fun gate(match: RuleMatch, filters: FilterSettings, c: Conditions, starred: () -> Boolean, repeated: Boolean): Verdict {
+        if (filters.alertsPaused) return Verdict.Quiet(match, QuietReason.PAUSED)
         val quiet = quietReason(filters, c)
         if (quiet != null) {
             val through = (filters.letFavourites && starred()) || (filters.letRepeat && repeated)

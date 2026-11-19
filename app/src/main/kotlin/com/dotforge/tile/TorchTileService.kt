@@ -32,11 +32,15 @@ class TorchTileService : TileService() {
         /** The torch turns itself off after this long, so a forgotten torch never stays on. */
         const val AUTO_OFF_MS = 5 * 60_000L
 
+        /** When the torch last went on (Home counts down to its auto-off), epoch ms. */
+        @Volatile var onSince = 0L
+
         fun toggle() {
             val arbiter = AppGraph.arbiter
             if (arbiter.has(ID)) {
                 arbiter.remove(ID)
             } else {
+                onSince = System.currentTimeMillis()
                 val full = Frame.blank(AppGraph.profile).fill(255)
                 arbiter.post(DisplayRequest(ID, Priority.TORCH, Animation.single(full), loop = true, timeoutMs = AUTO_OFF_MS, label = "Torch"))
             }

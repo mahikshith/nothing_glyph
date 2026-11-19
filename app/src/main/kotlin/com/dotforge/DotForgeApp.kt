@@ -243,5 +243,12 @@ class DotForgeApp : Application() {
             addAction(Intent.ACTION_SCREEN_OFF)
         }
         registerReceiver(wakeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        // the live Glyph widget redraws at most once a minute, and only while one is on the home screen
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            while (true) {
+                kotlinx.coroutines.delay(com.dotforge.widget.GlyphWidgetProvider.LIVE_MS)
+                runCatching { com.dotforge.widget.GlyphWidgetProvider.updateLive(this@DotForgeApp) }
+            }
+        }
     }
 }

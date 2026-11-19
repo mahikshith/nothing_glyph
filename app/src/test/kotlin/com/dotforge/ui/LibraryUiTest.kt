@@ -205,7 +205,8 @@ class LibraryUiTest {
 
     @Test fun homePicksFromTheLibraryAndOpensTheItemSheet() {
         val nav = Nav(Tab.HOME)
-        rule.setContent { DotForgeTheme { HomeScreen(nav, Setup(rule.activity), androidx.compose.foundation.lazy.rememberLazyListState()) } }
+        rule.setContent { DotForgeTheme { HomeScreen(nav, Setup(rule.activity), androidx.compose.foundation.lazy.rememberLazyListState(), com.dotforge.ui.home.HomeStatus()) } }
+        rule.onNode(androidx.compose.ui.test.hasScrollAction()).performScrollToNode(hasText("Choose a design"))
         rule.onNodeWithText("Choose a design").tap()
         rule.waitForIdle()
         // (not one of Home's own tiles, so the tap lands in the picker)

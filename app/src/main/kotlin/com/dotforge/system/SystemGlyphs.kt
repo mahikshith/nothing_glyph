@@ -166,7 +166,12 @@ class SystemGlyphs(private val context: Context, private val settings: SystemGly
             val level = (i.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) * 100f / scale).roundToInt()
             val charging = i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
             when (BatteryEvents.between(last, level, charging)) {
-                BatteryEvent.PLUGGED -> if (settings.chargingMeter.value) show(BatteryEvents.meter(AppGraph.profile, level))
+                BatteryEvent.PLUGGED -> {
+                    // Nothing's charging light covers the Glyph for a few seconds; the arbiter re-sends after
+                    com.dotforge.engine.NothingLights.covered("charging", com.dotforge.engine.NothingLights.CHARGING_MS)
+                    AppGraph.arbiter.refreshAfter(com.dotforge.engine.NothingLights.CHARGING_MS)
+                    if (settings.chargingMeter.value) show(BatteryEvents.meter(AppGraph.profile, level))
+                }
                 BatteryEvent.FULL -> if (settings.alarms.value) show(BatteryEvents.alarm(AppGraph.profile, BatteryEvent.FULL, level))
                 BatteryEvent.LOW -> if (settings.alarms.value) show(BatteryEvents.alarm(AppGraph.profile, BatteryEvent.LOW, level))
                 null -> Unit

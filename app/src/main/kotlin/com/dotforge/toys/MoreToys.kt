@@ -58,12 +58,20 @@ internal fun batteryLevel(ctx: Context): Float? {
     return if (level < 0 || scale <= 0) null else level.toFloat() / scale
 }
 
-/** Designs DF Gallery shows: the chosen ones, else all; each as its animation. */
+/**
+ * Designs DF Gallery shows: the chosen ones (your designs, and Library designs as "lib:<id>", picked from
+ * Home's always-on sheet), else all of yours; each as its animation.
+ */
 internal fun galleryAnimations(): List<Animation> {
     val ids = AppGraph.toys.galleryIds
     val designs = AppGraph.designs.designs.value
-    return (designs.filter { it.id in ids }.ifEmpty { designs }).mapNotNull(AppGraph.designs::animation)
+    val chosen = designs.filter { it.id in ids }.mapNotNull(AppGraph.designs::animation) +
+        ids.filter { it.startsWith(LIBRARY_PREFIX) }.mapNotNull { com.dotforge.device.library.AnimationLibrary.item(it.removePrefix(LIBRARY_PREFIX))?.load(AppGraph.profile) }
+    return chosen.ifEmpty { designs.mapNotNull(AppGraph.designs::animation) }
 }
+
+/** A Library design in [ToySettings.galleryIds]. */
+const val LIBRARY_PREFIX = "lib:"
 
 /** Design carousel: plays the gallery designs in turn; on the always-on display, one design a minute. */
 class GalleryToy : GlyphToyService() {
@@ -132,6 +140,7 @@ class HubToy : GlyphToyService() {
 
     override fun onAodTick() {
         galleryIndex++
+        AppGraph.toys.aodSeenAt = System.currentTimeMillis()
         render()
     }
 

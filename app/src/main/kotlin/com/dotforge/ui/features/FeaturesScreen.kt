@@ -95,7 +95,7 @@ fun FeaturePage(key: String, nav: Nav, setup: Setup) {
  * with the switch and options greyed out.
  */
 @Composable
-fun FeatureLayout(feature: Feature, nav: Nav, content: (LazyListScope.() -> Unit)? = null) {
+fun FeatureLayout(feature: Feature, nav: Nav, extra: (LazyListScope.() -> Unit)? = null, content: (LazyListScope.() -> Unit)? = null) {
     var how by rememberSaveable { mutableStateOf(false) }
     Page(feature.title, onBack = nav::pop) {
         item(key = "what") { Hint(feature.what) }
@@ -113,6 +113,7 @@ fun FeatureLayout(feature: Feature, nav: Nav, content: (LazyListScope.() -> Unit
                 }
             }
         }
+        extra?.invoke(this)
         item(key = "how") {
             RowGroup(Modifier.padding(top = Tokens.Section)) { ListRow("How it works", trailing = { Chevron() }) { how = true } }
         }

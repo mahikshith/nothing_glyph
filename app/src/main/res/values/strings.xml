@@ -34,4 +34,6 @@
     <string name="toy_speed_summary">Download speed now, on the ring and in numbers.</string>
     <string name="hub_tile">Always-on face</string>
     <string name="live_tile">Music on Glyph</string>
+    <string name="widget_name">Glyph</string>
+    <string name="widget_description">A design or the live Glyph on your home screen. Tap to show it on the Glyph.</string>
 </resources>
