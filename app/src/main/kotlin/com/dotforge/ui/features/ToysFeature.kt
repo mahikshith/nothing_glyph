@@ -1,15 +1,24 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.dotforge.ui.features
 
-import android.Manifest
-import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Switch
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -18,8 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -29,10 +36,8 @@ import com.dotforge.device.Effects
 import com.dotforge.device.Timing
 import com.dotforge.device.Timings
 import com.dotforge.system.FeatureTiming
-import com.dotforge.toys.DayUsage
 import com.dotforge.toys.InstalledToy
 import com.dotforge.toys.InstalledToys
-import com.dotforge.toys.ToyComponents
 import com.dotforge.toys.ToyList
 import com.dotforge.toys.ToyStatus
 import com.dotforge.ui.Nav
@@ -51,31 +56,32 @@ import com.dotforge.ui.design.TimingKind
 import com.dotforge.ui.design.TimingParts
 import com.dotforge.ui.design.TimingSheet
 import com.dotforge.ui.design.Tokens
-import com.dotforge.ui.design.speedText
-import com.dotforge.ui.design.switchColors
+import com.dotforge.ui.design.SmallButton
+import com.dotforge.ui.design.Tag
+import com.dotforge.ui.addToGlyphToys
+import com.dotforge.ui.design.paceName
 import com.dotforge.widget.GlyphWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * Features > Toys: Nothing's toy settings (where the Glyph Button's toys are added and ordered) and the On the
- * Glyph row (every DotForge toy's brightness and speed); a row per DotForge toy with its switch and where it
- * stands in Nothing's list ("Added in Glyph Toys"), opening its options; other apps' toys; Get more; the widget.
+ * Glyph row (every DotForge toy's brightness and speed); a row per DotForge toy (new ones first, tagged New) with
+ * its icon, where it stands in Glyph Toys and a chevron to its page, and Add where it isn't added; other apps'
+ * toys; Get more; the widget. Nothing here switches a toy on: Glyph Toys does, and every row says so.
  */
 @Composable
 fun ToysFeature(nav: Nav, setup: Setup) {
     val ctx = LocalContext.current
     val timing by AppGraph.features.timing(FeatureTiming.TOYS).collectAsStateWithLifecycle()
-    val on = remember { mutableStateMapOf<Toy, Boolean>() }
     var list by remember { mutableStateOf<Map<String, Boolean>?>(null) }
     var others by remember { mutableStateOf<List<InstalledToy>>(emptyList()) }
     var version by remember { mutableStateOf(0) }
     var manual by rememberSaveable { mutableStateOf(false) }
     var glyph by rememberSaveable { mutableStateOf(false) }
-    // back from Nothing's toy settings: read the list again
+    // back from Glyph Toys: read the list again
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { version++ }
     LaunchedEffect(version) {
-        Toy.entries.forEach { on[it] = runCatching { ToyComponents.isOn(ctx, it.cls) }.getOrDefault(false) }
         list = withContext(Dispatchers.IO) { ToyList.read(ctx) }
         others = withContext(Dispatchers.IO) { runCatching { InstalledToys.query(ctx) }.getOrDefault(emptyList()) }.filterNot { it.ours }
     }
@@ -94,7 +100,7 @@ fun ToysFeature(nav: Nav, setup: Setup) {
         item(key = "main") {
             RowGroup {
                 ListRow(
-                    "Nothing's toy settings", subtitle = "Add, remove and order the toys the Glyph Button switches to", subtitleLines = 3,
+                    "Glyph Toys", subtitle = "Nothing's list of the toys the Glyph Button switches between", subtitleLines = 3,
                     trailing = { Chevron() },
                 ) { InstalledToys.openManager(ctx) }
                 RowDivider()
@@ -103,19 +109,11 @@ fun ToysFeature(nav: Nav, setup: Setup) {
         }
         item(key = "ours") {
             SectionLabel("DotForge toys")
-            val count = Toy.entries.count { on[it] == true }
-            Hint("$count on. Switch a toy on here, then add it in Nothing's toy settings.", Modifier.padding(bottom = Tokens.Small))
+            Hint(toysHint(list), Modifier.padding(bottom = Tokens.Small))
             RowGroup {
-                Toy.entries.forEachIndexed { i, toy ->
+                Toy.listed.forEachIndexed { i, toy ->
                     if (i > 0) RowDivider(leading = true)
-                    val isOn = on[toy] == true
-                    val status = ToyStatus.of(isOn, list?.get(toy.cls) ?: list?.let { false })
-                    ToyRow(toy, isOn, status, onOpen = { nav.push(Page.ToySettings(toy)) }) { want ->
-                        runCatching { ToyComponents.set(ctx, toy.cls, want) }
-                        on[toy] = want
-                        // the toys that need something first open their page, which asks for it
-                        if (want && needsSetUp(ctx, toy)) nav.push(Page.ToySettings(toy))
-                    }
+                    ToyRow(toy, ToyStatus.of(list, toy.cls), onAdd = { addToGlyphToys(ctx, toy) }) { nav.push(Page.ToySettings(toy)) }
                 }
             }
         }
@@ -155,39 +153,49 @@ fun ToysFeature(nav: Nav, setup: Setup) {
     )
 }
 
-/** One DotForge toy: its face, its name and where it stands, and its switch. The row opens its options. */
+/** The line over the list: how many are in Glyph Toys, and the one instruction. */
+internal fun toysHint(list: Map<String, Boolean>?): String {
+    val step = "Tap Add, then turn the toy on in Glyph Toys. Press the Glyph Button on the back to switch between them."
+    if (list == null) return step
+    val n = Toy.entries.count { list[it.cls] == true }
+    return (if (n == 1) "1 in Glyph Toys. " else "$n in Glyph Toys. ") + step
+}
+
+/** A DotForge toy: its bright icon, its name (with New), where it stands, Add when it isn't added, a chevron. */
 @Composable
-private fun ToyRow(toy: Toy, on: Boolean, status: ToyStatus, onOpen: () -> Unit, onSwitch: (Boolean) -> Unit) {
+private fun ToyRow(toy: Toy, status: ToyStatus, onAdd: () -> Unit, onOpen: () -> Unit) {
+    val ctx = LocalContext.current
     val name = stringResource(toy.nameRes)
-    ListRow(
-        name, subtitle = status.label,
-        leading = { GlyphPreview(remember(toy) { runCatching { toy.preview(AppGraph.profile) }.getOrNull() }, "$name toy") },
-        trailing = {
-            Switch(
-                on, onSwitch, colors = switchColors(),
-                modifier = Modifier.semantics { contentDescription = name },
-            )
-        },
-        onClick = onOpen,
-    )
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = Tokens.RowTall).clickable(onClick = onOpen)
+            .padding(horizontal = Tokens.Gutter, vertical = Tokens.Small),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
+    ) {
+        Box(Modifier.size(Tokens.Avatar), contentAlignment = Alignment.Center) {
+            GlyphPreview(remember(toy) { toy.icon(AppGraph.profile, ctx) }, "$name icon")
+        }
+        Column(Modifier.weight(1f)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.Center) {
+                Text(name, style = MaterialTheme.typography.bodyLarge)
+                if (toy.isNew) Tag("New", Modifier.align(Alignment.CenterVertically))
+            }
+            Text(status.label, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
+        }
+        if (status == ToyStatus.NOT_ADDED) SmallButton("Add", "Add $name to Glyph Toys", onClick = onAdd)
+        Chevron()
+    }
 }
 
-/** Day dots without Usage access, and Weather with neither a typed place nor location, open their page first. */
-private fun needsSetUp(ctx: android.content.Context, toy: Toy): Boolean = when (toy) {
-    Toy.DAY_DOTS -> !DayUsage.allowed(ctx)
-    Toy.WEATHER -> AppGraph.toys.weatherPlace == null && ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
-    else -> false
-}
-
-/** The row's line: "100% · 1x · set by each toy". */
+/** The row's line: "100% · Normal speed". */
 internal fun toysSummary(t: Timing): String {
     val c = t.clamped()
-    return listOf("${c.brightness}%", speedText(c.speed), "shows while picked").joinToString(" · ")
+    return listOf("${c.brightness}%", paceName(c.speed) + " speed").joinToString(" · ")
 }
 
 internal fun toysLine(t: Timing): String {
     val c = t.clamped()
-    return "Every DotForge toy shows at ${c.brightness}% and moves at ${speedText(c.speed)}."
+    return "Every DotForge toy shows at ${c.brightness}% and moves at ${paceName(c.speed).lowercase()} speed."
 }
 
 /** A toy for the On the Glyph row and sheet: the clock with a comet going round it. */

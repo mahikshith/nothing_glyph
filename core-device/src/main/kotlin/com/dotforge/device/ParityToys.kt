@@ -99,13 +99,16 @@ object WeatherFace {
         return f
     }
 
-    /** "No weather yet": a cloud with a question mark's dot under it. */
+    /** "No weather yet": the cloud over "--" where the temperature goes, never a made-up number. */
     fun waiting(p: DeviceProfile): Frame {
         val f = Frame.blank(p)
         val icon = ICONS.getValue(Sky.CLOUDY)
         val x0 = (p.size - 9) / 2
-        icon.forEachIndexed { y, row -> row.forEachIndexed { x, ch -> if (ch == '#') f[x0 + x, 7 + y] = 120 } }
-        f[p.size / 2, 17] = 255
+        icon.forEachIndexed { y, row -> row.forEachIndexed { x, ch -> if (ch == '#') f[x0 + x, 4 + y] = 255 } }
+        // two dashes, each as wide as a digit, where the number sits
+        val w = BigDigits.GLYPH_WIDTH * 2 + 1
+        val dx = (p.size - w) / 2
+        for (x in 0 until w) if (x != BigDigits.GLYPH_WIDTH) f[dx + x, 16] = 255
         return f
     }
 
@@ -123,6 +126,8 @@ object WeatherFace {
 /** Day dots: one dot for every 10 minutes of screen time today, the day's goal shown faint. Pure; tested. */
 object DayDots {
     const val MINUTES_PER_DOT = 10
+    /** The goal's dots still to fill: faint, but clear of the off dots. */
+    const val GOAL_DOT = 80
 
     /** The dot cells, every other cell inside the ring, from the top left, row by row. */
     fun cells(p: DeviceProfile): List<Int> {
@@ -154,7 +159,7 @@ object DayDots {
         cells.forEachIndexed { i, cell ->
             f.pixels[cell] = when {
                 i < lit -> if (i >= goal && goal > 0) 255 else 200
-                i < goal -> 45
+                i < goal -> GOAL_DOT
                 else -> 0
             }
         }
@@ -294,16 +299,18 @@ class TiltMaze(val level: Level) {
 
     fun restart() { ball = start }
 
-    /** Walls dim, the ball bright, the goal blinking ([blink] on or off). */
+    /** Walls at [WALL] (clear, but under the ball), the ball full, the goal blinking ([blink] on or off). */
     fun frame(p: DeviceProfile, blink: Boolean): Frame {
         val f = Frame.blank(p)
-        for ((x, y) in walls) if (p.isActive(x, y)) f[x, y] = 70
-        if (blink || won) f[goal.first, goal.second] = 160
+        for ((x, y) in walls) if (p.isActive(x, y)) f[x, y] = WALL
+        if (blink || won) f[goal.first, goal.second] = GOAL
         f[ball.first, ball.second] = 255
         return f
     }
 
     companion object {
+        const val WALL = 140
+        const val GOAL = 200
         /** About 12° of tilt. */
         const val THRESHOLD = 2f
     }

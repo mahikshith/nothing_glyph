@@ -109,21 +109,65 @@ class LiveVisualiserService : Service() {
         return START_STICKY
     }
 
+    /** "One of my designs": its still, made once per design. */
+    private var mine: Pair<String?, Frame?>? = null
+
+    private fun design(): Frame? {
+        val id = AppGraph.features.musicDesign.value
+        if (mine?.first != id || mine == null) mine = id to AppGraph.designAnimation(id)?.let(com.dotforge.device.Posters::of)
+        return mine?.second
+    }
+
     private fun onFrame(pixels: IntArray) {
         val e = engine ?: return
         val playing = e.musicActive()
         LiveVisualiser.setMusic(playing)
+        listenForShake(AppGraph.features.shakeSkip.value)
         // "While music plays" keeps the Glyph dark between songs; "Until I turn it off" shows the quiet outline
         if (playing || !AppGraph.features.mediaOnly.value) {
             val brightness = AppGraph.features.timing(FeatureTiming.MUSIC).value.brightness
-            val frame = Frame.of(AppGraph.profile, pixels).let { if (brightness < 100) it.scaled(brightness / 100f) else it }
+            val own = if (AppGraph.features.musicMine.value) design() else null
+            val drawn = Frame.of(AppGraph.profile, pixels)
+            val shown = own?.let { VisualiserDesign.frame(it, VisualiserDesign.loudness(drawn)) } ?: drawn
+            val frame = shown.let { if (brightness < 100) it.scaled(brightness / 100f) else it }
             AppGraph.arbiter.post(DisplayRequest(LiveVisualiser.ID, Priority.LIVE, Animation.single(frame, 1_000), loop = true, label = "Music"))
         } else if (AppGraph.arbiter.has(LiveVisualiser.ID)) {
             AppGraph.arbiter.remove(LiveVisualiser.ID)
         }
     }
 
+    // ---- Shake to skip: a firm shake while the visualiser runs plays the next song
+    private var shaking = false
+    private var lastAccel: FloatArray? = null
+    private var lastSkip = 0L
+    private val shake = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(ev: android.hardware.SensorEvent) {
+            val now = ev.values.copyOf()
+            val shook = com.dotforge.system.BatteryEvents.isShake(lastAccel, now, SKIP_SHAKE)
+            lastAccel = now
+            val t = System.currentTimeMillis()
+            if (!shook || t - lastSkip < 2_000) return
+            lastSkip = t
+            val audio = getSystemService(android.media.AudioManager::class.java) ?: return
+            if (!audio.isMusicActive) return
+            audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_NEXT))
+            audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_NEXT))
+        }
+
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) = Unit
+    }
+
+    private fun listenForShake(on: Boolean) {
+        if (on == shaking) return
+        shaking = on
+        lastAccel = null
+        val sensors = getSystemService(android.hardware.SensorManager::class.java) ?: return
+        if (on) sensors.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let { sensors.registerListener(shake, it, android.hardware.SensorManager.SENSOR_DELAY_GAME) }
+        else sensors.unregisterListener(shake)
+    }
+
     override fun onDestroy() {
+        listenForShake(false)
         engine?.close()
         engine = null
         main.cancel()
@@ -151,6 +195,8 @@ class LiveVisualiserService : Service() {
     }
 
     companion object {
+        /** Firmer than the torch's shake, so dancing with the phone doesn't skip. */
+        private const val SKIP_SHAKE = 18f
         private const val CHANNEL = "live"
         private const val NOTIFICATION_ID = 7
         private const val ACTION_STOP = "com.dotforge.live.STOP"
@@ -189,6 +235,21 @@ class LiveTileService : TileService() {
             runCatching { requestListeningState(context, android.content.ComponentName(context, LiveTileService::class.java)) }
         }
     }
+}
+
+/** "One of my designs" with the music: the design's still, dim when quiet and full on the beat. Pure; tested. */
+object VisualiserDesign {
+    /** The quietest the design gets. */
+    const val FLOOR = 0.2f
+
+    /** How loud a drawn visualiser frame is, 0 to 1: its brightest third of dots, averaged. */
+    fun loudness(drawn: Frame): Float {
+        val lit = drawn.profile.ledCells.map { drawn.pixels[it] }.sortedDescending()
+        val top = lit.take((lit.size / 3).coerceAtLeast(1))
+        return (top.average() / 255.0).toFloat().coerceIn(0f, 1f)
+    }
+
+    fun frame(design: Frame, loud: Float): Frame = design.scaled(FLOOR + (1f - FLOOR) * loud.coerceIn(0f, 1f))
 }
 
 /** The style both the Live visualiser and the DF Music toy draw. */

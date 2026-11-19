@@ -88,4 +88,17 @@ class BatteryEventsTest {
         val down = BatteryEvents.volumeSlide(p, 10, 2, 15).frames.map { f -> p.ring.count { f.frame.pixels[it] == 255 } }
         assertEquals(down.sortedDescending(), down)
     }
+
+    @Test fun myDesignPlaysThenHoldsItsFullestFrame() {
+        val p = com.dotforge.device.DeviceProfile.Phone3
+        val dim = com.dotforge.device.Frame.blank(p).fill(40)
+        val full = com.dotforge.device.Frame.blank(p).fill(255)
+        val mine = com.dotforge.device.Animation(p, listOf(com.dotforge.device.AnimFrame(dim, 100), com.dotforge.device.AnimFrame(full, 100)))
+        val a = BatteryEvents.charging(p, ChargingStyle.MINE, 50, fast = false, mine = mine)
+        assertEquals(3, a.frames.size)
+        assertEquals(BatteryEvents.HOLD_MS, a.frames.last().durationMs)
+        assertEquals(full.pixels.toList(), a.frames.last().frame.pixels.toList())
+        // without a design: the ring and the number
+        assertEquals(BatteryEvents.charging(p, ChargingStyle.LEVEL, 50, false).frames.map { it.frame.pixels.toList() }, BatteryEvents.charging(p, ChargingStyle.MINE, 50, false).frames.map { it.frame.pixels.toList() })
+    }
 }

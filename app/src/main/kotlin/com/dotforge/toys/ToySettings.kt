@@ -84,6 +84,21 @@ class ToySettings(private val prefs: SharedPreferences) {
         get() = prefs.getLong(WEATHER_AT, 0L)
         set(v) = prefs.edit().putLong(WEATHER_AT, v).apply()
 
+    /** When the last try to fetch failed for want of a connection (0: the last try worked). */
+    var weatherOfflineAt: Long
+        get() = prefs.getLong(WEATHER_OFFLINE, 0L)
+        set(v) = prefs.edit().putLong(WEATHER_OFFLINE, v).apply()
+
+    /** DotForge has asked for rough location for DF Weather once. */
+    var weatherAskedLocation: Boolean
+        get() = prefs.getBoolean(WEATHER_ASKED, false)
+        set(v) = prefs.edit().putBoolean(WEATHER_ASKED, v).apply()
+
+    /** The user went to Usage access for DF Day dots once. */
+    var dayAskedUsage: Boolean
+        get() = prefs.getBoolean(DAY_ASKED, false)
+        set(v) = prefs.edit().putBoolean(DAY_ASKED, v).apply()
+
     /** DF Day dots' daily goal, in minutes of screen time. */
     var dayGoalMinutes: Int
         get() = prefs.getInt(DAY_GOAL, 180)
@@ -123,6 +138,9 @@ class ToySettings(private val prefs: SharedPreferences) {
         private const val WEATHER_RAIN = "weather_rain"
         private const val WEATHER_JSON = "weather_json"
         private const val WEATHER_AT = "weather_at"
+        private const val WEATHER_OFFLINE = "weather_offline"
+        private const val WEATHER_ASKED = "weather_asked"
+        private const val DAY_ASKED = "day_asked"
         private const val DAY_GOAL = "day_goal"
         private const val DAY_RESET = "day_reset"
         private const val MAZE_LEVEL = "maze_level"

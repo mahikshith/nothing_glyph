@@ -50,6 +50,17 @@ class ParityToysTest {
         assertTrue(WeatherFace.waiting(p).pixels.any { it > 0 })
     }
 
+    @Test fun noWeatherYetShowsDashesNotANumber() {
+        val p = DeviceProfile.Phone3
+        val f = WeatherFace.waiting(p)
+        // the number's rows hold only the two dashes, on the middle row
+        for (y in 14..18) {
+            val lit = (0 until p.size).count { f.pixels[p.index(it, y)] > 0 }
+            if (y == 16) assertEquals(6, lit) else assertEquals("row $y", 0, lit)
+        }
+        assertTrue(f.pixels.all { it == 0 || it == 255 })
+    }
+
     private fun assertNotEquals(a: Any, b: Any) = assertFalse(a == b)
 
     @Test fun oneDotPerTenMinutesAndTheGoalFaint() {
@@ -57,7 +68,7 @@ class ParityToysTest {
         assertTrue("room for a long day", cells.size >= 40)
         val f = DayDots.frame(p, 95, 180)
         assertEquals(9, cells.count { f.pixels[it] == 200 })
-        assertEquals(9, cells.count { f.pixels[it] == 45 })
+        assertEquals(9, cells.count { f.pixels[it] == DayDots.GOAL_DOT })
         assertTrue(p.ring.all { f.pixels[it] == 0 })
         // over the goal: the extra dots bright and the ring lit
         val over = DayDots.frame(p, 200, 120)
@@ -113,7 +124,7 @@ class ParityToysTest {
         assertEquals(m.start, m.ball)
         val f = m.frame(p, blink = true)
         assertEquals(255, f.pixels[p.index(sx, sy)])
-        assertEquals(160, f.pixels[p.index(m.goal.first, m.goal.second)])
+        assertEquals(TiltMaze.GOAL, f.pixels[p.index(m.goal.first, m.goal.second)])
         assertNotNull(f)
     }
 }

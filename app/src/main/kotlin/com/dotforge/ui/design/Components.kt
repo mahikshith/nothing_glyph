@@ -245,7 +245,7 @@ fun ListRow(
             .heightIn(min = if (subtitle != null) Tokens.RowTall else Tokens.Row)
             .then(click)
             .padding(horizontal = inset, vertical = Tokens.Small)
-            .then(if (enabled) Modifier else Modifier.alpha(0.38f)),
+            .then(if (enabled) Modifier else Modifier.alpha(OFF_ROW_ALPHA)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
     ) {
@@ -287,7 +287,7 @@ fun SwitchRow(
             .heightIn(min = if (subtitle != null) Tokens.RowTall else Tokens.Row)
             .toggleable(checked, enabled = enabled, role = Role.Switch) { haptic.toggle(it); onCheckedChange(it) }
             .padding(horizontal = inset, vertical = Tokens.Small)
-            .then(if (enabled) Modifier else Modifier.alpha(0.38f)),
+            .then(if (enabled) Modifier else Modifier.alpha(OFF_ROW_ALPHA)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
     ) {
@@ -712,6 +712,9 @@ const val SCRIM_ALPHA = 0.6f
 /** Disabled controls and their text: 38% of white. */
 const val DISABLED_ALPHA = 0.38f
 
+/** A row that is off (its feature's switch is off): greyed, but still easy to read. */
+const val OFF_ROW_ALPHA = 0.6f
+
 /**
  * A sheet option: at least 76 dp, a 40 dp preview (title at 72 dp from the screen edge), a 17 sp title, a description that wraps, a chevron (or a
  * check when [selected]). [destructive] titles are red.
@@ -791,6 +794,53 @@ fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClic
         ) {
             Text(label, style = MaterialTheme.typography.bodyMedium, color = if (selected) Color.Black else Color.White, maxLines = 1)
         }
+    }
+}
+
+/**
+ * A small action inside a row ("Add"): a 32 dp grey pill in a 48 dp touch target. [description] is what TalkBack
+ * reads ("Add DF Weather to Glyph Toys").
+ */
+@Composable
+fun SmallButton(label: String, description: String = label, modifier: Modifier = Modifier, onClick: () -> Unit) =
+    Box(
+        modifier.heightIn(min = Tokens.Target).widthIn(min = Tokens.Target)
+            .clip(RoundedCornerShape(Tokens.Target / 2))
+            .clickable(role = Role.Button, onClickLabel = description, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.heightIn(min = 32.dp).background(Tokens.Raised, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = Color.White, maxLines = 1)
+        }
+    }
+
+/** A small white tag beside a name ("New"). */
+@Composable
+fun Tag(text: String, modifier: Modifier = Modifier) =
+    Text(
+        text, modifier.background(Color.White, RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
+        style = MaterialTheme.typography.labelMedium, color = Color.Black, maxLines = 1,
+    )
+
+/**
+ * One choice from a few, as rows in a card: each row's name and line, a check on the chosen one. The chosen
+ * row's text is as bright as the others; only the check marks it. [preview] puts a picture in front.
+ */
+@Composable
+fun <T> ChoiceRows(
+    options: List<T>, selected: T?, title: (T) -> String, subtitle: (T) -> String?, modifier: Modifier = Modifier,
+    preview: (@Composable (T) -> Unit)? = null, onPick: (T) -> Unit,
+) = RowGroup(modifier) {
+    options.forEachIndexed { i, o ->
+        if (i > 0) RowDivider(leading = preview != null)
+        val on = o == selected
+        ListRow(
+            title(o), Modifier.selectable(on, role = Role.RadioButton) { onPick(o) }, subtitle = subtitle(o),
+            leading = preview?.let { p -> { p(o) } },
+            trailing = { if (on) Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White) else Spacer(Modifier.width(24.dp)) },
+            subtitleLines = 3,
+        )
     }
 }
 

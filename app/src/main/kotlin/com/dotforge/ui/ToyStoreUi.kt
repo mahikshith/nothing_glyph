@@ -90,8 +90,6 @@ fun ToysPage(nav: Nav, setup: Setup) {
     }
 
     PageScaffold("TOYS", onBack = nav::pop) {
-        GroupTitle("DOTFORGE TOYS")
-        DfToySwitches()
         GroupTitle("INSTALLED")
         when (val list = installed) {
             null -> CircularProgressIndicator(color = Color.White, modifier = Modifier.padding(8.dp).size(24.dp))
@@ -100,7 +98,7 @@ fun ToysPage(nav: Nav, setup: Setup) {
                 list.forEach { InstalledRow(it) }
             }
         }
-        Text("Turn toys on and order them in Nothing's toy settings.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        Text("Add toys and order them in Glyph Toys. DotForge's own toys are under Features > Toys.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
         SecondaryButton("Open Nothing's toy settings", Modifier.fillMaxWidth().padding(top = 8.dp)) { InstalledToys.openManager(ctx) }
 
         GroupTitle("GET TOYS")

@@ -9,7 +9,7 @@ import com.dotforge.tile.TorchTileService
 import com.dotforge.visualiser.LiveVisualiser
 
 /**
- * "Tell other apps when something lights": a broadcast to apps holding [Automation.PERMISSION] each time
+ * "Tell other apps when something lights": a broadcast to each app you allow (holding [Automation.PERMISSION]) each time
  * something new takes the Glyph. It carries the kind of thing only ([EXTRA_EVENT]: "alert", "call", "timer"…),
  * never who sent a message, what it said or which app it came from.
  */
@@ -34,9 +34,10 @@ object GlyphEvents {
         else -> "alert"
     }
 
-    fun send(ctx: Context, event: String) {
-        runCatching {
-            ctx.sendBroadcast(Intent(ACTION_LIT).putExtra(EXTRA_EVENT, event), Automation.PERMISSION)
+    /** To each app you allow on the Integrations page, and only to them (each must hold the permission too). */
+    fun send(ctx: Context, event: String, to: Collection<String> = com.dotforge.AppGraph.automation.allowed.value) {
+        for (pkg in to) runCatching {
+            ctx.sendBroadcast(Intent(ACTION_LIT).setPackage(pkg).putExtra(EXTRA_EVENT, event), Automation.PERMISSION)
         }
     }
 }

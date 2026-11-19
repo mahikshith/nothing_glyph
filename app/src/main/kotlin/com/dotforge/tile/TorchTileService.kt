@@ -36,17 +36,31 @@ class TorchTileService : TileService() {
         @Volatile var onSince = 0L
 
         /** How long the torch stays on now; null = until turned off. */
-        fun autoOffMs(): Long? = runCatching { AppGraph.features.torchMinutes.value }.getOrDefault(5).takeIf { it > 0 }?.let { it * 60_000L }
+        fun autoOffMs(): Long? = runCatching { AppGraph.features.torchMinutes.value }.getOrDefault(5).takeIf { it > 0 }?.let { it * 60_000L + extraMs }
+
+        /** Time added with "+5 min" since the torch went on. */
+        @Volatile var extraMs = 0L
+
+        /** "+5 min": a torch that is on stays on [ms] longer. */
+        fun extend(ms: Long = EXTEND_MS) {
+            if (!AppGraph.arbiter.has(ID) || autoOffMs() == null) return
+            extraMs += ms
+            restyle()
+        }
+
+        const val EXTEND_MS = 5 * 60_000L
 
         fun toggle() = set(!AppGraph.arbiter.has(ID))
 
         /** Turns the torch on (from now) or off. */
         fun set(on: Boolean) {
             if (!on) {
+                extraMs = 0L
                 AppGraph.arbiter.remove(ID)
                 return
             }
             onSince = System.currentTimeMillis()
+            extraMs = 0L
             post(autoOffMs())
         }
 

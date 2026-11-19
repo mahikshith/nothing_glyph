@@ -77,18 +77,28 @@ class WeatherToy : GlyphToyService() {
 /** Fetching and caching DF Weather's reading (an hour at most between fetches). */
 object Weather {
     const val MAX_AGE_MS = 60 * 60_000L
+    /** After a try without a connection, the next try waits this long (a press of Long press forces one). */
+    const val RETRY_MS = 10 * 60_000L
 
     fun cached(): WeatherNow? = AppGraph.toys.weatherJson?.let(OpenMeteo::parse)
 
     /** True when a new reading came in. */
     suspend fun fetch(ctx: Context, force: Boolean): Boolean = withContext(Dispatchers.IO) {
         val toys = AppGraph.toys
-        if (!force && System.currentTimeMillis() - toys.weatherAt < MAX_AGE_MS && toys.weatherJson != null) return@withContext false
+        val now = System.currentTimeMillis()
+        if (!force && now - toys.weatherAt < MAX_AGE_MS && toys.weatherJson != null) return@withContext false
+        // offline a moment ago: wait a little before trying again
+        if (!force && now - toys.weatherOfflineAt < RETRY_MS) return@withContext false
         val (lat, lon) = place(ctx) ?: return@withContext false
-        val body = get(OpenMeteo.forecastUrl(lat, lon)) ?: return@withContext false
+        val body = get(OpenMeteo.forecastUrl(lat, lon))
+        if (body == null) {
+            toys.weatherOfflineAt = System.currentTimeMillis()
+            return@withContext false
+        }
         if (OpenMeteo.parse(body) == null) return@withContext false
         toys.weatherJson = body
         toys.weatherAt = System.currentTimeMillis()
+        toys.weatherOfflineAt = 0L
         true
     }
 

@@ -169,8 +169,7 @@ abstract class FeaturesScreens : ScreenshotTest() {
         // the finish mid-firework in the pinned preview
         rule.mainClock.advanceTimeBy(700)
         capture(f, "11-timer-on-the-glyph-sheet")
-        sheetTo("Exact brightness")
-        rule.onNodeWithText("Exact brightness").tap()
+        // the exact brightness slider shows open, as Exact speed does
         sheetTo("Try it")
         capture(f, "11b-timer-on-the-glyph-sheet-lower")
     }

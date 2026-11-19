@@ -213,7 +213,7 @@ class KeyReceiver : BroadcastReceiver() {
 private fun receive(r: BroadcastReceiver, context: Context, intent: Intent, sender: String?, key: String?) {
     val settings = AppGraph.automation
     if (sender != context.packageName && !AppGraph.features.showDesigns.value) {
-        AutomationRunner.note("Ignored ${intent.action}: \"Let other apps show designs\" is off.")
+        AutomationRunner.note("Ignored ${intent.action}: \"Let other apps send designs\" is off.")
         return
     }
     when (val gate = Automation.check(sender, settings.allowed.value, context.packageName, key, AppGraph.features.key.value)) {
@@ -249,10 +249,6 @@ class PluginFireReceiver : BroadcastReceiver() {
         val settings = AppGraph.automation
         if (!settings.plugin.value) {
             AutomationRunner.note("Ignored a Tasker action: the plugin is switched off.")
-            return
-        }
-        if (!AppGraph.features.showDesigns.value) {
-            AutomationRunner.note("Ignored a Tasker action: \"Let other apps show designs\" is off.")
             return
         }
         val values = intent.getBundleExtra(PluginBundle.EXTRA_BUNDLE)?.toMap() ?: return

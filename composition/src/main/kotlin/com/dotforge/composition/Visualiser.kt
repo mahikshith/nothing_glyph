@@ -135,8 +135,10 @@ object VisualiserRenderer {
             val v = when (style) {
                 VisualStyle.BARS -> {
                     val b = (x * bands / n).coerceIn(0, bands - 1)
+                    // a dark column starts each band after the first, so the bars read as bars, not one shape
+                    val gap = b > 0 && ((x - 1) * bands / n) != b
                     val h = levels[b] * n
-                    if (n - y <= h + 0.5f) 1f else 0f
+                    if (!gap && n - y <= h + 0.5f) 1f else 0f
                 }
                 VisualStyle.RING_PULSE -> {
                     val radius = 1.5f + bass * (maxR - 1.5f)
@@ -144,13 +146,18 @@ object VisualiserRenderer {
                     max(ring, if (r < radius) overall * 0.35f else 0f)
                 }
                 VisualStyle.RADIAL -> {
-                    // angle from the top, folded so both halves mirror: 0 at the top (bass), 1 at the bottom (treble)
+                    // angle from the top, folded so both halves mirror: 0 at the top (bass), 1 at the bottom (treble);
+                    // one thin spoke per band, as long as the band is loud, so it reads as spokes, not a blob
                     val a = abs(atan2(dx, -dy)) / Math.PI.toFloat()
-                    val b = (a * (bands - 1)).let { if (r == 0f) 0f else it }
-                    val b0 = b.toInt().coerceIn(0, bands - 1)
-                    val b1 = (b0 + 1).coerceAtMost(bands - 1)
-                    val l = levels[b0] + (levels[b1] - levels[b0]) * (b - b0)
-                    if (r <= 0.8f + l * maxR) 0.35f + 0.65f * l else 0f
+                    val b = a * (bands - 1)
+                    val k = kotlin.math.round(b).toInt().coerceIn(0, bands - 1)
+                    val off = r * kotlin.math.sin(abs(b - k) / (bands - 1) * Math.PI.toFloat())
+                    val l = levels[k]
+                    when {
+                        r < 1.2f -> 1f
+                        off <= 0.55f && r <= 1.2f + l * (maxR - 1.2f) -> 0.5f + 0.5f * l
+                        else -> 0f
+                    }
                 }
             }
             out[cell] = (v * 255).toInt().coerceIn(0, 255)

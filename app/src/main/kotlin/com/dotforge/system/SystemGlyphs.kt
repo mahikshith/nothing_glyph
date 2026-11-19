@@ -100,15 +100,19 @@ object BatteryEvents {
 
     /**
      * The charging design at 1x. [ChargingStyle.FILL]: the ring fills up to [percent], then holds.
-     * [ChargingStyle.LEVEL]: the ring and the number. On a [fast] charger the ring then pulses twice.
+     * [ChargingStyle.LEVEL]: the ring and the number. [ChargingStyle.MINE]: [mine] (your design) as it is, then its
+     * fullest frame held; without one, the ring and the number. On a [fast] charger the design then pulses twice.
      */
-    fun charging(p: DeviceProfile, style: ChargingStyle, percent: Int, fast: Boolean): Animation {
+    fun charging(p: DeviceProfile, style: ChargingStyle, percent: Int, fast: Boolean, mine: Animation? = null): Animation {
         val level = percent.coerceIn(0, 100) / 100f
-        val full = when (style) {
-            ChargingStyle.FILL -> Effects.ring(p, level)
-            ChargingStyle.LEVEL -> meter(p, percent).frames[0].frame
+        val own = mine?.takeIf { style == ChargingStyle.MINE }
+        val full = when {
+            own != null -> own.frames.maxBy { f -> f.frame.pixels.sum() }.frame
+            style == ChargingStyle.FILL -> Effects.ring(p, level)
+            else -> meter(p, percent).frames[0].frame
         }
         val frames = mutableListOf<AnimFrame>()
+        if (own != null && own.frames.size > 1) frames += own.frames
         if (style == ChargingStyle.FILL) {
             for (i in 1 until FILL_STEPS) frames += AnimFrame(Effects.ring(p, level * i / FILL_STEPS), FILL_STEP_MS)
         }
@@ -256,7 +260,9 @@ class SystemGlyphs(private val context: Context, private val settings: SystemGly
             lastVolume = v
             val p = AppGraph.profile
             val t = AppGraph.features.timing(FeatureTiming.VOLUME).value
-            val plan = Timings.plan(BatteryEvents.volumeSlide(p, before, v, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)), t)
+            val f = AppGraph.features
+            val mine = if (f.volumeStyle.value == com.dotforge.system.VolumeStyle.MINE) AppGraph.designAnimation(f.volumeDesign.value) else null
+            val plan = Timings.plan(mine ?: BatteryEvents.volumeSlide(p, before, v, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)), t)
             AppGraph.arbiter.post(
                 DisplayRequest(VOLUME_ID, Priority.NOTIFICATION, plan.animation, loop = false, timeoutMs = plan.showMs ?: (t.seconds * 1_000L), label = "Volume"),
             )
@@ -311,7 +317,8 @@ class SystemGlyphs(private val context: Context, private val settings: SystemGly
         val (level, _) = last ?: return
         val f = AppGraph.features
         val t = f.timing(FeatureTiming.CHARGING).value
-        val a = BatteryEvents.charging(AppGraph.profile, f.chargingStyle.value, level, fast && f.fastPulse.value)
+        val mine = if (f.chargingStyle.value == ChargingStyle.MINE) AppGraph.designAnimation(f.chargingDesign.value) else null
+        val a = BatteryEvents.charging(AppGraph.profile, f.chargingStyle.value, level, fast && f.fastPulse.value, mine)
         // while plugged in it plays on (the fill comes round again) instead of resting on its first frame
         val plan = Timings.plan(a, t.copy(rest = false))
         chargingHeld = plan.untilChecked

@@ -84,7 +84,7 @@ data class TimingParts(
     /** "Repeat" (the remind chips, or the [playsTimes] chips) always shows, in the Repeat place. */
     val remindAlways: Boolean = false,
     val repeatTitle: String = "Repeat",
-    /** Brightness as chips only; the slider and the phone's setting sit behind an "Exact brightness" row. */
+    /** Kept for the pages that asked for the short Brightness part; it now shows the same as the full one. */
     val compactBrightness: Boolean = false,
     /** The place's own Speed controls (or a [PartNote] where speed doesn't apply), under [speedTitle]. */
     val speedSlot: (@Composable () -> Unit)? = null,
@@ -128,7 +128,6 @@ fun TimingPanel(
     val b = base?.clamped()
     val ctx = LocalContext.current
     var more by rememberSaveable { mutableStateOf(t.moreChanged) }
-    var exact by rememberSaveable { mutableStateOf(false) }
     val chips = Arrangement.spacedBy(Tokens.Small)
 
     Column(modifier.fillMaxWidth()) {
@@ -145,20 +144,11 @@ fun TimingPanel(
                 val own = b != null && b.brightness == t.brightness
                 Timing.BRIGHTNESS_CHIPS.filterNot { it == b?.brightness }.forEach { v -> Chip("$v%", !own && t.brightness == v) { onChange(t.copy(brightness = v)) } }
             }
-            if (parts.compactBrightness) {
-                val turnExact by animateFloatAsState(if (exact) 180f else 0f, Tokens.standard(LocalReduceMotion.current), label = "exact")
-                ListRow(
-                    "Exact brightness", subtitle = "${t.brightness}% of your phone's Glyph brightness", inset = 0.dp,
-                    trailing = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = if (exact) "Hide" else "Show", tint = Tokens.Secondary, modifier = Modifier.rotate(turnExact)) },
-                ) { exact = !exact }
-            }
-            if (!parts.compactBrightness || exact) {
-                SliderLine("Exact brightness", "${t.brightness}%")
-                DotSlider("Brightness", t.brightness.toFloat(), 10f..100f, readout = "${t.brightness}%") { onChange(t.copy(brightness = it.roundToInt())) }
-                Hint("100% is your Glyph brightness in Nothing settings.")
-                ListRow("Phone's Glyph brightness", inset = 0.dp, trailing = { Chevron() }) {
-                    runCatching { ctx.startActivity(NothingSettings.glyphSettings(ctx.packageManager).intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                }
+            // the exact slider shows open, as Exact speed does
+            SliderLine("Exact brightness", "${t.brightness}%")
+            DotSlider("Brightness", t.brightness.toFloat(), 10f..100f, readout = "${t.brightness}%") { onChange(t.copy(brightness = it.roundToInt())) }
+            ListRow("Phone's Glyph brightness", subtitle = "100% here is the brightness set in Nothing settings", subtitleLines = 4, inset = 0.dp, trailing = { Chevron() }) {
+                runCatching { ctx.startActivity(NothingSettings.glyphSettings(ctx.packageManager).intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
         }
         if (showLine) Text(line ?: timingLine(t, kind, animated, animationMs), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = Tokens.Tiny))
@@ -306,6 +296,8 @@ fun TimingSheet(
     /** The plain line at the top, when the place says it its own way (a timer's finish). */
     plainLine: String? = null,
     parts: TimingParts = TimingParts(),
+    /** The place's own controls above the panel, when they matter most (the charging design). */
+    header: (@Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit)? = null,
     /** The place's own controls under the panel (Last 10 seconds, Try it). */
     extra: (@Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit)? = null,
     onChange: (Timing) -> Unit,
@@ -327,9 +319,10 @@ fun TimingSheet(
             }
         },
     ) {
+        header?.invoke(this)
         TimingPanel(
             timing, kind, base = base, placeName = placeName, animated = animated, animationMs = animation?.totalMs,
-            showLine = !(short && live != null), parts = parts, line = plainLine, onChange = onChange,
+            showLine = !(short && live != null), parts = parts.copy(gapAbove = parts.gapAbove || header != null), line = plainLine, onChange = onChange,
         )
         extra?.invoke(this)
     }
@@ -371,6 +364,12 @@ fun speedText(s: Float): String {
     return if (r == r.roundToInt().toFloat()) "${r.roundToInt()}x" else "${r}x"
 }
 
+/** A speed in plain words: "Slow", "Normal", "Fast", or "1.5x" between them. */
+fun paceName(s: Float, names: List<String> = Timing.SPEED_NAMES): String {
+    val i = Timing.SPEED_CHIPS.indexOfFirst { abs(it - s) < 0.01f }
+    return if (i >= 0) names[i] else speedText(s)
+}
+
 fun delayText(ms: Int): String = if (ms == 0) "None" else if (ms < 1000) "$ms ms" else if (ms % 1000 == 0) "${ms / 1000} s" else "${ms / 1000f} s"
 
 private fun wholeLabel(kind: TimingKind) = when (kind) {
@@ -405,13 +404,14 @@ private fun secondsText(ms: Int): String {
 }
 
 /**
- * One plain sentence for the panel's current values, e.g. "Plays 2 times at 1x (4.8 s), then turns off." [oneMs]
+ * One plain sentence for the panel's current values, e.g. "Plays 2 times (4.8 s), then turns off." [oneMs]
  * is one pass of the design at 1x (null: no length in brackets).
  */
 fun timingLine(t: Timing, kind: TimingKind, animated: Boolean, oneMs: Int?): String {
     val c = t.clamped()
     val verb = if (kind == TimingKind.TEXT) "Scrolls" else "Plays"
-    val at = if (animated) " at ${speedText(c.speed)}" else ""
+    // the usual speed goes unsaid; another is named in words ("at fast speed")
+    val at = if (animated && abs(c.speed - 1f) > 0.01f) " at ${paceName(c.speed).lowercase()} speed" else ""
     return when (c.showFor) {
         ShowFor.UNTIL_CHECKED -> {
             val rest = if (animated) ", resting after ${Timing.REST_LOOPS} loops" else ""

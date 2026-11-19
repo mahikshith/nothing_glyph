@@ -47,6 +47,9 @@ abstract class ScreenshotTest {
     private val out: File? = System.getProperty("screens.out")?.let(::File)
     private var shown = false
 
+    /** The phone the Features pages think they run on: a Phone (3) unless a test says otherwise. */
+    var featureDevice: com.dotforge.ui.alerts.DeviceState = com.dotforge.ui.alerts.DeviceState.PHONE3
+
     /** Shows [content] under the app theme at this test's font scale. */
     fun show(reduceMotion: Boolean = false, content: @Composable () -> Unit) {
         // a second show in one test: clear the first, so its sheets and menus (their own windows) close
@@ -58,7 +61,11 @@ abstract class ScreenshotTest {
         }
         shown = true
         scenario!!.onActivity {
-            it.setContent { DotForgeTheme { CompositionLocalProvider(LocalReduceMotion provides reduceMotion) { content() } } }
+            it.setContent {
+                DotForgeTheme {
+                    CompositionLocalProvider(LocalReduceMotion provides reduceMotion, com.dotforge.ui.features.LocalFeatureDevice provides featureDevice) { content() }
+                }
+            }
         }
         rule.waitForIdle()
     }

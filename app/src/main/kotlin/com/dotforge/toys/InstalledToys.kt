@@ -124,23 +124,24 @@ object InstalledToys {
     }
 }
 
-/** Where a DotForge toy stands in Nothing's toy list. */
+/** Where a DotForge toy stands in Nothing's toy list: one plain line, the same on the list and the toy's page. */
 enum class ToyStatus(val label: String) {
-    ADDED("Added in Glyph Toys"),
-    NOT_ADDED("Not added in Glyph Toys yet"),
-    /** On, but this phone doesn't say whether it's in the list. */
-    ON("On · add it in Glyph Toys"),
-    OFF("Off"),
+    IN("In Glyph Toys"),
+    NOT_ADDED("Not added"),
+    /** This phone doesn't say whether it's in the list. */
+    UNKNOWN("Add it in Glyph Toys"),
     ;
 
     companion object {
-        /** [active]: what Nothing's toy list says (null when it can't be read). */
-        fun of(on: Boolean, active: Boolean?): ToyStatus = when {
-            !on -> OFF
-            active == true -> ADDED
-            active == false -> NOT_ADDED
-            else -> ON
+        /** [active]: what Nothing's toy list says for the toy (null when the list can't be read). */
+        fun of(active: Boolean?): ToyStatus = when (active) {
+            true -> IN
+            false -> NOT_ADDED
+            null -> UNKNOWN
         }
+
+        /** From the whole list: a toy missing from a list that could be read is not added. */
+        fun of(list: Map<String, Boolean>?, cls: String): ToyStatus = of(list?.let { it[cls] ?: false })
     }
 }
 

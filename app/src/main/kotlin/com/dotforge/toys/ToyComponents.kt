@@ -30,6 +30,10 @@ object ToyComponents {
     fun isOn(ctx: Context, simpleName: String): Boolean =
         isOn(ctx.packageManager.getComponentEnabledSetting(component(ctx, simpleName)), simpleName)
 
+    /** Hidden on purpose ("Hide from Glyph Toys list"), not just never added. */
+    fun hiddenByUser(ctx: Context, simpleName: String): Boolean =
+        ctx.packageManager.getComponentEnabledSetting(component(ctx, simpleName)) == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+
     fun set(ctx: Context, simpleName: String, on: Boolean) =
         ctx.packageManager.setComponentEnabledSetting(component(ctx, simpleName), stateFor(on, simpleName), PackageManager.DONT_KILL_APP)
 }

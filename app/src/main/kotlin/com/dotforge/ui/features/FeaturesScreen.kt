@@ -73,9 +73,9 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
     TOYS(
         "toys", "Toys", "Little things for the Glyph. Press the Glyph Button on the back to switch between the toys you add.",
         emptyList(),
-        "A toy is something small that lives on the Glyph: a clock, a game, the weather. Switch a DotForge toy on here, " +
-            "then add it in Nothing's toy settings: that list decides which toys the Glyph Button switches between, and in " +
-            "what order. \"Added in Glyph Toys\" means it's in the list. A press of the Glyph Button moves to the next toy; " +
+        "A toy is something small that lives on the Glyph: a clock, a game, the weather. Toys show when they're in " +
+            "Glyph Toys, Nothing's list of the toys the Glyph Button switches between. Tap Add to open that list, then turn " +
+            "the toy on there. \"In Glyph Toys\" means it's in the list. A press of the Glyph Button moves to the next toy; " +
             "a long press does the toy's own thing (the date on the clock, rain on the weather). Nothing rests the Glyph after " +
             "30 seconds without a press. On the Glyph sets the brightness and speed of every DotForge toy. DF Timer shows " +
             "your timer from Timer & stopwatch.",
@@ -84,11 +84,11 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
     MUSIC(
         "music", "Music visualiser", "The Glyph moves with whatever is playing.",
         emptyList(),
-        "DotForge listens to the sound this phone plays and turns it into light, about 30 times a second. Android calls " +
-            "that microphone access, so it asks once; nothing is recorded, kept or sent anywhere. If Android gives no music " +
-            "sound (some apps block it), DotForge listens through the microphone instead and says so. \"While music plays\" " +
-            "keeps the Glyph dark between songs. Fall-back speed is how quickly the lights drop after a beat; sensitivity is " +
-            "how loud it has to be to fill the Glyph. Alerts, timers and the torch show over it, then it comes back.",
+        "DotForge listens to the sound this phone plays and turns it into light, about 30 times a second. Android asks for " +
+            "microphone access for that. If Android won't share the sound (some apps block it), DotForge listens through the " +
+            "microphone instead and says so. Nothing is recorded or saved. \"While music plays\" keeps the Glyph dark between " +
+            "songs. Smoothing is how the lights drop after a beat: Smooth glides, Snappy drops at once. Sensitivity is how " +
+            "loud it has to be to fill the Glyph. Alerts, timers and the torch show over it, then it comes back.",
         "g-headphones",
     ),
     TORCH(
@@ -103,21 +103,21 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
     BATTERY(
         "battery", "Battery and volume", "The Glyph shows the battery when you plug in, and the volume as you change it.",
         emptyList(),
-        "When you plug in, the ring fills to the battery level (Fill), or shows the ring and the number (Level %). On a " +
+        "When you plug in, the ring fills to the battery level (Fill), shows the ring and the number (Battery level), or plays one of your designs. On a " +
             "charger of 15 W or more it pulses twice. It shows for the time you pick, or while plugged in, and can come back " +
-            "every few minutes while charging. When you press the volume keys, the ring slides to the new level. Nothing's own " +
-            "charging light covers the Glyph for a few seconds when you plug in; DotForge shows after it. These run while " +
+            "every few minutes while charging. When you press the volume keys, the ring slides to the new level, or your design plays. Nothing's own " +
+            "charging and volume lights may also show; DotForge shows after them. These run while " +
             "DotForge is running, which notification access keeps it doing.",
         "g-battery-full",
     ),
     INTEGRATIONS(
         "integrations", "Integrations", "Tasker and other apps can light the Glyph.",
         emptyList(),
-        "Other apps send DotForge a design name or a short text, and DotForge shows it like an alert: Tasker can play Heart " +
-            "for 10 s, or 3 times. In Tasker, use the DotForge plugin, or Send intent with the key (Copy key). An app that " +
-            "sends a command without the key is listed under Apps; allow it and DotForge obeys it. Make a new key if the key " +
-            "got out. With \"Tell other apps when something lights\" on, apps with DotForge's permission hear what kind of " +
-            "thing lit the Glyph (an alert, a call, a timer), never what it said or who sent it.",
+        "Tasker plugin: in Tasker or MacroDroid, add an action, Plugin, DotForge, and pick a design. Let other apps send " +
+            "designs: other apps send a design name or a short text, and DotForge shows it like an alert, for example Heart " +
+            "for 10 s, or 3 times. An app you allow below can send them; Tasker's Send intent uses the key instead (Copy " +
+            "key). Make a new key if the key got out. Tell other apps when something lights: the apps you allow hear what " +
+            "kind of thing lit the Glyph (an alert, a call, a timer), never what it said or who sent it.",
         "g-gear",
     ),
     ;
@@ -177,7 +177,9 @@ private fun featureStatus(setup: Setup): Map<Feature, String> {
     val volume by AppGraph.system.volume.collectAsStateWithLifecycle()
     val showDesigns by AppGraph.features.showDesigns.collectAsStateWithLifecycle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val toysOn = remember { com.dotforge.ui.Toy.entries.count { runCatching { com.dotforge.toys.ToyComponents.isOn(ctx, it.cls) }.getOrDefault(false) } }
+    val toyList by androidx.compose.runtime.produceState<Map<String, Boolean>?>(null) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.dotforge.toys.ToyList.read(ctx) }
+    }
     var now by remember { mutableLongStateOf(GlyphTimers.now()) }
     LaunchedEffect(timers) { while (GlyphTimers.shown() != null) { now = GlyphTimers.now(); delay(1_000) } }
     return mapOf(
@@ -187,7 +189,7 @@ private fun featureStatus(setup: Setup): Map<Feature, String> {
             !setup.notificationAccess -> "Needs access"
             else -> progressStatus(items)
         },
-        Feature.TOYS to toysOn.let { if (it == 0) "None on" else if (it == 1) "1 toy on" else "$it toys on" },
+        Feature.TOYS to toysStatus(toyList),
         Feature.MUSIC to if (live) "On" else "Off",
         Feature.TORCH to if (active.any { it.id == com.dotforge.tile.TorchTileService.ID }) "On" else "Off",
         Feature.BATTERY to batteryStatus(battery, volume),
@@ -197,6 +199,13 @@ private fun featureStatus(setup: Setup): Map<Feature, String> {
             else -> "${allowed.size} allowed · Tasker and other apps"
         },
     )
+}
+
+/** The Toys card: how many of ours are in Glyph Toys, or how many there are when the list can't be read. */
+internal fun toysStatus(list: Map<String, Boolean>?): String {
+    if (list == null) return "${com.dotforge.ui.Toy.entries.size} toys"
+    val n = com.dotforge.ui.Toy.entries.count { list[it.cls] == true }
+    return if (n == 0) "None in Glyph Toys" else "$n in Glyph Toys"
 }
 
 /** The Battery and volume card: "Charging and volume", "When charging", "Volume", "Off". */
@@ -260,8 +269,13 @@ fun FeaturePage(key: String, nav: Nav, setup: Setup) {
 @Composable
 fun FeatureLayout(feature: Feature, nav: Nav, extra: (LazyListScope.() -> Unit)? = null, content: (LazyListScope.() -> Unit)? = null) {
     var how by rememberSaveable { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val device = LocalFeatureDevice.current ?: remember { com.dotforge.ui.alerts.deviceState(ctx) }
     Page(feature.title, onBack = nav::pop) {
         item(key = "what") { Hint(feature.what) }
+        if (device == com.dotforge.ui.alerts.DeviceState.OTHER) item(key = "device") {
+            com.dotforge.ui.design.StatusBanner(NOT_PHONE3, Modifier.padding(bottom = Tokens.Gap), info = true)
+        }
         if (content != null) content() else {
             item(key = "main") {
                 RowGroup { SwitchRow(feature.title, "Coming in the next update", false, enabled = false) {} }
@@ -284,6 +298,12 @@ fun FeatureLayout(feature: Feature, nav: Nav, extra: (LazyListScope.() -> Unit)?
     if (how) FullSheet({ how = false }, "How it works") { Text(feature.how, style = MaterialTheme.typography.bodyLarge) }
 }
 
+/** What a Features page says on a phone that isn't a Phone (3). */
+const val NOT_PHONE3 = "The Glyph lights on Nothing Phone (3). On this phone you can set this up, and the previews play here."
+
+/** The phone the Features pages run on; null reads it from the phone (screenshots and tests set it). */
+val LocalFeatureDevice = androidx.compose.runtime.compositionLocalOf<com.dotforge.ui.alerts.DeviceState?> { null }
+
 /**
  * The "On the Glyph" row every Features page has (Part A's pattern): what it looks like playing, one line on
  * its timing, and a chevron to the sheet with Show for, Speed, Repeat and Brightness.
@@ -293,14 +313,14 @@ fun OnTheGlyphRow(
     summary: String, preview: com.dotforge.device.Animation?, description: String, enabled: Boolean = true, tag: String = ON_THE_GLYPH_TAG, onOpen: () -> Unit,
 ) =
     ListRow(
-        "On the Glyph", Modifier.testTag(tag), subtitle = summary, enabled = enabled,
+        "On the Glyph", Modifier.testTag(tag), subtitle = summary, enabled = enabled, subtitleLines = 3,
         leading = { com.dotforge.ui.design.GlyphPreview(preview, description) }, trailing = { Chevron() }, onClick = onOpen,
     )
 
 /** A row of choice chips under a sheet part. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun <T> ChipChoices(options: List<T>, selected: T, label: (T) -> String, onPick: (T) -> Unit) =
+fun <T> ChipChoices(options: List<T>, selected: T?, label: (T) -> String, onPick: (T) -> Unit) =
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Tokens.Small)) {
         options.forEach { o -> com.dotforge.ui.design.Chip(label(o), o == selected) { onPick(o) } }
     }

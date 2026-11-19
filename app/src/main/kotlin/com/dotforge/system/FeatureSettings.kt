@@ -18,7 +18,7 @@ enum class FeatureTiming(val key: String, val default: Timing) {
     CHARGING("charging", Timing(showFor = ShowFor.SECONDS, seconds = 5)),
     /** The volume design: 2 s after each change. */
     VOLUME("volume", Timing(showFor = ShowFor.SECONDS, seconds = 2)),
-    /** The visualiser: speed is how quickly the lights fall back. */
+    /** The visualiser: speed is how quickly the lights fall back (Smooth, Normal, Snappy). */
     MUSIC("music", Timing()),
     /** DotForge's toys: their brightness and animation speed. */
     TOYS("toys", Timing()),
@@ -29,7 +29,14 @@ enum class FeatureTiming(val key: String, val default: Timing) {
 /** How the charging design looks. */
 enum class ChargingStyle(val label: String, val hint: String) {
     FILL("Fill", "The ring fills up to the level"),
-    LEVEL("Level %", "The ring and the number"),
+    LEVEL("Battery level", "The ring and the number"),
+    MINE("My design", "One of your designs"),
+}
+
+/** How the volume design looks. */
+enum class VolumeStyle(val label: String, val hint: String) {
+    RING("Ring", "The ring slides to the new level"),
+    MINE("My design", "One of your designs"),
 }
 
 /**
@@ -97,7 +104,7 @@ class FeatureSettings(private val prefs: SharedPreferences) {
     fun setShowDesigns(v: Boolean) = put(_showDesigns, SHOW_DESIGNS, v)
 
     private val _tellOthers = bool(TELL_OTHERS, false)
-    /** A broadcast tells other apps (holding DotForge's permission) when something lights the Glyph. */
+    /** A broadcast tells the apps you allow when something lights the Glyph. */
     val tellOthers: StateFlow<Boolean> = _tellOthers.asStateFlow()
     fun setTellOthers(v: Boolean) = put(_tellOthers, TELL_OTHERS, v)
 
@@ -108,6 +115,53 @@ class FeatureSettings(private val prefs: SharedPreferences) {
         _key.value = newKey()
         prefs.edit().putString(KEY, _key.value).apply()
     }
+
+    /** Puts an earlier key back (Undo after Make a new key). */
+    fun restoreKey(k: String) {
+        _key.value = k
+        prefs.edit().putString(KEY, k).apply()
+    }
+
+    private fun str(key: String) = MutableStateFlow(prefs.getString(key, null))
+    private fun putStr(f: MutableStateFlow<String?>, key: String, v: String?) {
+        f.value = v
+        prefs.edit().putString(key, v).apply()
+    }
+
+    private val _chargingDesign = str(CHARGING_DESIGN)
+    /** The design "My design" plays when you plug in (null: your newest). */
+    val chargingDesign: StateFlow<String?> = _chargingDesign.asStateFlow()
+    fun setChargingDesign(id: String?) = putStr(_chargingDesign, CHARGING_DESIGN, id)
+
+    private val _volumeStyle = MutableStateFlow(VolumeStyle.entries.firstOrNull { it.name == prefs.getString(VOLUME_STYLE, null) } ?: VolumeStyle.RING)
+    val volumeStyle: StateFlow<VolumeStyle> = _volumeStyle.asStateFlow()
+    fun setVolumeStyle(s: VolumeStyle) {
+        _volumeStyle.value = s
+        prefs.edit().putString(VOLUME_STYLE, s.name).apply()
+    }
+
+    private val _volumeDesign = str(VOLUME_DESIGN)
+    val volumeDesign: StateFlow<String?> = _volumeDesign.asStateFlow()
+    fun setVolumeDesign(id: String?) = putStr(_volumeDesign, VOLUME_DESIGN, id)
+
+    private val _musicMine = bool(MUSIC_MINE, false)
+    /** The visualiser plays one of your designs, brighter with the beat, instead of a built-in style. */
+    val musicMine: StateFlow<Boolean> = _musicMine.asStateFlow()
+    fun setMusicMine(v: Boolean) = put(_musicMine, MUSIC_MINE, v)
+
+    private val _musicDesign = str(MUSIC_DESIGN)
+    val musicDesign: StateFlow<String?> = _musicDesign.asStateFlow()
+    fun setMusicDesign(id: String?) = putStr(_musicDesign, MUSIC_DESIGN, id)
+
+    private val _shakeSkip = bool(SHAKE_SKIP, false)
+    /** While the visualiser runs, a shake skips to the next song. */
+    val shakeSkip: StateFlow<Boolean> = _shakeSkip.asStateFlow()
+    fun setShakeSkip(v: Boolean) = put(_shakeSkip, SHAKE_SKIP, v)
+
+    private val _micAsked = bool(MIC_ASKED, false)
+    /** DotForge has asked for the microphone once (a refusal after this means "off in settings"). */
+    val micAsked: StateFlow<Boolean> = _micAsked.asStateFlow()
+    fun setMicAsked(v: Boolean) = put(_micAsked, MIC_ASKED, v)
 
     private fun put(f: MutableStateFlow<Int>, key: String, v: Int) {
         f.value = v
@@ -132,6 +186,13 @@ class FeatureSettings(private val prefs: SharedPreferences) {
         _sensitivity.value = Sensitivity.NORMAL
         _showDesigns.value = true
         _tellOthers.value = false
+        _chargingDesign.value = null
+        _volumeStyle.value = VolumeStyle.RING
+        _volumeDesign.value = null
+        _musicMine.value = false
+        _musicDesign.value = null
+        _shakeSkip.value = false
+        _micAsked.value = false
     }
 
     companion object {
@@ -145,6 +206,13 @@ class FeatureSettings(private val prefs: SharedPreferences) {
         private const val SHOW_DESIGNS = "show_designs"
         private const val TELL_OTHERS = "tell_others"
         private const val KEY = "key"
+        private const val CHARGING_DESIGN = "charging_design"
+        private const val VOLUME_STYLE = "volume_style"
+        private const val VOLUME_DESIGN = "volume_design"
+        private const val MUSIC_MINE = "music_mine"
+        private const val MUSIC_DESIGN = "music_design"
+        private const val SHAKE_SKIP = "shake_skip"
+        private const val MIC_ASKED = "mic_asked"
 
         /** 16 random bytes as 32 hex letters. */
         fun newKey(): String = ByteArray(16).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
