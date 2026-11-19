@@ -13,6 +13,7 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performSemanticsAction
 import com.dotforge.AppGraph
 import com.dotforge.device.library.AnimationLibrary
@@ -74,17 +75,50 @@ abstract class HomeScreens : ScreenshotTest() {
     /** What an alert shows at a glance: the heart's poster. */
     private val still get() = AnimationLibrary.thumbnail(AnimationLibrary.item("g-heart")!!, AppGraph.profile)
 
+    private var list: androidx.compose.foundation.lazy.LazyListState? = null
+
     private fun home(status: HomeStatus = HomeStatus(), now: HomeNow = HomeNow()) = show {
         UndoSnackbarHost(bottomBar = true) {
             androidx.compose.material3.Scaffold(containerColor = Tokens.Background, bottomBar = { com.dotforge.ui.BottomBar(Tab.HOME) {} }) { pad ->
-                Box(Modifier.padding(pad)) { HomeScreen(Nav(Tab.HOME), Setup(activity), rememberLazyListState(), status, now) }
+                val state = rememberLazyListState().also { list = it }
+                Box(Modifier.padding(pad)) { HomeScreen(Nav(Tab.HOME), Setup(activity), state, status, now) }
             }
         }
     }
 
     /** Scrolls Home down to [text] (the lower half: switches, lines, designs). */
-    private fun down(text: String = "Choose a design") {
+    private fun down(text: String = "Recent designs") {
         rule.onNode(hasScrollAction()).performScrollToNode(hasText(text, substring = true))
+        rule.waitForIdle()
+    }
+
+    /** Scrolls to the very end of Home. */
+    private fun bottom() {
+        val n = list!!.layoutInfo.totalItemsCount
+        rule.onNode(hasScrollAction()).performScrollToIndex(n - 1)
+        rule.waitForIdle()
+    }
+
+    /**
+     * How many screens Home's list takes: every item's height (measured as it scrolls by) over the list's
+     * viewport. Written to page-length.txt next to the shots.
+     */
+    private fun pageLength(name: String) {
+        val sizes = HashMap<Any, Int>()
+        val n = list!!.layoutInfo.totalItemsCount
+        for (i in 0 until n) {
+            rule.onNode(hasScrollAction()).performScrollToIndex(i)
+            rule.waitForIdle()
+            list!!.layoutInfo.visibleItemsInfo.forEach { sizes[it.key] = it.size }
+        }
+        val info = list!!.layoutInfo
+        val viewport = info.viewportEndOffset - info.viewportStartOffset
+        val total = sizes.values.sum() + info.afterContentPadding + info.beforeContentPadding
+        System.getProperty("screens.out")?.let { out ->
+            val file = File(File(out, f).apply { mkdirs() }, "page-length.txt")
+            file.appendText("%s_%s: %.2f screens (%d px of content, %d px viewport)\n".format(name, sizeName, total.toFloat() / viewport, total, viewport))
+        }
+        rule.onNode(hasScrollAction()).performScrollToIndex(0)
         rule.waitForIdle()
     }
 
@@ -94,26 +128,25 @@ abstract class HomeScreens : ScreenshotTest() {
         home()
         settle()
         capture(f, "01-home-nothing-showing")
-        down()
+        bottom()
         settle()
         capture(f, "02-home-nothing-showing-lower")
+        pageLength("all-done")
     }
 
     @Test fun anAlertShowing() {
-        val a = chat
         home(now = HomeNow(still, alert("WhatsApp from Mom"), listOf("WhatsApp from Mom")))
         settle()
         capture(f, "03-home-alert-showing")
     }
 
-    @Test fun twoWaiting() {
-        val a = chat
-        home(now = HomeNow(still, alert("Mom"), listOf("Mom", "WhatsApp")))
+    @Test fun waiting() {
+        home(now = HomeNow(still, alert("Mom"), listOf("Mom", "WhatsApp", "Gmail")))
         settle()
-        capture(f, "04-home-two-waiting-stop-all")
-        home(now = HomeNow(still, alert("Mom"), listOf("Mom", "WhatsApp", "Gmail", "Slack")))
+        capture(f, "04-home-two-more-waiting-stop-all")
+        home(now = HomeNow(still, alert("Mom"), listOf("Mom", "WhatsApp", "Gmail", "Slack", "Uber", "Swiggy")))
         settle()
-        capture(f, "05-home-four-waiting")
+        capture(f, "05-home-five-more-waiting")
     }
 
     @Test fun torchOn() {
@@ -129,7 +162,7 @@ abstract class HomeScreens : ScreenshotTest() {
     }
 
     @Test fun glyphBusy() {
-        home(now = HomeNow(null, alert("Mom"), listOf("Mom"), busy = "charging"))
+        home(now = HomeNow(still, alert("Mom"), listOf("Mom"), busy = "charging"))
         settle()
         capture(f, "08-home-glyph-busy")
     }
@@ -147,59 +180,76 @@ abstract class HomeScreens : ScreenshotTest() {
         home(HomeStatus(device = DeviceState.GLYPH_OFF))
         settle()
         capture(f, "11-home-glyph-off")
+        down("Live progress")
+        settle()
+        capture(f, "11b-home-glyph-off-tiles")
     }
 
     @Test fun serviceMissing() {
         home(HomeStatus(device = DeviceState.SERVICE_MISSING))
         settle()
         capture(f, "12-home-service-missing")
+        down("Live progress")
+        settle()
+        capture(f, "12b-home-service-missing-tiles")
     }
 
     @Test fun checklist() {
-        home(HomeStatus(access = false, screening = false, appsPicked = false, keepRunning = false, microphone = false))
+        home(HomeStatus(access = false, screening = false, appsPicked = false, doubleLights = false, keepRunning = false, microphone = false))
         settle()
-        capture(f, "13-home-checklist-none-done")
+        capture(f, "13-home-alerts-are-off-checklist")
         down("Keep DotForge running")
         settle()
-        capture(f, "14-home-checklist-keep-running")
-        down()
+        capture(f, "14-home-checklist-five-to-do")
+        down("Live progress")
         settle()
-        capture(f, "15-home-missing-permissions-lower")
-        home(HomeStatus(appsPicked = false))
+        capture(f, "15-home-missing-permissions-tiles")
+        bottom()
+        settle()
+        capture(f, "15b-home-missing-permissions-lower")
+        pageLength("checklist")
+        home(HomeStatus(appsPicked = false, doubleLights = false))
         settle()
         capture(f, "16-home-checklist-three-done")
     }
 
-    @Test fun quietAndAlertsOff() {
+    @Test fun alertsPausedAndQuiet() {
         AppGraph.filters.updateFilters { it.copy(alertsPaused = true, quietUntil = System.currentTimeMillis() + 3_600_000) }
         home(HomeStatus(microphone = false))
+        settle()
+        capture(f, "17-home-alerts-paused")
         down("Live progress")
         settle()
-        capture(f, "17-home-quiet-on-alerts-off-no-mic")
+        capture(f, "17b-home-paused-quiet-no-mic-tiles")
+        AppGraph.filters.updateFilters { it.copy(alertsPaused = false) }
+        home(HomeStatus())
+        settle()
+        capture(f, "17c-home-quiet")
     }
 
     @Test fun spamAndAlwaysOn() {
         val now = System.currentTimeMillis()
-        listOf(true, true, true).forEachIndexed { i, call -> AppGraph.history.add(HistoryEntry("s$i", now - i * 1_000, Outcome.BLOCKED, call = call, number = "+44140000000$i")) }
+        listOf(0, 1, 2).forEach { i -> AppGraph.history.add(HistoryEntry("s$i", now - i * 86_400_000L, Outcome.BLOCKED, call = true, number = "+44140000000$i")) }
         AppGraph.toys.hubFace = HubFace.MOON
         home(HomeStatus(alwaysOn = true))
-        down()
+        bottom()
         settle()
         capture(f, "18-home-spam-blocked-always-on")
         AppGraph.history.add(HistoryEntry("m", now, Outcome.BLOCKED, appLabel = "Messages"))
         home(HomeStatus(alwaysOn = false))
-        down()
+        bottom()
         settle()
-        capture(f, "19-home-always-on-set-up")
+        capture(f, "19-home-always-on-set-in-nothing")
         AppGraph.history.clear()
         home(HomeStatus(screening = false))
-        down()
+        bottom()
         settle()
-        capture(f, "20-home-spam-needs-screening")
+        capture(f, "20-home-spam-calls-not-blocked")
     }
 
     @Test fun alwaysOnSheet() {
         AppGraph.designs.save(LibraryActions.design(AnimationLibrary.item("g-cake")!!))
+        LibraryPrefs.toggleFavourite("g-heart")
         home(HomeStatus(alwaysOn = true))
         down("Always-on")
         rule.onNodeWithText("Always-on: Clock").tap()
@@ -216,17 +266,27 @@ abstract class HomeScreens : ScreenshotTest() {
         }
         settle()
         capture(f, "22-widget-settings-live")
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Add widget"))
+        settle()
+        capture(f, "22b-widget-settings-live-end")
         show {
             UndoSnackbarHost { WidgetConfigScreen(WidgetChoice(WidgetChoice.library("g-cake")), onCancel = {}) {} }
         }
         settle()
         capture(f, "23-widget-settings-favourite")
-        // the widget's own picture, as the launcher shows it
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Add widget"))
+        settle()
+        capture(f, "23b-widget-settings-favourite-end")
+        // the widget's own picture at a 2x2 and a 4x4 widget's size (xxhdpi), as the launcher shows it
         System.getProperty("screens.out")?.let { out ->
             val dir = File(out, f).apply { mkdirs() }
-            val shown = WidgetContent.of(WidgetChoice(WidgetChoice.library("g-cake")))
-            File(dir, "24-widget-picture_$sizeName.png").outputStream().use {
-                WidgetArt.bitmap(shown.still, AppGraph.profile, 300).compress(Bitmap.CompressFormat.PNG, 100, it)
+            for ((name, choice) in listOf("cake" to WidgetChoice(WidgetChoice.library("g-cake")), "live-nothing-lit" to WidgetChoice())) {
+                for ((size, px) in listOf("2x2" to 330, "4x4" to 960)) {
+                    val shown = WidgetContent.of(choice)
+                    File(dir, "24-widget-picture-$name-${size}_$sizeName.png").outputStream().use {
+                        WidgetArt.bitmap(shown.still, AppGraph.profile, px).compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                }
             }
         }
         show {
@@ -237,6 +297,14 @@ abstract class HomeScreens : ScreenshotTest() {
         rule.onNode(hasScrollAction()).performScrollToNode(hasText("Add the widget"))
         settle()
         capture(f, "25-toys-add-the-widget")
+        show {
+            UndoSnackbarHost {
+                Box(Modifier.fillMaxSize().background(Tokens.Background)) { com.dotforge.ui.settings.ProfilePage(Nav(Tab.HOME), emptyList()) }
+            }
+        }
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Home screen widget"))
+        settle()
+        capture(f, "26-profile-home-screen-widget")
     }
 }
 

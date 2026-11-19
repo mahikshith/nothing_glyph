@@ -65,20 +65,28 @@ class WidgetConfigActivity : ComponentActivity() {
     }
 }
 
-/** The widget settings page: a preview, Show (live, favourites, your designs), Tap, and Add widget. */
+/** What a tap can do for [source]: the live Glyph is already on the Glyph, so it has no "Show on Glyph". */
+fun tapsFor(source: String): List<WidgetTap> = if (source == WidgetChoice.LIVE) listOf(WidgetTap.OPEN, WidgetTap.NEXT) else WidgetTap.entries
+
+/**
+ * The widget settings page: a preview, Show (live, favourites, your designs), Tap, and Add widget after them,
+ * so at large text the button never covers the choices.
+ */
 @Composable
 fun WidgetConfigScreen(start: WidgetChoice, onCancel: () -> Unit, onSave: (WidgetChoice) -> Unit) {
     var source by rememberSaveable { mutableStateOf(start.source) }
     var tap by rememberSaveable { mutableStateOf(start.tap) }
-    val choice = WidgetChoice(source, tap)
+    val taps = tapsFor(source)
+    val shownTap = if (tap in taps) tap else taps.first()
+    val choice = WidgetChoice(source, shownTap)
     val p = AppGraph.profile
     val shown = WidgetContent.of(choice, p)
     val favourites = LibraryPrefs.favourites.mapNotNull(AnimationLibrary::item)
     val designs = AppGraph.designs.designs.value.take(12)
-    Page("Glyph widget", onBack = onCancel, bottomBar = { PrimaryButton("Add widget", Modifier.fillMaxWidth()) { onSave(choice) } }) {
+    Page("Glyph widget", onBack = onCancel) {
         item(key = "preview") {
             Box(Modifier.fillMaxWidth().padding(vertical = Tokens.Gutter), contentAlignment = Alignment.Center) {
-                DotMatrix(shown.still?.pixels, p, Modifier.size(200.dp).semantics { contentDescription = "Widget preview: ${shown.name}" })
+                DotMatrix(shown.still?.pixels, p, Modifier.size(160.dp).semantics { contentDescription = "Widget preview: ${shown.name}" })
             }
             Text(shown.name, Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         }
@@ -87,6 +95,7 @@ fun WidgetConfigScreen(start: WidgetChoice, onCancel: () -> Unit, onSave: (Widge
             RowGroup {
                 OptionRow(
                     "Live Glyph", "What the Glyph shows now. Redraws at most once a minute.",
+                    preview = { DotMatrix(WidgetContent.of(WidgetChoice(), p).still?.pixels, p, Modifier.size(40.dp)) },
                     selected = source == WidgetChoice.LIVE, modifier = Modifier.padding(horizontal = Tokens.Gutter),
                 ) { source = WidgetChoice.LIVE }
                 favourites.forEach { item ->
@@ -113,14 +122,12 @@ fun WidgetConfigScreen(start: WidgetChoice, onCancel: () -> Unit, onSave: (Widge
         item(key = "tap") {
             SectionLabel("Tap")
             RowGroup {
-                WidgetTap.entries.forEachIndexed { i, t ->
+                taps.forEachIndexed { i, t ->
                     if (i > 0) RowDivider()
-                    OptionRow(
-                        t.label, if (t == WidgetTap.SHOW && source == WidgetChoice.LIVE) "Opens DotForge, as the live Glyph is already showing" else t.hint,
-                        selected = tap == t, modifier = Modifier.padding(horizontal = Tokens.Gutter),
-                    ) { tap = t }
+                    OptionRow(t.label, t.hint, selected = shownTap == t, modifier = Modifier.padding(horizontal = Tokens.Gutter)) { tap = t }
                 }
             }
         }
+        item(key = "add") { PrimaryButton("Add widget", Modifier.fillMaxWidth().padding(top = Tokens.Section)) { onSave(choice) } }
     }
 }

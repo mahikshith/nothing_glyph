@@ -23,7 +23,7 @@ import com.dotforge.ui.library.LibraryPrefs
 
 /** What a tap on the widget does (parity row 92). */
 enum class WidgetTap(val label: String, val hint: String) {
-    SHOW("Show on Glyph", "Plays it on the Glyph for 10 s"),
+    SHOW("Show on Glyph", "Plays it on the Glyph for 10 seconds"),
     NEXT("Next favourite", "Moves on to your next Library favourite and shows it"),
     OPEN("Open DotForge", "Opens the app on Home"),
 }
@@ -63,7 +63,8 @@ object WidgetContent {
     data class Shown(val name: String, val still: Frame?, val animation: Animation?)
 
     fun of(c: WidgetChoice, p: DeviceProfile = AppGraph.profile): Shown = when {
-        c.live -> Shown("The Glyph now", AppGraph.arbiter.frame.value, null)
+        // nothing lit: the logo rather than a blank disc
+        c.live -> Shown("The Glyph now", AppGraph.arbiter.frame.value?.takeIf { f -> f.pixels.any { it > 0 } } ?: WidgetArt.logo(p), null)
         c.source.startsWith("lib:") -> AnimationLibrary.item(c.source.removePrefix("lib:"))
             ?.let { Shown(it.name, AnimationLibrary.thumbnail(it, p), it.load(p)) } ?: Shown("Gone", null, null)
         else -> AppGraph.designs.get(c.source.removePrefix("design:"))
@@ -80,8 +81,41 @@ object WidgetContent {
     }
 }
 
-/** The round dot picture the widget shows: lit dots white, the rest dark grey, on a black disc (transparent corners). */
+/**
+ * The round dot picture the widget shows: lit dots white, the rest dark grey, on a black disc (transparent
+ * corners). It is drawn at the widget's own size in pixels, so it stays sharp on a 4x4 widget.
+ */
 object WidgetArt {
+    /** The widget's side in pixels: its largest size on the home screen, from [AppWidgetManager]'s options. */
+    fun sidePx(ctx: Context, mgr: AppWidgetManager, id: Int): Int {
+        val o = runCatching { mgr.getAppWidgetOptions(id) }.getOrNull()
+        val dp = listOfNotNull(
+            o?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH)?.takeIf { it > 0 },
+            o?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)?.takeIf { it > 0 },
+        ).minOrNull() ?: DEFAULT_DP
+        return (dp * ctx.resources.displayMetrics.density).toInt().coerceIn(MIN_PX, MAX_PX)
+    }
+
+    const val DEFAULT_DP = 160
+    const val MIN_PX = 120
+    /** A 4x4 widget at xxxhdpi, within RemoteViews' bitmap limit. */
+    const val MAX_PX = 1_200
+
+    /** DotForge's logo on the Glyph: the app icon's 3x3 dots, the centre one dimmer (the icon's red dot). */
+    fun logo(p: DeviceProfile): Frame {
+        val px = IntArray(p.cellCount)
+        val c = p.size / 2
+        for (gy in -1..1) for (gx in -1..1) {
+            val cx = c + gx * 6
+            val cy = c + gy * 6
+            for (dy in -1..1) for (dx in -1..1) {
+                val i = (cy + dy) * p.size + cx + dx
+                if (p.mask[i]) px[i] = if (gx == 0 && gy == 0) 120 else 255
+            }
+        }
+        return Frame(p, px)
+    }
+
     fun bitmap(frame: Frame?, p: DeviceProfile, side: Int = 300): Bitmap {
         val bmp = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -109,6 +143,9 @@ class GlyphWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(ctx: Context, mgr: AppWidgetManager, ids: IntArray) {
         for (id in ids) update(ctx, mgr, id)
     }
+
+    /** Resized on the home screen: redrawn at its new size. */
+    override fun onAppWidgetOptionsChanged(ctx: Context, mgr: AppWidgetManager, id: Int, options: android.os.Bundle) = update(ctx, mgr, id)
 
     override fun onDeleted(ctx: Context, ids: IntArray) {
         val store = WidgetStore.of(ctx)
@@ -160,7 +197,7 @@ class GlyphWidgetProvider : AppWidgetProvider() {
             val c = WidgetStore.of(ctx).get(id)
             val shown = WidgetContent.of(c)
             val views = RemoteViews(ctx.packageName, R.layout.glyph_widget)
-            views.setImageViewBitmap(R.id.glyph_widget_image, WidgetArt.bitmap(shown.still, AppGraph.profile))
+            views.setImageViewBitmap(R.id.glyph_widget_image, WidgetArt.bitmap(shown.still, AppGraph.profile, WidgetArt.sidePx(ctx, mgr, id)))
             views.setContentDescription(R.id.glyph_widget_image, "${shown.name}. ${c.tap.label}")
             val tap = Intent(ctx, GlyphWidgetProvider::class.java).setAction(ACTION_TAP).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             views.setOnClickPendingIntent(R.id.glyph_widget_image, PendingIntent.getBroadcast(ctx, id, tap, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))

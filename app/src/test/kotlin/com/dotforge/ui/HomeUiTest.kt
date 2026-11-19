@@ -34,12 +34,24 @@ import com.dotforge.ui.features.ToysFeature
 import com.dotforge.ui.home.HomeNow
 import com.dotforge.ui.home.HomeScreen
 import com.dotforge.ui.home.HomeStatus
-import com.dotforge.ui.home.blockedToday
+import com.dotforge.ui.home.Notice
+import com.dotforge.ui.home.alwaysOnName
+import com.dotforge.ui.home.blockedThisWeek
+import com.dotforge.ui.home.facePreview
+import com.dotforge.ui.home.notice
+import com.dotforge.ui.home.noticeLine
 import com.dotforge.ui.home.nowLine
+import com.dotforge.ui.home.othersWaiting
 import com.dotforge.ui.home.showingName
 import com.dotforge.ui.home.spamLine
+import com.dotforge.ui.home.stopLabel
 import com.dotforge.ui.home.torchLeft
-import com.dotforge.ui.home.waitingLine
+import com.dotforge.ui.home.waitingText
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.unit.dp
 import com.dotforge.ui.library.LibraryPrefs
 import com.dotforge.widget.WidgetArt
 import com.dotforge.widget.WidgetChoice
@@ -71,6 +83,7 @@ class HomeUiTest {
 
     @Before fun fresh() {
         LibraryPrefs.init(rule.activity.getSharedPreferences("home-test", Context.MODE_PRIVATE).also { it.edit().clear().commit() })
+        rule.activity.getSharedPreferences("home", Context.MODE_PRIVATE).edit().clear().commit()
         AppGraph.filters.updateFilters { it.copy(alertsPaused = false, quietUntil = 0L) }
         NothingLights.reset()
     }
@@ -108,9 +121,10 @@ class HomeUiTest {
 
     // ---------------------------------------------------------------- the Glyph now
 
-    @Test fun nothingShowingSaysSoAndHasNoStop() {
+    @Test fun nothingShowingSaysSoAndOffersADesign() {
         home()
         rule.onNodeWithText("Nothing on the Glyph. Alerts appear here as they arrive.").assertExists()
+        rule.onNodeWithText("Choose a design").assertExists()
         rule.onNodeWithText("Stop").assertDoesNotExist()
         rule.onNodeWithText("Stop all").assertDoesNotExist()
     }
@@ -121,6 +135,8 @@ class HomeUiTest {
         home(now = HomeNow(heart.frames.first().frame, r))
         rule.onNodeWithText("Showing: Heart").assertExists()
         rule.onNodeWithText("Stops the light. Your notification stays.").assertDoesNotExist()
+        // the red button replaces Choose a design while something shows
+        rule.onNodeWithText("Choose a design").assertDoesNotExist()
         rule.onNodeWithText("Stop").tap()
         waitGone(TRY)
         assertTrue(AppGraph.arbiter.active.value.none { it.id == TRY })
@@ -133,22 +149,39 @@ class HomeUiTest {
         rule.onNodeWithText("Stops the light. Your notification stays.").assertExists()
     }
 
-    @Test fun severalWaitingGetTheWaitingLineAndStopAll() {
+    @Test fun severalWaitingNeverCountTheShownOneTwice() {
+        home(now = HomeNow(heart.frames.first().frame, alert("Mom"), listOf("Mom", "WhatsApp", "Gmail")))
+        rule.onNodeWithText("Showing: Mom · 2 more waiting: WhatsApp, Gmail").assertExists()
+        rule.onNodeWithText("Stop all").assertExists()
+        rule.onNodeWithText("Stops the lights. Your notifications stay.").assertExists()
+    }
+
+    @Test fun stopAllAlsoTakesOffWhatShowsAboveTheAlerts() {
         val r = DisplayRequest(TRY, Priority.STUDIO_PREVIEW, heart, loop = true, label = "Library: Heart")
         AppGraph.arbiter.post(r)
         home(now = HomeNow(heart.frames.first().frame, r, listOf("Mom", "WhatsApp")))
-        rule.onNodeWithText("2 waiting: Mom, WhatsApp").assertExists()
-        rule.onNodeWithText("Stop").assertDoesNotExist()
-        rule.onNodeWithText("Stops the light. Your notification stays.").assertExists()
+        rule.onNodeWithText("Showing: Heart · 2 more waiting: Mom, WhatsApp").assertExists()
         rule.onNodeWithText("Stop all").tap()
         waitGone(TRY)
-        // Stop all also takes off what showed above the alerts
         assertTrue(AppGraph.arbiter.active.value.none { it.id == TRY })
     }
 
-    @Test fun nothingsOwnLightSaysTheGlyphIsBusy() {
-        home(now = HomeNow(busy = "charging"))
-        rule.onNodeWithText("The Glyph is busy (Nothing: charging). Yours shows again after.").assertExists()
+    @Test fun theTorchHasTurnOffTorch() {
+        TorchTileService.onSince = System.currentTimeMillis() - 48_000
+        val torch = DisplayRequest(TorchTileService.ID, Priority.TORCH, heart, loop = true, label = "Torch")
+        home(now = HomeNow(heart.frames.first().frame, torch))
+        rule.onNodeWithText("Showing: Torch · off in 4:1", substring = true).assertExists()
+        rule.onNodeWithText("Turn off torch").assertExists()
+        scrollTo("On · off in")
+        rule.onNodeWithText("On · off in 4:1", substring = true).assertExists()
+        TorchTileService.onSince = 0
+    }
+
+    @Test fun nothingsOwnLightHasTheLineOnlyAndNoStop() {
+        home(now = HomeNow(heart.frames.first().frame, alert("Mom"), listOf("Mom"), busy = "charging"))
+        rule.onNodeWithText("The Glyph is busy (Nothing: charging). Mom shows when it ends.").assertExists()
+        rule.onNodeWithText("Stop").assertDoesNotExist()
+        rule.onNodeWithText("Stops the light. Your notification stays.").assertDoesNotExist()
         NothingLights.covered("charging", NothingLights.CHARGING_MS, now = 1_000)
         assertEquals("charging", NothingLights.busy.value)
         NothingLights.expire(now = 1_000 + NothingLights.CHARGING_MS - 1)
@@ -157,56 +190,112 @@ class HomeUiTest {
         assertNull(NothingLights.busy.value)
     }
 
+    @Test fun theStatusLineGoesInPriorityOrder() {
+        // lost access first, with Allow
+        AppGraph.filters.updateFilters { it.copy(alertsPaused = true, quietUntil = System.currentTimeMillis() + 3_600_000) }
+        home(status = HomeStatus(access = false))
+        rule.onNodeWithText("Alerts are off. Notification access was turned off.").assertExists()
+        rule.onAllNodesWithText("Allow")[0].assertExists()
+        // then paused, then Quiet
+        home(status = HomeStatus())
+        rule.onNodeWithText("Alerts paused · calls still light").assertExists()
+        AppGraph.filters.updateFilters { it.copy(alertsPaused = false) }
+        rule.waitForIdle()
+        rule.onNodeWithText("Quiet until", substring = true).assertExists()
+        AppGraph.filters.updateFilters { it.copy(quietUntil = 0L) }
+        rule.waitForIdle()
+        rule.onNodeWithText("Nothing on the Glyph. Alerts appear here as they arrive.").assertExists()
+    }
+
     @Test fun theLinesUnderTheMatrix() {
         val n = HomeNow()
         assertEquals("Nothing on the Glyph. Alerts appear here as they arrive.", nowLine(n, DeviceState.PHONE3))
-        assertEquals("The Glyph needs Phone (3). Designs play here on screen.", nowLine(n, DeviceState.OTHER))
-        assertEquals("The Glyph needs Phone (3). Designs play here on screen.", nowLine(n, DeviceState.SERVICE_MISSING))
-        assertEquals("The Glyph is off in Settings, so nothing can light it.", nowLine(n, DeviceState.GLYPH_OFF))
+        assertEquals("Designs play here on screen.", nowLine(n, DeviceState.OTHER))
+        assertEquals("Update Nothing OS to light the Glyph.", nowLine(n, DeviceState.SERVICE_MISSING))
+        assertEquals("Nothing can light the Glyph until it's on in Settings.", nowLine(n, DeviceState.GLYPH_OFF))
+        assertEquals("Alerts paused · calls still light", nowLine(n, DeviceState.PHONE3, noticeLine(Notice.PAUSED)))
+        assertEquals("Quiet until 16:37", noticeLine(Notice.QUIET, "On until 16:37"))
+        assertEquals(Notice.ACCESS, notice(false, com.dotforge.rules.FilterSettings(alertsPaused = true), true))
+        assertEquals(Notice.PAUSED, notice(true, com.dotforge.rules.FilterSettings(alertsPaused = true), true))
+        assertEquals(Notice.QUIET, notice(true, com.dotforge.rules.FilterSettings(), true))
         // Nothing's light wins over what we show
-        assertEquals("The Glyph is busy (Nothing: charging). Yours shows again after.", nowLine(HomeNow(showing = alert("Mom"), busy = "charging"), DeviceState.PHONE3))
+        assertEquals("The Glyph is busy (Nothing: charging). Yours shows when it ends.", nowLine(HomeNow(busy = "charging"), DeviceState.PHONE3))
         val torch = DisplayRequest(TorchTileService.ID, Priority.TORCH, heart, label = "Torch")
         assertTrue(showingName(torch, nowMs = 0).startsWith("Torch · off in "))
         assertEquals("4:12", torchLeft(nowMs = 48_000, since = 0))
         assertEquals("0:00", torchLeft(nowMs = 400_000, since = 0))
+        assertEquals("Turn off torch", stopLabel(HomeNow(showing = torch)))
+        assertEquals("Stop", stopLabel(HomeNow(showing = alert("Mom"), waiting = listOf("Mom"))))
+        assertEquals("Stop all", stopLabel(HomeNow(showing = alert("Mom"), waiting = listOf("Mom", "Gmail"))))
+        assertNull(stopLabel(HomeNow(showing = alert("Mom"), busy = "charging")))
         assertEquals("Try on Glyph", showingName(DisplayRequest("x", 1, heart, label = "Try it: Try on Glyph"), 0))
-        assertNull(waitingLine(listOf("Mom")))
-        assertEquals("2 waiting: Mom, WhatsApp", waitingLine(listOf("Mom", "WhatsApp")))
-        assertEquals("5 waiting: A, B, C…", waitingLine(listOf("A", "B", "C", "D", "E")))
+        assertEquals(listOf("WhatsApp"), othersWaiting(alert("Mom"), listOf("Mom", "WhatsApp")))
+        assertEquals(listOf("Mom", "WhatsApp"), othersWaiting(torch, listOf("Mom", "WhatsApp")))
+        assertNull(waitingText(emptyList(), true))
+        assertEquals("2 waiting: Mom, WhatsApp", waitingText(listOf("Mom", "WhatsApp"), false))
+        assertEquals("5 more waiting: A, B, C +2 more", waitingText(listOf("A", "B", "C", "D", "E"), true))
     }
 
     // ---------------------------------------------------------------- phone states (row 67)
 
-    @Test fun notAPhone3DisablesTheGlyphSwitches() {
+    @Test fun notAPhone3HasANoteWithContinueAndEveryGlyphTileOff() {
         home(status = HomeStatus(device = DeviceState.OTHER))
         rule.onNodeWithText("DotForge lights the Glyph Matrix on Nothing Phone (3). On this phone you can still design and block spam.").assertExists()
-        rule.onNodeWithText("The Glyph needs Phone (3). Designs play here on screen.").assertExists()
-        scrollTo("Visualiser")
-        switch("Torch").assertIsNotEnabled()
-        switch("Visualiser").assertIsNotEnabled()
-        switch("Alerts").assertIsEnabled()
-        assertEquals(2, rule.onAllNodesWithText("Needs Phone (3)").fetchSemanticsNodes().size)
+        rule.onNodeWithContentDescription("Note").assertExists()
+        rule.onNodeWithText("Designs play here on screen.").assertExists()
+        scrollTo("Live progress")
+        for (t in listOf("Torch", "Alerts", "Quiet", "Visualiser", "Battery", "Live progress")) switch(t).assertIsNotEnabled()
+        assertEquals(6, rule.onAllNodesWithText("Needs Phone (3) ›").fetchSemanticsNodes().size)
+        rule.onNode(hasScrollAction()).performScrollToIndex(0)
+        rule.onNodeWithText("Continue").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Continue").assertDoesNotExist()
     }
 
-    @Test fun glyphOffAndServiceMissingHaveTheirOwnBanner() {
+    @Test fun glyphOffAndServiceMissingSayWhyOnARealPhone3() {
         home(status = HomeStatus(device = DeviceState.GLYPH_OFF))
         rule.onNodeWithText("The Glyph is off in Settings").assertExists()
         rule.onNodeWithText("Open Glyph settings").assertExists()
+        rule.onNodeWithText("Needs Phone (3) ›").assertDoesNotExist()
+        scrollTo("Live progress")
+        assertEquals(6, rule.onAllNodesWithText("Glyph is off ›").fetchSemanticsNodes().size)
+        val opensSettings = androidx.compose.ui.test.SemanticsMatcher("opens Glyph settings") { it.config.getOrElseNullable(SemanticsActions.OnClick) { null }?.label == "Open Glyph settings" }
+        assertEquals(6, rule.onAllNodes(opensSettings).fetchSemanticsNodes().size)
         home(status = HomeStatus(device = DeviceState.SERVICE_MISSING))
+        rule.onNode(hasScrollAction()).performScrollToIndex(0)
         rule.onNodeWithText("Update Nothing OS to use the Glyph").assertExists()
         rule.onNodeWithText("Check for updates").assertExists()
+        rule.onNodeWithText("Needs Phone (3) ›").assertDoesNotExist()
+        scrollTo("Live progress")
+        assertEquals(6, rule.onAllNodesWithText("Update Nothing OS ›").fetchSemanticsNodes().size)
     }
 
-    // ---------------------------------------------------------------- the checklist (parity row 66)
+    // ---------------------------------------------------------------- the checklist (row 51, parity row 66)
 
-    @Test fun theChecklistShowsWhatIsLeftAndHidesWhenDone() {
-        home(status = HomeStatus(access = false, keepRunning = false))
+    @Test fun theChecklistShowsOnlyWhatIsLeftAndHides() {
+        home(status = HomeStatus(access = false, doubleLights = false, keepRunning = false))
         rule.onNodeWithText("Finish setting up").assertExists()
-        rule.onNodeWithText("2 of 4 done").assertExists()
+        rule.onNodeWithText("2 of 5 done").assertExists()
+        rule.onNodeWithText("Stop double lights").assertExists()
         rule.onNodeWithText("Keep DotForge running").assertExists()
-        rule.onNodeWithText("Turn on").assertExists()
+        // done lines collapse into the count
+        rule.onNodeWithText("Call screening").assertDoesNotExist()
+        rule.onNodeWithText("Hide").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Finish setting up").assertDoesNotExist()
+        assertTrue(rule.activity.getSharedPreferences("home", Context.MODE_PRIVATE).getBoolean("checklist_hidden", false))
+    }
+
+    @Test fun theChecklistGoesWhenAllIsDone() {
         home(status = HomeStatus())
         rule.onNodeWithText("Finish setting up").assertDoesNotExist()
+    }
+
+    @Test fun stopDoubleLightsOpensItsSteps() {
+        home(status = HomeStatus(doubleLights = false))
+        rule.onNodeWithText("Fix").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Settings > Glyph Interface > Notifications > Sound only").assertExists()
     }
 
     @Test fun pickYourAppsOpensTheAppsPage() {
@@ -216,16 +305,21 @@ class HomeUiTest {
         assertEquals(Page.AlertApps("app"), nav.page)
     }
 
-    // ---------------------------------------------------------------- quick switches (row 73)
+    // ---------------------------------------------------------------- quick switches (rows 72, 73)
 
-    @Test fun theAlertsSwitchPausesAppAlerts() {
-        home()
+    @Test fun theAlertsSwitchPausesAppAlertsWithUndo() {
+        set = true
+        rule.setContent {
+            DotForgeTheme { com.dotforge.ui.design.UndoSnackbarHost { HomeScreen(Nav(Tab.HOME), Setup(rule.activity), rememberLazyListState(), HomeStatus(), HomeNow()) } }
+        }
         scrollTo("Quiet")
         switch("Alerts").tap()
         rule.waitForIdle()
         assertTrue(AppGraph.filters.filters.value.alertsPaused)
-        rule.onNodeWithText("Paused · calls on").assertExists()
-        switch("Alerts").tap()
+        rule.onNodeWithText("Paused · calls still light ›").assertExists()
+        rule.onNodeWithText("Alerts paused. Calls still light.").assertExists()
+        rule.onNodeWithText("Undo").tap()
+        rule.waitForIdle()
         assertFalse(AppGraph.filters.filters.value.alertsPaused)
     }
 
@@ -239,20 +333,12 @@ class HomeUiTest {
         assertEquals(0L, AppGraph.filters.filters.value.quietUntil)
     }
 
-    @Test fun theVisualiserSaysItNeedsTheMicrophone() {
-        home(status = HomeStatus(microphone = false))
-        scrollTo("Needs the microphone")
-        rule.onNodeWithText("Needs the microphone").assertExists()
-    }
-
-    @Test fun theTorchCountsDown() {
-        TorchTileService.onSince = System.currentTimeMillis() - 48_000
-        val torch = DisplayRequest(TorchTileService.ID, Priority.TORCH, heart, loop = true, label = "Torch")
-        home(now = HomeNow(heart.frames.first().frame, torch))
-        rule.onNodeWithText("Showing: Torch · off in 4:1", substring = true).assertExists()
-        scrollTo("Torch")
-        rule.onNodeWithText("Off in 4:1", substring = true).assertExists()
-        TorchTileService.onSince = 0
+    @Test fun missingPermissionsShowAllow() {
+        home(status = HomeStatus(microphone = false, access = false))
+        scrollTo("Needs microphone")
+        rule.onNodeWithText("Needs microphone ›").assertExists()
+        rule.onNodeWithContentDescription("Allow the microphone").assertExists()
+        rule.onAllNodesWithContentDescription("Allow notification access").fetchSemanticsNodes().isNotEmpty().let(::assertTrue)
     }
 
     @Test fun aTileOpensItsFeaturePage() {
@@ -270,33 +356,33 @@ class HomeUiTest {
         val nav = Nav(Tab.HOME)
         home(nav)
         scrollTo("Spam filter on")
-        rule.onNodeWithText("Spam filter on · nothing blocked today").tap()
+        rule.onNodeWithText("Spam filter on · nothing blocked this week").tap()
         assertEquals(Tab.ALERTS, nav.tab)
         assertEquals("history:blocked", nav.alertsRequest)
     }
 
     @Test fun spamLineWords() {
-        assertEquals("Spam filter on · nothing blocked today", spamLine(0, 0))
-        assertEquals("Spam filter needs Call screening", spamLine(0, 0, screening = false))
-        assertEquals("1 spam call blocked today", spamLine(1, 0))
-        assertEquals("3 spam calls blocked today", spamLine(3, 0, screening = false))
-        assertEquals("2 spam messages blocked today", spamLine(0, 2))
-        assertEquals("3 spam calls and messages blocked today", spamLine(2, 1))
-        val day = LocalDate.of(2026, 11, 19)
-        val start = day.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+        assertEquals("Spam filter on · nothing blocked this week", spamLine(0, 0))
+        assertEquals("Spam calls aren't being blocked", spamLine(0, 0, screening = false))
+        assertEquals("1 spam call blocked this week", spamLine(1, 0))
+        assertEquals("3 spam calls blocked this week", spamLine(3, 0, screening = false))
+        assertEquals("2 spam messages blocked this week", spamLine(0, 2))
+        assertEquals("3 spam calls and messages blocked this week", spamLine(2, 1))
+        val now = 100L * 24 * 3_600_000
+        val day = 24 * 3_600_000L
         val entries = listOf(
-            HistoryEntry("a", start - 1, Outcome.BLOCKED, call = true),
-            HistoryEntry("b", start, Outcome.BLOCKED, call = true),
-            HistoryEntry("c", start + 10, Outcome.BLOCKED),
-            HistoryEntry("d", start + 20, Outcome.LIT),
+            HistoryEntry("a", now - 8 * day, Outcome.BLOCKED, call = true),
+            HistoryEntry("b", now - 6 * day, Outcome.BLOCKED, call = true),
+            HistoryEntry("c", now - 10, Outcome.BLOCKED),
+            HistoryEntry("d", now - 20, Outcome.LIT),
         )
-        assertEquals(1 to 1, blockedToday(entries, day, ZoneOffset.UTC))
+        assertEquals(1 to 1, blockedThisWeek(entries, now))
     }
 
     @Test fun withoutCallScreeningTheSpamLineAsksForIt() {
         home(status = HomeStatus(screening = false))
-        scrollTo("Spam filter needs Call screening")
-        rule.onNodeWithText("Spam filter needs Call screening").assertExists()
+        scrollTo("Spam calls aren't being blocked")
+        rule.onNodeWithText("Spam calls aren't being blocked").assertExists()
     }
 
     @Test fun theAlwaysOnLineChangesTheFace() {
@@ -308,6 +394,8 @@ class HomeUiTest {
         rule.onNodeWithText("Moon").tap()
         assertEquals(HubFace.MOON, AppGraph.toys.hubFace)
         AppGraph.toys.hubFace = HubFace.CLOCK
+        // every face has a picture
+        for (f in HubFace.entries.filter { it != HubFace.GALLERY }) assertTrue(f.name, facePreview(f)!!.pixels.any { it > 0 })
     }
 
     @Test fun aLibraryFavouriteCanBeTheAlwaysOnDesign() {
@@ -323,21 +411,31 @@ class HomeUiTest {
         assertEquals(HubFace.GALLERY, AppGraph.toys.hubFace)
         assertEquals(setOf("lib:g-cake"), AppGraph.toys.galleryIds)
         assertEquals(1, com.dotforge.toys.galleryAnimations().size)
-        assertEquals(cake, com.dotforge.ui.home.alwaysOnName())
+        assertEquals(cake, alwaysOnName().first)
         AppGraph.toys.galleryIds = ids
         AppGraph.toys.hubFace = HubFace.CLOCK
     }
 
-    @Test fun anotherAlwaysOnToyReadsSetUp() {
+    @Test fun anotherAlwaysOnToySaysWhereItIsSet() {
         home(status = HomeStatus(alwaysOn = false))
         scrollTo("Always-on")
-        rule.onNodeWithText("Always-on: another toy").assertExists()
-        rule.onNodeWithText("Set up").assertExists()
+        rule.onNodeWithText("Always-on: set in Nothing's Glyph Toys").assertExists()
+        rule.onAllNodesWithText("Change")[0].assertExists()
     }
 
-    @Test fun theAvatarOpensProfile() {
+    @Test fun recentDesignsAreOneCompactRow() {
+        LibraryPrefs.used("g-bell")
+        home()
+        scrollTo("Recent designs")
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText(AnimationLibrary.item("g-bell")!!.name))
+        rule.onNodeWithText(AnimationLibrary.item("g-bell")!!.name).assertExists()
+        rule.onNodeWithText("Show a design").assertDoesNotExist()
+    }
+
+    @Test fun theAvatarOpensProfileAndIs48dp() {
         val nav = Nav(Tab.HOME)
         home(nav)
+        rule.onNodeWithContentDescription("Profile and settings").assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
         rule.onNodeWithContentDescription("Profile and settings").tap()
         assertEquals(Page.Profile, nav.page)
     }
@@ -368,6 +466,9 @@ class HomeUiTest {
         assertEquals("Gone", WidgetContent.of(WidgetChoice("lib:nope")).name)
         val bmp = WidgetArt.bitmap(shown.still, AppGraph.profile, side = 250)
         assertEquals(250, bmp.width)
+        // the live Glyph with nothing lit shows the logo, not a blank disc
+        assertTrue(WidgetContent.of(WidgetChoice()).still!!.pixels.any { it > 0 })
+        assertEquals(listOf(WidgetTap.OPEN, WidgetTap.NEXT), com.dotforge.widget.tapsFor(WidgetChoice.LIVE))
     }
 
     @Test fun widgetSettingsSaveTheChoice() {
@@ -378,8 +479,15 @@ class HomeUiTest {
         rule.onNodeWithText(AnimationLibrary.item("g-heart")!!.name).tap()
         rule.onNode(hasScrollAction()).performScrollToNode(hasText("Next favourite"))
         rule.onNodeWithText("Next favourite").tap()
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Add widget"))
         rule.onNodeWithText("Add widget").tap()
         assertEquals(WidgetChoice("lib:g-heart", WidgetTap.NEXT), saved)
+    }
+
+    @Test fun profileHasTheWidgetToo() {
+        rule.setContent { DotForgeTheme { com.dotforge.ui.settings.ProfilePage(Nav(Tab.HOME), emptyList()) } }
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Home screen widget"))
+        rule.onNodeWithText("Home screen widget").assertExists()
     }
 
     @Test fun toysEndsWithAddTheWidget() {

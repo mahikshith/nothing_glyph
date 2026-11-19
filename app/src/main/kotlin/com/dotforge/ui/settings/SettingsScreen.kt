@@ -120,6 +120,11 @@ fun ProfilePage(nav: Nav, permissions: List<PermissionItem>, helpOpen: Boolean =
             RowGroup {
                 ListRow("Backup and restore", subtitle = lastBackupText(BackupStore.lastMs), trailing = { Chevron() }) { nav.push(Page.Backup) }
                 RowDivider()
+                // parity row 92: the widget, from here as well as Features > Toys
+                ListRow("Home screen widget", subtitle = "A design or the live Glyph on your home screen", subtitleLines = 3, trailing = { Chevron() }) {
+                    if (!com.dotforge.widget.GlyphWidgetProvider.requestPin(ctx)) snacks?.show("Touch and hold your home screen, then Widgets > DotForge.", action = "")
+                }
+                RowDivider()
                 SwitchRow("Haptics", "A light tick when you flip a switch", HapticsSetting.on) { HapticsSetting.set(it) }
             }
         }

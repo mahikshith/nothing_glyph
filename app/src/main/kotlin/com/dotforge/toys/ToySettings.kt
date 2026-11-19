@@ -84,10 +84,10 @@ class ToySettings(private val prefs: SharedPreferences) {
 
 /** The faces of the always-on toy, switched by long press, its settings or the Quick Settings tile. */
 enum class HubFace(val label: String, val hint: String) {
-    CLOCK("Clock", "The clock style of DF Clock"),
-    GALLERY("Gallery", "Your gallery designs, one a minute"),
-    MOON("Moon", "Today's moon phase"),
-    NOW_PLAYING("Now playing", "What's playing; the clock when nothing is"),
+    CLOCK("Clock", "The time"),
+    GALLERY("Gallery", "Your designs, one each minute"),
+    MOON("Moon", "Tonight's moon"),
+    NOW_PLAYING("Now playing", "What's playing, or the time"),
     ;
 
     fun next(): HubFace = entries[(ordinal + 1) % entries.size]

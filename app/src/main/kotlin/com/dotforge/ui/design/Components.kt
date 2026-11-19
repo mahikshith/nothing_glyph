@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -358,8 +359,6 @@ fun EqualTile(
     enabled: Boolean = true,
     height: Dp = Tokens.Tile,
     icon: (@Composable () -> Unit)? = null,
-    /** Home lets the status wrap to a second line at large text rather than cut it. */
-    statusLines: Int = 1,
     onToggle: (Boolean) -> Unit = {},
     onOpen: (() -> Unit)? = null,
 ) {
@@ -396,7 +395,7 @@ fun EqualTile(
             }
             if (checked == null || under) name(Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp))
             Spacer(Modifier.weight(1f).heightIn(min = Tokens.Tiny))
-            Text(status, Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = statusLines, overflow = TextOverflow.Ellipsis)
+            Text(status, Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -507,16 +506,21 @@ fun IconCircle(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: 
         Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
     }
 
+private val SMALL_DOT_OFF = Color(0xFF262626)
+
 /** The round Glyph, drawn only (no input): the 489 real LEDs as circles, off ones in 20% grey; corners never drawn. */
 @Composable
 fun DotMatrix(pixels: IntArray?, profile: DeviceProfile, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val cell = size.minDimension / profile.size
+        // at 40 dp a dot is under 2 dp: lit dots fill their cell and off ones go darker, so small previews stay
+        // readable rather than a grey blur
+        val small = cell < 3.dp.toPx()
         for (i in profile.ledCells) {
             val v = pixels?.getOrNull(i)?.coerceIn(0, 255) ?: 0
             drawCircle(
-                color = if (v == 0) Tokens.DotOff else Color.White.copy(alpha = 0.25f + 0.75f * v / 255f),
-                radius = cell * 0.4f,
+                color = if (v == 0) (if (small) SMALL_DOT_OFF else Tokens.DotOff) else Color.White.copy(alpha = 0.25f + 0.75f * v / 255f),
+                radius = cell * if (small && v > 0) 0.55f else 0.4f,
                 center = Offset((i % profile.size + 0.5f) * cell, (i / profile.size + 0.5f) * cell),
             )
         }
@@ -878,7 +882,7 @@ val SLIDER_TRACK = Color(0xFF616161)
  * warning in the app uses this one card.
  */
 @Composable
-fun StatusBanner(text: String, modifier: Modifier = Modifier, button: String? = null, onClick: () -> Unit = {}) =
+fun StatusBanner(text: String, modifier: Modifier = Modifier, button: String? = null, info: Boolean = false, onClick: () -> Unit = {}) =
     Surface(color = Tokens.Raised, shape = Tokens.CardShape, modifier = modifier.fillMaxWidth()) {
         androidx.compose.foundation.layout.BoxWithConstraints {
             val labelStyle = MaterialTheme.typography.labelLarge
@@ -889,7 +893,8 @@ fun StatusBanner(text: String, modifier: Modifier = Modifier, button: String? = 
             val beside = button == null || actionWidth <= maxWidth * 0.35f
             Column(Modifier.padding(start = Tokens.Gutter, end = Tokens.Small, top = Tokens.Small, bottom = if (beside) Tokens.Small else 0.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Warning, contentDescription = "Warning", tint = Color.White, modifier = Modifier.size(Tokens.Icon))
+                    if (info) Icon(Icons.Filled.Info, contentDescription = "Note", tint = Color.White, modifier = Modifier.size(Tokens.Icon))
+                    else Icon(Icons.Filled.Warning, contentDescription = "Warning", tint = Color.White, modifier = Modifier.size(Tokens.Icon))
                     Text(text, Modifier.weight(1f).padding(horizontal = Tokens.Gutter, vertical = Tokens.Small), style = MaterialTheme.typography.bodyMedium)
                     if (button != null && beside) TextButton(onClick = onClick, modifier = Modifier.heightIn(min = Tokens.Target)) {
                         Text(button, style = labelStyle, color = Color.White)
