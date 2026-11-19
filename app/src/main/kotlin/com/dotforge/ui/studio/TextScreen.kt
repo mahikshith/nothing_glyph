@@ -116,6 +116,18 @@ import java.util.UUID
 enum class TextPanel { NONE, SYMBOLS, TIMING, BACKGROUND, MENU, RENAME, SHARE }
 
 /** The Text screen's working copy: words and look, timing, an optional background. */
+/** Ready text designs (a library pick) handed to the Text screen by key, like the editor's Drafts. In memory only. */
+object TextStarts {
+    class Start(val spec: TextSpec, val name: String)
+
+    private val starts = HashMap<String, Start>()
+    private var next = 0
+
+    fun put(spec: TextSpec, name: String): String = synchronized(starts) { "t${next++}".also { starts[it] = Start(spec, name) } }
+
+    fun take(key: String?): Start? = key?.let { synchronized(starts) { starts.remove(it) } }
+}
+
 class TextDraft(val id: String, val isNew: Boolean, spec: TextSpec, timing: Timing, background: BackgroundLayer?, behind: BehindText, name: String) {
     var spec by mutableStateOf(spec)
     var timing by mutableStateOf(timing)
@@ -196,7 +208,8 @@ class TextDraft(val id: String, val isNew: Boolean, spec: TextSpec, timing: Timi
     companion object {
         const val MERGE_MS = 700L
 
-        fun open(designId: String?, text: String?): TextDraft {
+        fun open(designId: String?, text: String?, start: TextStarts.Start? = null): TextDraft {
+            if (start != null) return TextDraft(UUID.randomUUID().toString(), true, start.spec.clamped(), Timing(), null, BehindText.CUT_OUT, start.name)
             val d = AppGraph.designs.get(designId)
             if (d != null) return TextDraft(
                 d.id, false, d.text ?: TextSpec(text = d.name), d.timing ?: Timing(), d.layers?.background, d.layers?.behind ?: BehindText.CUT_OUT, d.name,
@@ -217,8 +230,8 @@ class TextDraft(val id: String, val isNew: Boolean, spec: TextSpec, timing: Timi
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel = TextPanel.NONE) {
-    val t = remember { TextDraft.open(designId, text) }
+fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel = TextPanel.NONE, start: String? = null) {
+    val t = remember { TextDraft.open(designId, text, TextStarts.take(start)) }
     var panel by remember { mutableStateOf(startPanel) }
     var field by remember { mutableStateOf(TextFieldValue(t.spec.text, TextRange(t.spec.text.length))) }
     var named by remember { mutableStateOf(!t.isNew) }
@@ -533,7 +546,7 @@ private fun StyleStrip(spec: TextSpec, onPick: (TextStyle) -> Unit) {
 
 /** A background for the words: the library, your designs or a photo. */
 @Composable
-private fun TextBackgroundSheet(onDismiss: () -> Unit, onPick: (String, Animation) -> Unit) {
+internal fun TextBackgroundSheet(onDismiss: () -> Unit, onPick: (String, Animation) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val snacks = rememberSnacks()
@@ -553,7 +566,7 @@ private fun TextBackgroundSheet(onDismiss: () -> Unit, onPick: (String, Animatio
         com.dotforge.ui.design.OptionRow(if (busy) "Reading the photo…" else "From a photo", "Turned into dots, 25×25", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) {
             if (!busy) photo.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
         }
-    }, onPick = onPick)
+    }, libraryFilter = com.dotforge.ui.editor.backgroundFilter, onPick = onPick)
 }
 
 /** Runs [work] off the main thread and hands its result back on it. */

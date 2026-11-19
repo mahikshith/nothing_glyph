@@ -227,7 +227,7 @@ fun PageContent(page: Page, nav: Nav, setup: Setup) {
         Page.PhoneMoments -> com.dotforge.ui.alerts.PhoneMomentsPage(nav, setup)
         Page.Library -> LibraryScreen(nav)
         is Page.Editor -> EditorScreen(page.designId, page.animated, page.draft, nav)
-        is Page.TextDesign -> com.dotforge.ui.studio.TextScreen(page.designId, page.text, nav)
+        is Page.TextDesign -> com.dotforge.ui.studio.TextScreen(page.designId, page.text, nav, start = page.start)
         is Page.Photo -> com.dotforge.ui.studio.PhotoScreen(page.key, page.designId, nav)
         is Page.GlyphRingtone -> com.dotforge.ui.studio.RingtoneScreen(page.uri, nav)
         is Page.Feature -> FeaturePage(page.key, nav, setup)

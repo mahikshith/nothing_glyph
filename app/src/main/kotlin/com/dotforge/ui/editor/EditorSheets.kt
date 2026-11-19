@@ -367,8 +367,8 @@ fun GuideSheet(onDone: () -> Unit) {
 // ---------------------------------------------------------------- pick a design (library or yours)
 
 /**
- * Picks a library item or one of your designs (Insert from library, a layer's background). The full Library
- * screen comes in the Library step; this is its grid.
+ * Picks a library item (the shared Library browser: search, Favourites, Recently used, categories) or one of your
+ * designs (Insert, a layer's background, the Text screen's background). [libraryFilter] limits the library.
  */
 @Composable
 fun PickDesignSheet(
@@ -376,50 +376,46 @@ fun PickDesignSheet(
     onDismiss: () -> Unit,
     exclude: String? = null,
     top: (@Composable () -> Unit)? = null,
+    libraryFilter: (com.dotforge.device.library.LibraryItem) -> Boolean = { true },
     onPick: (String, Animation) -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(0) }
-    var query by remember { mutableStateOf("") }
     val designs by AppGraph.designs.designs.collectAsState()
-    val height = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
+    val height = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
     FullSheet(onDismiss, title, confirm = null, scrolls = false) {
         top?.invoke()
         Segmented(listOf("Library", "Yours"), tab) { tab = it }
         if (tab == 0) {
-            OutlinedTextField(
-                query, { query = it.take(30) }, Modifier.fillMaxWidth().padding(top = Tokens.Small), singleLine = true,
-                placeholder = { Text("Search the library", color = Tokens.Secondary) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Tokens.Secondary) },
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, unfocusedBorderColor = Tokens.Hairline, cursorColor = Color.White),
-                shape = RoundedCornerShape(14.dp),
-            )
+            com.dotforge.ui.library.LibraryBrowser(
+                Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small), filter = libraryFilter, actionLabel = "Use",
+            ) { item ->
+                com.dotforge.ui.library.LibraryPrefs.used(item.id)
+                onPick(item.name, item.load(AppGraph.profile))
+            }
+            return@FullSheet
         }
-        val items: List<Pair<String, () -> Pair<String, Animation>?>> = if (tab == 0) {
-            val list = if (query.isBlank()) AnimationLibrary.all else AnimationLibrary.search(query)
-            list.map { item -> item.id to { item.name to item.load(AppGraph.profile) } }
-        } else designs.filter { it.id != exclude }.map { d -> d.id to { AppGraph.designs.animation(d)?.let { d.name to it } } }
-        if (items.isEmpty()) Hint(if (tab == 0) "Nothing matches" else "Nothing saved yet. Designs you make show here.", Modifier.padding(top = Tokens.Gutter))
+        val items = designs.filter { it.id != exclude }
+        if (items.isEmpty()) Hint("Nothing saved yet. Designs you make show here.", Modifier.padding(top = Tokens.Gutter))
         LazyVerticalGrid(
             GridCells.Adaptive(84.dp), Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small),
             horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
         ) {
-            items(items, key = { it.first }) { (id, load) ->
-                val name = remember(id) { if (tab == 0) AnimationLibrary.item(id)?.name ?: id else designs.firstOrNull { it.id == id }?.name ?: "" }
-                val thumb = remember(id) {
-                    if (tab == 0) AnimationLibrary.item(id)?.let { AnimationLibrary.thumbnail(it, AppGraph.profile) }
-                    else designs.firstOrNull { it.id == id }?.let { AppGraph.designs.animation(it) }?.let(Posters::of)
-                }
+            items(items, key = { it.id }) { d ->
+                val thumb = remember(d.id) { AppGraph.designs.animation(d)?.let(Posters::of) }
                 Column(
-                    Modifier.clickable(onClickLabel = "Use $name") { load()?.let { (n, a) -> onPick(n, a) } }.padding(Tokens.Tiny),
+                    Modifier.clickable(onClickLabel = "Use ${d.name}") { AppGraph.designs.animation(d)?.let { onPick(d.name, it) } }.padding(Tokens.Tiny),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    DotMatrix(thumb?.pixels, AppGraph.profile, Modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = name })
-                    Text(name, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                    DotMatrix(thumb?.pixels, AppGraph.profile, Modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = d.name })
+                    Text(d.name, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                 }
             }
         }
     }
 }
+
+/** Library items that make sense as a picture behind words: glyphs and animations, not ready text. */
+val backgroundFilter: (com.dotforge.device.library.LibraryItem) -> Boolean = { it.form == com.dotforge.device.library.ItemForm.STILL || it.form == com.dotforge.device.library.ItemForm.ANIMATION }
 
 /**
  * ⋮ > Insert: a photo (Photo to dots, added as frames after this one), or a library design or one of yours (a still
@@ -528,7 +524,7 @@ fun BackgroundPickSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?
         }
     }
     PickDesignSheet(
-        "Background", onDismiss, exclude = s.designId,
+        "Background", onDismiss, exclude = s.designId, libraryFilter = backgroundFilter,
         top = {
             OptionRow(if (busy) "Reading the photo…" else "From a photo", "Turned into dots, 25×25", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) {
                 if (!busy) photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))

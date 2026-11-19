@@ -161,6 +161,7 @@ object AppGraph {
     internal fun init(app: Application) {
         prefs = app.getSharedPreferences("dotforge", Context.MODE_PRIVATE)
         com.dotforge.ui.design.HapticsSetting.init(app.getSharedPreferences("ui", Context.MODE_PRIVATE))
+        com.dotforge.ui.library.LibraryPrefs.init(app.getSharedPreferences("library", Context.MODE_PRIVATE))
         com.dotforge.ui.settings.DevMode.init(app.getSharedPreferences("ui", Context.MODE_PRIVATE))
         com.dotforge.backup.BackupStore.init(app)
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))

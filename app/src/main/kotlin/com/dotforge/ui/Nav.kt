@@ -53,7 +53,7 @@ sealed interface Page {
     /** The editor; a new design starts from [draft] (a key into [com.dotforge.ui.editor.Drafts]) when given. */
     data class Editor(val designId: String?, val animated: Boolean, val draft: String? = null) : Page
     /** The Text screen for a saved text design, or a new one (optionally with [text] to start from). */
-    data class TextDesign(val designId: String?, val text: String? = null) : Page
+    data class TextDesign(val designId: String?, val text: String? = null, val start: String? = null) : Page
     /** Photo to dots: picked media ([key] into [com.dotforge.ui.studio.MediaDrafts]) or a saved photo design. */
     data class Photo(val key: String?, val designId: String? = null) : Page
     /** The Glyph ringtone screen for a song or Glyph ringtone file. */

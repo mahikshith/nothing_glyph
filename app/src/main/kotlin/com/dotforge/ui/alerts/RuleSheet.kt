@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -254,26 +255,35 @@ fun RuleSheet(
 fun GlyphPicker(r: Rule, title: String, isApp: Boolean, onDismiss: () -> Unit, onPick: (GlyphChoice) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(0) }
     val designs by AppGraph.designs.designs.collectAsStateWithLifecycle()
-    FullSheet(onDismiss, "Glyph", half = true) {
+    val height = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.62f).dp
+    FullSheet(onDismiss, "Glyph", scrolls = tab == 1) {
         com.dotforge.ui.design.Segmented(listOf("Library", "Yours"), tab) { tab = it }
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(top = Tokens.Gap)) {
         val tile = (maxWidth - Tokens.Small * (COLUMNS - 1)) / COLUMNS
         CompositionLocalProviderTile(tile) {
-        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small), maxItemsInEachRow = COLUMNS) {
-            fun still(style: GlyphStyle) = posterOf(r.copy(glyph = style), title)
-            if (tab == 0) {
-                if (isApp && r.packages.size == 1) {
-                    val name = "App icon"
-                    GlyphTile(name, r.glyph == GlyphStyle.APP_ICON, { GlyphPreview(remember { still(GlyphStyle.APP_ICON) }, name) }) { onPick(GlyphChoice(GlyphStyle.APP_ICON)) }
+        if (tab == 0) {
+            Column {
+                // the alert's own pictures, then the shared Library browser
+                fun still(style: GlyphStyle) = posterOf(r.copy(glyph = style), title)
+                val app = isApp && r.packages.size == 1
+                val name = r.moment == null && r.id != SimpleRules.PHONE_CALLS
+                val bell = r.id == SimpleRules.REMINDERS
+                if (app || name || bell) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Tokens.Small), maxItemsInEachRow = COLUMNS) {
+                    if (app) GlyphTile("App icon", r.glyph == GlyphStyle.APP_ICON, { GlyphPreview(remember { still(GlyphStyle.APP_ICON) }, "App icon") }) { onPick(GlyphChoice(GlyphStyle.APP_ICON)) }
+                    if (name) GlyphTile("Their name", r.glyph == GlyphStyle.NAME, { GlyphPreview(remember { still(GlyphStyle.NAME) }, "Their name") }) { onPick(GlyphChoice(GlyphStyle.NAME)) }
+                    if (bell) GlyphTile("Bell", r.glyph == GlyphStyle.BELL, { GlyphPreview(remember { still(GlyphStyle.BELL) }, "Bell") }) { onPick(GlyphChoice(GlyphStyle.BELL)) }
                 }
-                if (r.moment == null && r.id != SimpleRules.PHONE_CALLS) GlyphTile("Their name", r.glyph == GlyphStyle.NAME, { GlyphPreview(remember { still(GlyphStyle.NAME) }, "Their name") }) { onPick(GlyphChoice(GlyphStyle.NAME)) }
-                if (r.id == SimpleRules.REMINDERS) GlyphTile("Bell", r.glyph == GlyphStyle.BELL, { GlyphPreview(remember { still(GlyphStyle.BELL) }, "Bell") }) { onPick(GlyphChoice(GlyphStyle.BELL)) }
-                GlyphLibrary.all.forEach { g ->
-                    GlyphTile(g.name, r.glyph == GlyphStyle.ICON && r.designId == g.id, { com.dotforge.ui.design.LibraryGlyph(g.id, still = true) }) { onPick(GlyphChoice.icon(g.id)) }
+                com.dotforge.ui.library.LibraryBrowser(
+                    Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small),
+                    selectedId = r.designId.takeIf { r.glyph == GlyphStyle.ICON }, actionLabel = "Use",
+                ) { item ->
+                    com.dotforge.ui.library.LibraryPrefs.used(item.id)
+                    onPick(GlyphChoice.icon(item.id))
                 }
-            } else if (designs.isEmpty()) {
-                Hint("Nothing saved yet. Designs you make in Studio show here.")
-            } else designs.forEach { d ->
+            }
+        } else FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small), maxItemsInEachRow = COLUMNS) {
+            if (designs.isEmpty()) Hint("Nothing saved yet. Designs you make in Studio show here.")
+            else designs.forEach { d ->
                 GlyphTile(d.name, r.glyph == GlyphStyle.DESIGN && r.designId == d.id, {
                     GlyphPreview(remember(d.id) { AppGraph.designAnimation(d.id)?.let(com.dotforge.device.Posters::of) }, d.name)
                 }) { onPick(GlyphChoice(GlyphStyle.DESIGN, d.id)) }
