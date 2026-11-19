@@ -38,7 +38,7 @@ class LibraryContentTest {
         }
         System.getProperty("screens.out")?.let { dir ->
             val out = StringBuilder()
-            for (id in listOf("sprite-happy-hanukkah", "sprite-happy-lunar-new-year", "sprite-happy-easter")) {
+            for (id in listOf("text-hello", "text-mwah", "text-cheers", "text-away")) {
                 val f = AnimationLibrary.thumbnail(AnimationLibrary.item(id)!!, p)
                 out.append(id).append('\n')
                 for (y in 0 until p.size) out.append((0 until p.size).joinToString("") { x -> if (f.pixels[y * p.size + x] > 0) "#" else "." }).append('\n')

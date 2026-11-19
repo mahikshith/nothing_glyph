@@ -92,8 +92,9 @@ class StudioModelsTest {
     }
 
     @Test fun fitUsesTheBiggestFontThatFitsAndWrapsLongText() {
+        // the biggest font whose letters keep a dark dot from the edge: Tall for two letters
         val big = TextRender.render(p, TextSpec("HI", style = TextStyle.FIT)).frames.single().frame.pixels
-        assertTrue(litRows(big).size >= 10)
+        assertTrue(litRows(big).size >= 7)
         val long = TextRender.render(p, TextSpec("GOOD NIGHT ALL", style = TextStyle.FIT)).frames.single().frame.pixels
         assertTrue(litRows(long).size >= 12) // three lines of Small
     }

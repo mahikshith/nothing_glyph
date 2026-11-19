@@ -93,7 +93,14 @@ object TextRender {
             frames += AnimFrame(Frame.of(p, px), ms.coerceIn(Animation.MIN_FRAME_MS, Animation.MAX_FRAME_MS))
         }
 
-        fun build() = Animation(p, frames.ifEmpty { listOf(AnimFrame(Frame.blank(p), 1000)) })
+        /** [rim]: the ring's dots are cleared on every frame, so no letter touches the edge of the circle. */
+        fun build(rim: IntArray? = null): Animation {
+            val out = if (rim == null) frames else frames.map { f ->
+                if (rim.none { f.frame.pixels[it] > 0 }) f
+                else AnimFrame(Frame.of(p, f.frame.pixels.copyOf().also { px -> for (c in rim) px[c] = 0 }), f.durationMs)
+            }
+            return Animation(p, out.ifEmpty { listOf(AnimFrame(Frame.blank(p), 1000)) })
+        }
     }
 
     fun render(p: DeviceProfile, spec: TextSpec): Animation {
@@ -125,7 +132,10 @@ object TextRender {
             TextStyle.COUNTDOWN -> countdown(b, s, text)
             TextStyle.FIT -> b.add(fitFrame(p, s, text), 1000)
         }
-        return b.build()
+        // letters keep one dark dot from the edge of the circle; only a border, the marquee's lights, the
+        // countdown's burst and text riding round the ring use the ring itself
+        val ringIsTheDesign = s.border || s.style == TextStyle.MARQUEE || s.style == TextStyle.COUNTDOWN || s.direction == TextDirection.RING
+        return b.build(if (ringIsTheDesign) null else rim(p, s))
     }
 
     /** What a poster shows: whole words on [lines] (one to three), in [font] with [spacing]; [fits] is false when no word fits whole. */
@@ -192,11 +202,7 @@ object TextRender {
         val h = DotFonts.height(font)
         val gap = stackGap(count)
         val y0 = (n - (count * h + (count - 1) * gap)) / 2
-        val margin = if (s.border || s.style == TextStyle.MARQUEE) 4 else 2
-        val room = (0 until count).map { i ->
-            val ys = (y0 + i * (h + gap)) until (y0 + i * (h + gap) + h)
-            ys.minOf { y -> (0 until n).count { p.isActive(it, y) } } - margin
-        }
+        val room = (0 until count).map { i -> room(p, s, y0 + i * (h + gap), h) }
         val lines = ArrayList<String>()
         for (w in words) {
             val last = lines.lastOrNull()
@@ -241,15 +247,24 @@ object TextRender {
             }
         }
         if (s.invert) out = IntArray(p.cellCount) { if (!p.mask[it]) 0 else if (out[it] >= 255) 0 else 255 - out[it] }
-        if (s.band != TextBand.FULL || s.border) {
-            // words never touch the rim; with a border they keep one dark dot from it
+        if (s.direction != TextDirection.RING) {
+            // words never touch the rim: a dark dot between them and the edge (or the border's lights)
             out = out.copyOf()
-            for (c in p.ring) out[c] = 0
-            if (s.border) for (c in nearRing(p)) out[c] = 0
+            for (c in rim(p, s)) out[c] = 0
         }
         if (s.border) for (c in p.ring) out[c] = 255
         return out
     }
+
+    /**
+     * The dots letters keep dark: the outer ring and the dots just inside it, so on the whole Glyph (and inside a
+     * border) one dark dot always separates the letters from the edge. Words in a band beside a picture keep
+     * only the ring dark: the rows there are too short for a five-letter word otherwise.
+     */
+    internal fun rim(p: DeviceProfile, s: TextSpec): IntArray =
+        if (edgeDepth(s) >= 2) p.ring.toIntArray() + nearRing(p) else p.ring.toIntArray()
+
+    private fun edgeDepth(s: TextSpec) = if (s.band == TextBand.FULL || s.border || s.style == TextStyle.MARQUEE) 2 else 1
 
     private val nearRings = java.util.concurrent.ConcurrentHashMap<DeviceProfile, IntArray>()
 
@@ -289,15 +304,23 @@ object TextRender {
     }
 
     /** The width the letters can use at the band's rows (the circle is narrower away from the middle). */
-    private fun usable(p: DeviceProfile, s: TextSpec, h: Int): Int {
-        val y0 = top(s, h)
+    private fun usable(p: DeviceProfile, s: TextSpec, h: Int): Int = room(p, s, top(s, h), h).coerceAtLeast(5)
+
+    /** The fewest dots inside the rim on rows [y0] until [y0] + [h], keeping off the ring (and, with a border, off the dots next to it). */
+    private fun room(p: DeviceProfile, s: TextSpec, y0: Int, h: Int): Int {
+        val inner = inner(p, edgeDepth(s))
         var w = p.size
-        for (y in y0 until y0 + h) {
-            if (y !in 0 until p.size) continue
-            w = minOf(w, (0 until p.size).count { p.isActive(it, y) })
-        }
-        val margin = if (s.border || s.style == TextStyle.MARQUEE) 4 else 2
-        return (w - margin).coerceAtLeast(5)
+        for (y in y0 until y0 + h) w = minOf(w, if (y in 0 until p.size) inner[y] else 0)
+        return w
+    }
+
+    private val inners = java.util.concurrent.ConcurrentHashMap<Pair<DeviceProfile, Int>, IntArray>()
+
+    /** Per row, the dots off the ring ([depth] 1) or off the ring and its neighbours (2). */
+    private fun inner(p: DeviceProfile, depth: Int): IntArray = inners.getOrPut(p to depth) {
+        val out = p.ring.toHashSet()
+        if (depth >= 2) out += nearRing(p).toList()
+        IntArray(p.size) { y -> (0 until p.size).count { x -> p.isActive(x, y) && (y * p.size + x) !in out } }
     }
 
     private inline fun chunks(b: Builder, s: TextSpec, text: String, each: (IntArray) -> Unit) {
@@ -619,7 +642,8 @@ object TextRender {
                 return place(p, s, strip, (n - strip.w) / 2, top(s, strip.h))
             }
         }
-        val lines = chunks(DotFont.SMALL, text, 19, maxOf(1, s.spacing)).take(3)
+        val y3 = (n - (3 * 6 - 1)) / 2
+        val lines = chunks(DotFont.SMALL, text, room(p, s, y3, 3 * 6 - 1), maxOf(1, s.spacing)).take(3)
         val px = IntArray(p.cellCount)
         val y0 = (n - (lines.size * 6 - 1)) / 2
         lines.forEachIndexed { i, line ->

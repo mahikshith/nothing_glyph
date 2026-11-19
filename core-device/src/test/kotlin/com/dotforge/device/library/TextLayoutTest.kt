@@ -35,6 +35,23 @@ class TextLayoutTest {
         }
     }
 
+    /** Every lit letter keeps one dark dot from the edge of the circle: on every frame and every poster. */
+    @Test fun wordsKeepOneDarkDotFromTheEdgeOfTheCircle() {
+        val ring = p.ring
+        fun check(what: String, px: IntArray) {
+            val touching = ring.filter { px[it] > 0 }
+            assertTrue("$what lights $touching on the edge", touching.isEmpty())
+        }
+        for (item in texts.filter { !it.text!!.border && it.text!!.style != TextStyle.MARQUEE }) {
+            for ((i, f) in item.load(p).frames.withIndex()) check("${item.id} frame $i", f.frame.pixels)
+            check("${item.id} poster", AnimationLibrary.thumbnail(item, p).pixels)
+        }
+        for (item in layered) {
+            val layers = item.layers(p)!!
+            for ((i, f) in Compositor.text(p, layers.text!!).frames.withIndex()) check("${item.id} words frame $i", f.frame.pixels)
+        }
+    }
+
     @Test fun glyphTextPictureAndWordsKeepTheirRows() {
         val words = TextItems.WORD_ROWS
         for (item in layered) {

@@ -93,13 +93,13 @@ object AnimationLibrary {
         "g-road" to "a-car", "g-newyear-2027" to "g-newyear",
         // text designs whose words never fit the Glyph whole, folded into one that does or reworded
         "text-good-morning" to "text-gm", "text-good-evening" to "text-hey-there", "text-namaste" to "text-hello",
-        "text-in-a-meeting" to "text-busy", "text-happy-birthday" to "text-hbd", "text-seasonal-cheers" to "text-cheers",
+        "text-in-a-meeting" to "text-busy", "text-happy-birthday" to "text-hbd", "text-seasonal-cheers" to "text-clink", "text-cheers" to "text-clink",
         "text-travel-on-my-way" to "text-on-my-way", "text-love-love-you" to "text-love-you", "text-welcome" to "text-come-in",
-        "text-driving" to "text-on-the-road", "text-sleeping" to "text-asleep", "text-congrats" to "text-bravo",
+        "text-driving" to "text-on-the-road", "text-sleeping" to "text-sleep", "text-asleep" to "text-sleep", "text-congrats" to "text-bravo",
         "text-happy-new-year" to "text-new-year", "text-merry-christmas" to "text-merry-xmas", "text-eid-mubarak" to "text-happy-eid",
-        "text-charging" to "text-power-up", "text-low-battery" to "text-low-power", "text-new-message" to "text-new-text",
+        "text-charging" to "text-power-up", "text-low-battery" to "text-low-batt", "text-low-power" to "text-low-batt", "text-utility-charge-me" to "text-utility-plug-in", "text-new-message" to "text-new-text",
         "text-silent" to "text-muted", "text-reminder" to "text-memo", "text-sab-badhiya" to "text-sab-theek",
-        "text-love-forever" to "text-love-always", "text-travel-landed" to "text-travel-wheels-down", "text-work-deadline" to "text-work-due-today", "text-food-hungry" to "text-food-feed-me",
+        "text-love-forever" to "text-love-4ever", "text-love-always" to "text-love-4ever", "text-utility-locked" to "text-utility-keep-out", "text-travel-landed" to "text-travel-wheels-down", "text-work-deadline" to "text-work-due-today", "text-food-hungry" to "text-food-feed-me",
     )
 
     /** Drawn animations that are a still brought to life, by the still they fold into. */
