@@ -44,6 +44,8 @@ enum class Field(
     REPEATED("calling again", FieldKind.FLAG, FieldScope.CALLS, "they call again soon", "it's their first call"),
     HIDDEN("hidden number", FieldKind.FLAG, FieldScope.CALLS, "the number is hidden", "the number is shown"),
     UNVERIFIED("caller ID check", FieldKind.FLAG, FieldScope.CALLS, "the caller ID check fails", "the caller ID check doesn't fail"),
+    /** The sender's Contacts groups (labels), as Contacts shows them: "Family", "Work". */
+    CONTACT_GROUP("Contacts group", FieldKind.TEXT, FieldScope.BOTH),
     SPAM_LIST("spam list", FieldKind.FLAG, FieldScope.BOTH, "the number is on the spam list", "the number isn't on the spam list"),
     TIME("time", FieldKind.TIME, FieldScope.BOTH),
     DAY("day", FieldKind.DAYS, FieldScope.BOTH),
@@ -247,6 +249,7 @@ object FilterEngine {
         Field.APP -> listOf(s.app, s.appLabel)
         Field.CHANNEL -> listOf(s.channel)
         Field.CATEGORY -> listOf(s.category)
+        Field.CONTACT_GROUP -> if (!s.fromPerson || s.hidden) emptyList() else s.caller?.groups?.toList().orEmpty()
         else -> emptyList()
     }.filter { it.isNotBlank() }
 

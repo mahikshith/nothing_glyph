@@ -61,7 +61,7 @@ class GlyphCallScreeningService : CallScreeningService() {
             state = { PhoneState(conditions.locked, conditions.dnd, conditions.charging, AppGraph.filters.filters.value.quiet.isActive(conditions.now)) },
         )
         val gate = runCatching { RuleEngine.decide(subject, AppGraph.rules.rules.value, AppGraph.rules.lists.value).gate }.getOrNull()
-        val action = gate?.rule?.action?.takeIf { it.blocks } ?: Action.ALLOW
+        val action = gate?.rule?.let(CallActions::of)?.takeIf { it.blocks } ?: Action.ALLOW
         respondToCall(details, response(action))
         calls.noteCall(number, nowMs)
         if (action == Action.ALLOW) {
@@ -83,10 +83,16 @@ class GlyphCallScreeningService : CallScreeningService() {
         )
         main.post {
             when {
-                action == Action.SPAM -> FilterActions.spamAlert(this, who, key = "call:$nowMs", call = true)
+                gate?.rule?.action == Action.SPAM -> FilterActions.spamAlert(this, who, key = "call:$nowMs", call = true)
                 calls.settings.value.screenedGlyph -> {
                     val p = AppGraph.profile
-                    val (anim, verb) = if (action == Action.SILENCE) Effects.callSilenced(p) to "Silenced" else Effects.callBlocked(p) to "Blocked"
+                    val s = calls.settings.value
+                    val (built, verb) = if (action == Action.SILENCE) Effects.callSilenced(p) to "Silenced" else Effects.callBlocked(p) to "Blocked"
+                    // the glyph picked on the Phone calls sheet, else the built-in one
+                    val anim = s.screenedStyle?.let { style ->
+                        val info = com.dotforge.rules.NotificationInfo("call:$nowMs", "", "Phone", who, "", 0, sender = who)
+                        runCatching { com.dotforge.rules.RuleEngine.animation(style, s.screenedDesign, info, p, AppGraph::designAnimation) }.getOrNull()
+                    } ?: built
                     AppGraph.alerts.offer(AlertQueue.Alert("call:$nowMs", "screened:$who", isCall = true, until = Until.UNLOCK, item = AlertGlyph(anim, "$verb: $who")))
                 }
             }
@@ -94,13 +100,11 @@ class GlyphCallScreeningService : CallScreeningService() {
     }
 
     private fun response(action: Action): CallResponse {
+        val f = CallActions.flags(action)
         val b = CallResponse.Builder()
-        when (action) {
-            Action.SILENCE, Action.SPAM, Action.HIDE -> b.setSilenceCall(true)
-            Action.REJECT -> b.setDisallowCall(true).setRejectCall(true)
-            Action.REJECT_QUIET -> b.setDisallowCall(true).setRejectCall(true).setSkipCallLog(true).setSkipNotification(true)
-            Action.ALLOW, Action.SHOW, Action.PROGRESS -> Unit
-        }
+        if (f.silence) b.setSilenceCall(true)
+        if (f.disallow) b.setDisallowCall(true).setRejectCall(f.reject).setSkipCallLog(f.skipLog).setSkipNotification(f.skipNotification)
         return b.build()
     }
+
 }

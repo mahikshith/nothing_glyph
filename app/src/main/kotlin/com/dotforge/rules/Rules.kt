@@ -138,6 +138,12 @@ data class Rule(
     val groupChats: Boolean = false,
     /** A person: when they call, ring with this Glyph ringtone (its URI) instead of showing their glyph. */
     val callRingtone: String? = null,
+    /**
+     * A block rule ([Action.SPAM]) on calls: what a matching call gets. Null is Silence (it doesn't ring and
+     * stays in the call log); [Action.REJECT] declines it; [Action.REJECT_QUIET] declines it with no call log
+     * entry. Messages are hidden either way.
+     */
+    val callAction: Action? = null,
     val callRingtoneName: String? = null,
     /** Set for a phone moment (This phone); such a rule never matches a notification. */
     val moment: Moment? = null,
@@ -161,7 +167,8 @@ private const val PERSON_ID = "person-"
 enum class ContactStatus { UNKNOWN, CONTACT, STARRED }
 
 /** The sender as found in Contacts; [name] is the contact's display name when found. */
-data class Sender(val status: ContactStatus, val name: String? = null)
+/** A notification sender as Contacts knows them; [groups] are their Contacts groups (labels). */
+data class Sender(val status: ContactStatus, val name: String? = null, val groups: Set<String> = emptySet())
 
 /** What we know about an incoming notification. */
 data class NotificationInfo(
@@ -212,7 +219,9 @@ object RuleEngine {
         val person = cs.filter { it.field in Field.PERSON }
         return when {
             person.any { it.op == Op.IS || it.op == Op.IN_LIST } -> Tier.EXACT
-            person.any { it.op != Op.IS_NOT && it.op != Op.NOT_CONTAINS } ||
+            // a Contacts group is people too, but a person named exactly (above) beats their group
+            cs.any { it.field == Field.CONTACT_GROUP && it.op != Op.IS_NOT && it.op != Op.NOT_CONTAINS } ||
+                person.any { it.op != Op.IS_NOT && it.op != Op.NOT_CONTAINS } ||
                 cs.any { positive(it) && (it.field == Field.CONTACT || it.field == Field.STARRED || it.field == Field.REPEATED) } -> Tier.PERSON
             cs.any { it.field in Field.WORDS } && (r.packages.isNotEmpty() || cs.any { it.field == Field.APP }) -> Tier.APP_AND_WORDS
             cs.any { it.field in Field.WORDS } -> Tier.WORDS
@@ -224,6 +233,13 @@ object RuleEngine {
 
     private val timed = setOf(Field.TIME, Field.DAY, Field.QUIET)
 
+    /**
+     * The fixed order rules are tried in; there is no user priority to set. Blocking and allow rules (spam) are
+     * decided first, in [decide]; of the rules that show, the most specific wins: a person named exactly, then
+     * a Contacts group, then an app with words, words, an app, and anything else ([tier]). Within a tier people
+     * and groups beat apps, an allow rule beats a block, then rules with a time beat those without, then the
+     * Alerts order.
+     */
     private fun order(rules: List<IndexedValue<Rule>>) = rules.sortedWith(
         compareBy<IndexedValue<Rule>>(
             { tier(it.value) },
@@ -414,6 +430,8 @@ object RuleEngine {
     const val UNKNOWN_CALLS = "spam-unknown-calls"
     const val HIDDEN_CALLS = "spam-hidden"
     const val FAKED_CALLS = "spam-faked"
+    const val SPAM_WORDS_RULE = "spam-words"
+    const val UNKNOWN_SENDERS = "spam-unknown"
 
     /** Spam protections that are on by default: the community spam list, contacts and repeat callers allowed. */
     val DEFAULT_PROTECTIONS = setOf("spam-list", "spam-contacts", "spam-repeated")

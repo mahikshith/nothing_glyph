@@ -22,7 +22,7 @@ enum class PatternType(val label: String, val chip: String, val op: Op, val numb
 
 /** Where a block rule applies, as chips, with what blocking means there (row 61). */
 enum class Where(val label: String, val means: String) {
-    CALLS("Calls", "Declined silently. Still in your call log."),
+    CALLS("Calls", "Silenced: it doesn't ring. Still in your call log. Add a rule can decline it instead."),
     SMS("SMS", "Notification hidden. The text stays in Messages."),
     WHATSAPP("WhatsApp", "Notification dismissed. The message stays in the app."),
     ANY_APP("Other apps", "Notification dismissed. The message stays in the app."),
@@ -163,6 +163,14 @@ object SimpleRules {
         return withCond(withCond(r, Field.DAY, d), Field.TIME, hours?.let { Condition(Field.TIME, Op.IS, listOf(it)) })
     }
 
+    /** Only while the phone is locked (not while it's in use): a "phone locked" condition. */
+    fun locked(r: Rule): Boolean = cond(r, Field.LOCKED)?.cleanValues?.firstOrNull()?.lowercase() == "yes"
+
+    fun withLocked(r: Rule, on: Boolean): Rule = withCond(r, Field.LOCKED, Condition.flag(Field.LOCKED).takeIf { on })
+
+    /** The When row: "Any time", "Mon–Fri · 09:00–18:00", "Any time · Only when locked". */
+    fun whenText(r: Rule): String = listOfNotNull(timesText(r), "Only when locked".takeIf { locked(r) }).joinToString(" · ")
+
     /** "Any time", "Mon–Fri", "09:00–18:00", "Mon–Fri · 09:00–18:00". */
     fun timesText(r: Rule): String {
         val d = days(r)
@@ -286,6 +294,25 @@ object SimpleRules {
     )
 
     fun isPersonRule(r: Rule) = r.action == Action.SHOW && r.id.startsWith(PERSON_PREFIX)
+
+    /**
+     * A Contacts group ("Family", "Work"): one glyph for everyone in it, from any app. It lists with People;
+     * a person named exactly still wins over their group ([RuleEngine.tier]).
+     */
+    const val GROUP_PREFIX = PERSON_PREFIX + "group-"
+
+    fun newGroup(title: String, glyph: GlyphChoice = GlyphChoice.icon("people")) = Rule(
+        id = GROUP_PREFIX + UUID.randomUUID(),
+        name = title.trim(),
+        source = Source.APPS,
+        match = Match(conditions = listOf(Condition(Field.CONTACT_GROUP, Op.IS, listOf(title.trim())))),
+        action = Action.SHOW,
+        glyph = glyph.style,
+        designId = glyph.id,
+        until = Until.READ,
+    )
+
+    fun isGroupRule(r: Rule) = r.action == Action.SHOW && r.id.startsWith(GROUP_PREFIX)
 
     fun personNumbers(r: Rule): List<String> = r.match.conditions.firstOrNull { it.field == Field.NUMBER }?.cleanValues.orEmpty()
 

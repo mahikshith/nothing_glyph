@@ -96,7 +96,7 @@ fun ConditionsSheet(
         when {
             conditions.isEmpty() -> Hint("For example: Title contains “OTP”, or Sender isn't in my contacts.")
             blocking -> Hint(if (matched == 0) "Would have blocked nothing in the last 30 days" else "Would have blocked $matched in the last 30 days")
-            else -> Hint(if (matched == 0) "Would have lit for nothing in the last 30 days" else "Would have lit for $matched in the last 30 days")
+            else -> Hint(if (matched == 0) "Wouldn't have lit in the last 30 days" else "Would have lit $matched ${if (matched == 1) "time" else "times"} in the last 30 days")
         }
     }
     edit?.let { i ->

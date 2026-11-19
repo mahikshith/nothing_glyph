@@ -353,6 +353,21 @@ abstract class FeaturesScreens : ScreenshotTest() {
         scrollTo("Calendar access is off")
         capture(f, "25-live-progress-leads-calendar-off")
     }
+
+    /** The media ring (once only in Old screens): "Media progress" and its "Only when locked or face down". */
+    @Test fun progressMedia() {
+        AppGraph.media.setOn(true)
+        AppGraph.media.setOnlyLockedOrFaceDown(true)
+        try {
+            page("progress")
+            settle()
+            scrollTo("Only when locked or face down")
+            capture(f, "26-live-progress-media-ring")
+        } finally {
+            AppGraph.media.setOn(false)
+            AppGraph.media.setOnlyLockedOrFaceDown(false)
+        }
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)

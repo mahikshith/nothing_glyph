@@ -144,7 +144,7 @@ object Delivery {
             ongoing = info.ongoing,
             at = c.value.now,
             region = region,
-            contact = { sender()?.let { Caller(it.status != ContactStatus.UNKNOWN, it.status == ContactStatus.STARRED, it.name) } },
+            contact = { sender()?.let { Caller(it.status != ContactStatus.UNKNOWN, it.status == ContactStatus.STARRED, it.name, it.groups) } },
             spamList = spamList,
             state = { PhoneState(c.value.locked, c.value.dnd, c.value.charging, filters.quiet.isActive(c.value.now)) },
         )

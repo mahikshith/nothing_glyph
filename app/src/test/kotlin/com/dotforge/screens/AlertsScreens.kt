@@ -441,6 +441,86 @@ abstract class AlertsScreens : ScreenshotTest() {
         capture(f, "49h-spam-calls-that-dont-ring")
     }
 
+    // ---------------------------------------------------------------- what moved out of Old screens
+
+    @Test fun whenRow() {
+        AppGraph.rules.upsert(SimpleRules.withLocked(SimpleRules.withTimes(wa, listOf(1, 2, 3, 4, 5), "09:00-18:00"), true))
+        sheet("wa", advanced = true)
+        scrollSheetTo("When")
+        capture(f, "70-sheet-app-when-row")
+        rule.onNodeWithText("When").performClick()
+        scrollSheetTo("Only when the phone is locked")
+        capture(f, "70b-when-sheet-only-when-locked")
+    }
+
+    @Test fun phoneCallsMissedAndScreened() {
+        AppGraph.calls.updateSettings { it.copy(missedGlyph = true) }
+        try {
+            sheet(SimpleRules.PHONE_CALLS)
+            scrollSheetTo("Screened calls")
+            capture(f, "71-sheet-phone-calls-missed-and-screened")
+            rule.onNodeWithText("Missed calls").performClick()
+            scrollSheetTo("Timing")
+            capture(f, "71b-missed-calls-sheet")
+        } finally {
+            AppGraph.calls.updateSettings { it.copy(missedGlyph = false) }
+        }
+    }
+
+    @Test fun screenedCalls() {
+        alerts(over = { com.dotforge.ui.alerts.ScreenedCallSheet(onDismiss = {}) })
+        capture(f, "71c-screened-calls-sheet")
+    }
+
+    @Test fun missedCallsOff() {
+        alerts(over = { com.dotforge.ui.alerts.MissedCallSheet(onDismiss = {}) })
+        capture(f, "71d-missed-calls-sheet-off")
+    }
+
+    @Test fun peopleWithAGroup() {
+        people()
+        AppGraph.rules.upsert(SimpleRules.newGroup("Family").copy(id = SimpleRules.GROUP_PREFIX + "family"))
+        alerts(request = "people")
+        capture(f, "72-people-with-a-group")
+    }
+
+    @Test fun addGroup() {
+        alerts(request = "people", over = { com.dotforge.ui.alerts.AddGroupSheet(setup(), onDismiss = {}, groups = listOf("Family", "Friends", "Work")) {} })
+        capture(f, "72b-add-group")
+        alerts(request = "people", start = AlertSheet.AddGroup)
+        capture(f, "72c-add-group-contacts-denied")
+    }
+
+    @Test fun sheetGroup() {
+        AppGraph.rules.upsert(SimpleRules.newGroup("Family").copy(id = SimpleRules.GROUP_PREFIX + "family"))
+        sheet(SimpleRules.GROUP_PREFIX + "family", request = "people")
+        capture(f, "72d-sheet-group")
+    }
+
+    @Test fun addRuleWhatToDo() {
+        alerts(request = "spam", start = AlertSheet.AddBlock())
+        rule.onNode(hasSetTextAction() and hasContentDescription("Number")).performTextInput("140555")
+        scrollSheetTo("Decline")
+        rule.onNodeWithText("Decline").performClick()
+        scrollSheetTo("Hide the notification")
+        capture(f, "73-add-rule-what-to-do-decline")
+    }
+
+    @Test fun spamMenuRestore() {
+        AppGraph.rules.delete("preset-otp")
+        alerts(request = "spam")
+        rule.onNode(hasContentDescription("More options")).performClick()
+        capture(f, "73b-spam-menu-restore-starter-rules")
+        rule.onNodeWithText("Restore the starter rules").performClick()
+        capture(f, "73c-starter-rules-restored-undo")
+    }
+
+    @Test fun spamMessages() {
+        alerts(request = "spam")
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Unknown senders"))
+        capture(f, "74-spam-messages")
+    }
+
     // ---------------------------------------------------------------- History
 
     @Test fun historyEmpty() {

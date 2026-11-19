@@ -189,6 +189,24 @@ fun ProgressFeature(nav: Nav, setup: Setup) {
                 }
             }
         }
+        // the media ring (it was under Old screens > Integrations): its own switch, needs only Notification access
+        item(key = "media") {
+            val mediaOn by AppGraph.media.on.collectAsStateWithLifecycle()
+            val mediaAway by AppGraph.media.onlyLockedOrFaceDown.collectAsStateWithLifecycle()
+            SectionLabel("Music and video")
+            RowGroup {
+                SwitchRow(
+                    "Media progress", "While music or a video plays, the outer ring shows how far along it is", mediaOn && access, enabled = access,
+                    leading = { LibraryGlyph("music", still = true) },
+                ) { AppGraph.media.setOn(it) }
+                if (mediaOn && access) {
+                    RowDivider(leading = true)
+                    SwitchRow("Only when locked or face down", "Keeps the ring dark while you use the phone", mediaAway) {
+                        AppGraph.media.setOnlyLockedOrFaceDown(it)
+                    }
+                }
+            }
+        }
         item(key = "coming") {
             SectionLabel("Coming up")
             RowGroup(quiet) {

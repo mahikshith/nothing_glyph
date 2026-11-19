@@ -102,8 +102,10 @@ class GlyphNotificationListener : NotificationListenerService() {
         }
         val missed = missedCall(n) && (verdict is Verdict.Show || verdict == Verdict.NoRule)
         if (missed) {
-            val glyph = AlertGlyph(Effects.missedCall(AppGraph.profile), "Missed call: ${info.title.ifBlank { info.appLabel }}")
-            AppGraph.alerts.offer(AlertQueue.Alert(info.key, info.conversation, false, Until.UNLOCK, glyph, rank = AlertQueue.RANK_CALL))
+            // the glyph and timing picked on the Phone calls sheet: until you check, lighting again every few minutes
+            val rule = com.dotforge.calls.CallActions.missedRule(AppGraph.calls.settings.value)
+            val design = { id: String? -> if (id == com.dotforge.calls.CallActions.BUILT_IN) Effects.missedCall(AppGraph.profile) else AppGraph.designAnimation(id) }
+            AppGraph.alerts.offer(RuleEngine.alert(rule, info.copy(sender = info.sender.ifBlank { info.title }), AppGraph.profile, design, AppGraph::designTiming, isCall = false, rank = AlertQueue.RANK_CALL))
             AppGraph.arbiter.refreshAfter(DotForgeApp.COVERED_MS)
         } else when (verdict) {
             is Verdict.Blocked -> block(sbn, info, verdict)

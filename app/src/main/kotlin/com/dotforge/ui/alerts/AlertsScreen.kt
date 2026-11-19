@@ -73,9 +73,11 @@ sealed interface AlertSheet {
     data class AddBlock(
         val editId: String? = null, val where: Set<Where> = setOf(Where.CALLS, Where.SMS), val pkg: String? = null,
         val more: com.dotforge.filter.Group = com.dotforge.filter.Group(), val openMore: Boolean = false,
+        val callAction: com.dotforge.rules.Action? = null,
     ) : AlertSheet
     data class Entry(val key: String) : AlertSheet
     data object AddPerson : AlertSheet
+    data object AddGroup : AlertSheet
     data object SpamAlert : AlertSheet
     data object HowItWorks : AlertSheet
     data object HowBlocking : AlertSheet
@@ -134,6 +136,16 @@ fun AlertsScreen(
                 DropdownMenu(open, onDismissRequest = { open = false }, containerColor = Tokens.Raised) {
                     DropdownMenuItem({ Text("Alert settings") }, onClick = { open = false; nav.push(Page.AlertSettings) })
                     DropdownMenuItem({ Text("How it works") }, onClick = { open = false; sheet = AlertSheet.HowItWorks })
+                    // the built-in rules (Phone calls, Messages, OTP codes, Delivery, the spam filter's) that were deleted
+                    if (segment == Segment.SPAM) DropdownMenuItem({ Text("Restore the starter rules") }, onClick = {
+                        open = false
+                        val missing = AppGraph.rules.missingPresets()
+                        if (missing.isEmpty()) snacks?.show("The starter rules are all there")
+                        else {
+                            AppGraph.rules.addPresets(missing)
+                            snacks?.show(if (missing.size == 1) "1 starter rule restored" else "${missing.size} starter rules restored", undo = { missing.forEach { AppGraph.rules.delete(it.id) } })
+                        }
+                    })
                     if (segment == Segment.HISTORY && history.isNotEmpty()) DropdownMenuItem({ Text("Clear history") }, onClick = {
                         open = false
                         val was = AppGraph.history.clear()
@@ -170,6 +182,7 @@ fun AlertsScreen(
         is AlertSheet.AddBlock -> AddRuleSheet(s, onDismiss = { sheet = null })
         is AlertSheet.Entry -> HistorySheet(s.key, label, onDismiss = { sheet = null }, open = { sheet = it })
         AlertSheet.AddPerson -> AddPersonSheet(setup, onDismiss = { sheet = null }) { r -> sheet = AlertSheet.RuleOf(r.id) }
+        AlertSheet.AddGroup -> AddGroupSheet(setup, onDismiss = { sheet = null }) { r -> sheet = AlertSheet.RuleOf(r.id) }
         AlertSheet.SpamAlert -> SpamAlertSheet(onDismiss = { sheet = null })
         AlertSheet.HowItWorks -> HowItWorksSheet(onDismiss = { sheet = null })
         AlertSheet.HowBlocking -> HowBlockingSheet(onDismiss = { sheet = null })
@@ -265,6 +278,7 @@ private fun LazyListScope.peopleItems(rules: List<Rule>, open: (AlertSheet) -> U
         item(key = "people-empty") {
             EmptyState("Give the people who matter their own glyph. It shows for their calls and messages in every app.", "Add a person", glyph = "heart") { open(AlertSheet.AddPerson) }
         }
+        item(key = "group-add") { RowGroup { AddRow("Add a group") { open(AlertSheet.AddGroup) } } }
         return
     }
     item(key = "people") {
@@ -275,9 +289,11 @@ private fun LazyListScope.peopleItems(rules: List<Rule>, open: (AlertSheet) -> U
             }
             RowDivider(leading = true)
             AddRow("Add a person") { open(AlertSheet.AddPerson) }
+            RowDivider(leading = true)
+            AddRow("Add a group") { open(AlertSheet.AddGroup) }
         }
     }
-    item(key = "people-hint") { Hint("People win over apps: Mom's glyph shows instead of the WhatsApp glyph.") }
+    item(key = "people-hint") { Hint("People win over apps: Mom's glyph shows instead of the WhatsApp glyph. A person wins over their group.") }
 }
 
 /**
@@ -309,6 +325,36 @@ fun AddPersonSheet(setup: Setup, onDismiss: () -> Unit, onAdded: (Rule) -> Unit)
         SectionLabel("Or type them in")
         LabeledField("Name", name, { name = it }, placeholder = "As apps show it, like Mom")
         LabeledField("Number", number, { number = it }, placeholder = "Optional", keyboard = KeyboardType.Phone, helper = "Calls match every number on the contact.")
+    }
+}
+
+/**
+ * "+ Add a group": the Contacts groups on this phone (Contacts asked for here, in context). A group gets one glyph
+ * for everyone in it; a person added on their own still wins over it.
+ */
+@Composable
+fun AddGroupSheet(setup: Setup, onDismiss: () -> Unit, groups: List<String>? = null, onAdded: (Rule) -> Unit) {
+    val ctx = LocalContext.current
+    val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
+    val have = rules.filter(SimpleRules::isGroupRule).map { it.name.lowercase() }.toSet()
+    val found = groups ?: remember(setup.contacts) { if (setup.contacts) runCatching { com.dotforge.calls.CallerLookup(ctx).groupTitles() }.getOrDefault(emptyList()) else emptyList() }
+    FullSheet(onDismiss, "Add a group", half = true, confirm = null) {
+        Hint("One glyph for everyone in a Contacts group, like Family or Work, in every app.")
+        when {
+            groups == null && !setup.contacts -> StatusBanner("Allow Contacts to see your groups", Modifier.padding(top = Tokens.Small), button = "Allow") { setup.needContacts() }
+            found.isEmpty() -> Hint("No groups in Contacts yet. Make one in your Contacts app, then come back.", Modifier.padding(top = Tokens.Small))
+            else -> RowGroup(Modifier.padding(top = Tokens.Small)) {
+                found.forEachIndexed { i, title ->
+                    if (i > 0) RowDivider(leading = true)
+                    val added = title.lowercase() in have
+                    ListRow(title, subtitle = if (added) "Added" else null, leading = { com.dotforge.ui.design.LibraryGlyph("people", still = true) }, enabled = !added) {
+                        val r = SimpleRules.newGroup(title)
+                        AppGraph.rules.upsert(r)
+                        onAdded(r)
+                    }
+                }
+            }
+        }
     }
 }
 

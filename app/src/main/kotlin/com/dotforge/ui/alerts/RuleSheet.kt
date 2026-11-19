@@ -108,6 +108,7 @@ fun RuleSheet(
     var tryIt by remember { mutableStateOf(false) }
     var block by remember { mutableStateOf(startBlock) }
     var more by remember { mutableStateOf(startMore) }
+    var callSheet by remember { mutableStateOf<String?>(null) }
     fun save(x: Rule) = AppGraph.rules.upsert(x)
 
     val title = ruleTitle(r, label)
@@ -142,8 +143,14 @@ fun RuleSheet(
             if (banners.ringtoneLights && r.callShow != CallShow.GLYPH) StatusBanner(
                 "Names show only when Glyph ringtone lights are set to Sound only", Modifier.padding(top = Tokens.Small), button = "Change setting",
             ) { runCatching { ctx.startActivity(NothingSettings.glyphSettings(ctx.packageManager).intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+            // missed and screened calls: their own glyphs (they were under Old screens > Calls)
+            val calls by AppGraph.calls.settings.collectAsStateWithLifecycle()
+            ListRow("Missed calls", subtitle = missedLine(calls), inset = 0.dp, trailing = { Chevron() }, modifier = Modifier.padding(top = Tokens.Small)) { callSheet = "missed" }
+            ListRow("Screened calls", subtitle = screenedLine(calls), inset = 0.dp, trailing = { Chevron() }) { callSheet = "screened" }
         }
-        if (isPerson) Hint("${r.name}'s glyph shows instead of the app's glyph, in every app.")
+        val isGroup = SimpleRules.isGroupRule(r)
+        if (isGroup) Hint("Everyone in ${r.name} gets this glyph instead of the app's, in every app. A person you add on their own wins over the group.")
+        else if (isPerson) Hint("${r.name}'s glyph shows instead of the app's glyph, in every app.")
 
         // what stops it showing as it should
         when {
@@ -152,7 +159,7 @@ fun RuleSheet(
             isApp && banners.doubleLights -> StatusBanner("Nothing also lights for $title", Modifier.padding(top = Tokens.Gap), button = "Fix", onClick = onDoubleLights)
         }
 
-        if (isPerson) {
+        if (isPerson && !isGroup) {
             val needs = r.callRingtone != null && !setup.screening
             ListRow(
                 "When ${r.name} calls",
@@ -203,7 +210,8 @@ fun RuleSheet(
                 ListRow("Words", subtitle = if (words.isEmpty()) "Any message" else "Contains any of: ${words.joinToString(", ")}", inset = 0.dp, trailing = { Chevron() }) { textSheet = "words" }
                 val chats = SimpleRules.chats(r)
                 ListRow("Only these chats", subtitle = if (chats.isEmpty()) "All chats" else chats.joinToString(", "), inset = 0.dp, trailing = { Chevron() }) { textSheet = "chats" }
-                ListRow("Times", subtitle = SimpleRules.timesText(r), inset = 0.dp, trailing = { Chevron() }) { textSheet = "times" }
+                // days, hours and "only when locked" in one row (the old Notifications page's filter, per app)
+                ListRow("When", subtitle = SimpleRules.whenText(r), inset = 0.dp, trailing = { Chevron() }) { textSheet = "times" }
                 // any field, all or any, named lists: the full filter, in sentences
                 ListRow(
                     "More conditions", subtitle = com.dotforge.rules.MoreConditions.summary(com.dotforge.rules.MoreConditions.of(r)),
@@ -262,6 +270,10 @@ fun RuleSheet(
         "times" -> TimesSheet(r, onDismiss = { textSheet = null }) { save(it) }
     }
     if (tryIt) TryItSheet(r, title, banners.device, onDismiss = { tryIt = false })
+    when (callSheet) {
+        "missed" -> MissedCallSheet(onDismiss = { callSheet = null })
+        "screened" -> ScreenedCallSheet(onDismiss = { callSheet = null })
+    }
     if (more) ConditionsSheet(
         com.dotforge.rules.MoreConditions.of(r), calls = false, apps = true, blocking = false,
         preview = { g -> com.dotforge.rules.MoreConditions.with(r, g) }, onDismiss = { more = false },
@@ -460,8 +472,10 @@ private fun TimesSheet(r: Rule, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
     fun minutes(t: String?) = t?.split(':')?.let { (it.getOrNull(0)?.toIntOrNull() ?: 0) * 60 + (it.getOrNull(1)?.toIntOrNull() ?: 0) }
     var from by remember { mutableStateOf(minutes(range?.getOrNull(0)) ?: 0) }
     var to by remember { mutableStateOf(minutes(range?.getOrNull(1)) ?: 0) }
-    FullSheet(onDismiss, "Times", half = true, confirm = "Save", confirmEnabled = days.isNotEmpty(), onConfirm = {
-        onSave(SimpleRules.withTimes(r, days, if (from == to) null else "${hhmm(from)}-${hhmm(to)}"))
+    var locked by remember { mutableStateOf(SimpleRules.locked(r)) }
+    // full height: on a small screen a half sheet would hide the locked switch below the fold
+    FullSheet(onDismiss, "When", confirm = "Save", confirmEnabled = days.isNotEmpty(), onConfirm = {
+        onSave(SimpleRules.withLocked(SimpleRules.withTimes(r, days, if (from == to) null else "${hhmm(from)}-${hhmm(to)}"), locked))
         onDismiss()
     }) {
         Text("Days", style = MaterialTheme.typography.titleSmall, color = Tokens.Secondary)
@@ -472,6 +486,8 @@ private fun TimesSheet(r: Rule, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
             TimeRow("To", to) { to = it }
         }
         Hint(if (from == to) "All day" else "From ${hhmm(from)} to ${hhmm(to)}" + if (to < from) ", overnight" else "")
+        SwitchRow("Only when the phone is locked", "Not while you're using it", locked, inset = 0.dp) { locked = it }
+        // no "only when face down": face down, Nothing hides lights from apps, so such an alert would never show
     }
 }
 

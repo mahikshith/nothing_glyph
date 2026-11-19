@@ -53,7 +53,8 @@ class CallerLookup(private val context: Context) {
         }.getOrNull()
     }
 
-    private fun groupsOf(contactId: Long): Set<String> {
+    /** The Contacts groups (titles) a contact is in. */
+    fun groupsOf(contactId: Long): Set<String> {
         val ids = mutableSetOf<Long>()
         cr.query(
             ContactsContract.Data.CONTENT_URI,

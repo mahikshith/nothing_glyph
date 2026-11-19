@@ -35,8 +35,16 @@ data class CallSettings(
     val repeatMinutes: Int = 5,
     /** A short glyph on the matrix when a call is silenced or rejected (spam uses the spam alert). */
     val screenedGlyph: Boolean = true,
-    /** A missed call glyph that repeats until the phone is unlocked. */
+    /** A missed call glyph that waits until you check it and lights again every few minutes ([CallActions.missedRule]). */
     val missedGlyph: Boolean = false,
+    /** The missed call's glyph: null for the built-in one, else a style and its [missedDesign] (a library glyph or design). */
+    val missedStyle: com.dotforge.rules.GlyphStyle? = null,
+    val missedDesign: String? = null,
+    /** The missed call's timing from the shared timing controls; null is [CallActions.MISSED_TIMING]. */
+    val missedTiming: com.dotforge.device.TimingOverride? = null,
+    /** The glyph for a silenced or declined call: null for the built-in Silenced and Declined glyphs. */
+    val screenedStyle: com.dotforge.rules.GlyphStyle? = null,
+    val screenedDesign: String? = null,
 )
 
 /** A call seen recently, for repeated callers. */

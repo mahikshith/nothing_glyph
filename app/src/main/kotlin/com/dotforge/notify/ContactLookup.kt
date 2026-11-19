@@ -73,15 +73,17 @@ class ContactLookup(private val context: Context) {
 
     /** The first starred match, else the first match, else null. */
     private fun find(q: Query): Sender? {
-        val cols = arrayOf(ContactsContract.Contacts.STARRED, ContactsContract.Contacts.DISPLAY_NAME)
+        val cols = arrayOf(ContactsContract.Contacts.STARRED, ContactsContract.Contacts.DISPLAY_NAME, ContactsContract.Contacts._ID)
+        // with their Contacts groups, for a group's glyph
+        fun groups(id: Long) = runCatching { com.dotforge.calls.CallerLookup(context).groupsOf(id) }.getOrDefault(emptySet())
         return context.contentResolver.query(q.uri, cols, q.selection, q.args, null)?.use { c ->
-            var found: Sender? = null
+            var found: Pair<Sender, Long>? = null
             while (c.moveToNext()) {
                 val s = Sender(if (c.getInt(0) == 1) ContactStatus.STARRED else ContactStatus.CONTACT, c.getString(1))
-                if (s.status == ContactStatus.STARRED) return s
-                if (found == null) found = s
+                if (s.status == ContactStatus.STARRED) return s.copy(groups = groups(c.getLong(2)))
+                if (found == null) found = s to c.getLong(2)
             }
-            found
+            found?.let { (s, id) -> s.copy(groups = groups(id)) }
         }
     }
 }

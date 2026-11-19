@@ -123,6 +123,8 @@ fun LazyListScope.spamItems(
     if (list.isEmpty()) item(key = "spam-rules-empty") { Hint("Block numbers that start with a code, or messages with certain words.") }
     item(key = "calls-label") { SectionLabel("Calls that don't ring") }
     item(key = "calls") { QuietCalls(rules, setup) }
+    item(key = "messages-label") { SectionLabel("Messages") }
+    item(key = "messages") { SpamMessages(rules, setup) }
     item(key = "let-label") { SectionLabel("Always let through") }
     item(key = "let") {
         RowGroup {
@@ -209,6 +211,36 @@ private fun QuietCalls(rules: List<Rule>, setup: com.dotforge.ui.Setup) {
     }
 }
 
+/**
+ * Simple switches for messages: the built-in spam words, and senders not in Contacts. Both are the spam
+ * filter's own rules ([RuleEngine.SPAM_WORDS_RULE], [RuleEngine.UNKNOWN_SENDERS]); matching messages are hidden
+ * and logged in History.
+ */
+@Composable
+private fun SpamMessages(rules: List<Rule>, setup: com.dotforge.ui.Setup) {
+    val words = rules.firstOrNull { it.id == RuleEngine.SPAM_WORDS_RULE }
+    val unknown = rules.firstOrNull { it.id == RuleEngine.UNKNOWN_SENDERS }
+    val list = AppGraph.rules.lists.collectAsStateWithLifecycle().value.firstOrNull { it.name == RuleEngine.SPAM_WORDS }?.entries.orEmpty()
+    fun set(id: String, r: Rule?, on: Boolean) {
+        if (r == null) { if (on) AppGraph.rules.ensurePreset(id) } else AppGraph.rules.upsert(r.copy(enabled = on))
+    }
+    RowGroup {
+        SwitchRow(
+            "Spam words", if (list.isEmpty()) "Messages that mention common spam words" else "Messages that mention ${list.take(3).joinToString(", ")}" + if (list.size > 3) " and ${list.size - 3} more" else "",
+            words?.enabled == true,
+        ) { on -> set(RuleEngine.SPAM_WORDS_RULE, words, on) }
+        RowDivider()
+        val needsContacts = unknown?.enabled == true && !setup.contacts
+        SwitchRow(
+            "Unknown senders", if (needsContacts) "Needs Contacts to know who is unknown" else "Messages from people not in your contacts",
+            unknown?.enabled == true,
+        ) { on ->
+            set(RuleEngine.UNKNOWN_SENDERS, unknown, on)
+            if (on && !setup.contacts) setup.needContacts()
+        }
+    }
+}
+
 /** Row 64: the community list, updated weekly, checked on the phone. */
 @Composable
 private fun CommunityList(rules: List<Rule>) {
@@ -257,12 +289,14 @@ fun AddRuleSheet(s: AlertSheet.AddBlock, onDismiss: () -> Unit) {
     val apps = start?.apps ?: listOfNotNull(s.pkg)
     var more by remember { mutableStateOf(editing?.let(com.dotforge.rules.MoreConditions::of) ?: s.more) }
     var builder by remember { mutableStateOf(s.openMore) }
+    var callAction by remember { mutableStateOf(editing?.callAction ?: s.callAction) }
     val p = BlockPattern(type, text, where, apps)
     val problem = SimpleRules.problem(p.copy(where = if (apps.isNotEmpty()) where + Where.ANY_APP else where))
     val region = remember { runCatching { CallerLookup(ctx).region() }.getOrNull() }
     val history by AppGraph.history.entries.collectAsStateWithLifecycle()
     val lists by AppGraph.rules.lists.collectAsStateWithLifecycle()
     val rule = SimpleRules.blockRule(p, id = editing?.id ?: (SimpleRules.BLOCK_PREFIX + java.util.UUID.randomUUID()), more = more)
+        .copy(callAction = callAction.takeIf { Where.CALLS in where })
     // the whole rule, More conditions included, against the last 30 days
     val would = remember(p, more, history, lists) { if (problem != null) 0 else wouldHaveMatched(rule, history, region, lists) }
     val label = com.dotforge.ui.rememberAppLabel()
@@ -292,8 +326,21 @@ fun AddRuleSheet(s: AlertSheet.AddBlock, onDismiss: () -> Unit) {
             Where.entries.forEach { w -> Chip(w.label, w in where) { where = if (w in where) where - w else where + w } }
             apps.forEach { a -> Chip(label(a), true) {} }
         }
-        Column(Modifier.padding(top = Tokens.Tiny)) {
-            Where.entries.filter { it in where }.forEach { w -> Text("${w.label}: ${w.means}", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(vertical = 2.dp)) }
+        // what blocking does, per place: calls pick Silence, Decline or Decline with no log; messages are hidden
+        if (where.isNotEmpty() || apps.isNotEmpty()) Text("What to do", style = MaterialTheme.typography.titleSmall, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Gap))
+        if (Where.CALLS in where) {
+            Text("Calls", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = Tokens.Tiny))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
+                com.dotforge.calls.CallActions.CHOICES.forEach { (label, a, _) -> Chip(label, callAction == a) { callAction = a } }
+            }
+            Hint(com.dotforge.calls.CallActions.CHOICES.first { it.second == callAction }.third)
+        }
+        if (where.any { it != Where.CALLS } || apps.isNotEmpty()) {
+            Text("Messages", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = Tokens.Tiny))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) { Chip("Hide the notification", true) {} }
+            Column(Modifier.padding(top = Tokens.Tiny)) {
+                Where.entries.filter { it in where && it != Where.CALLS }.forEach { w -> Text("${w.label}: ${w.means}", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(vertical = 2.dp)) }
+            }
         }
         if (problem == "Pick where it applies") Hint(problem)
         // any field, all or any, named lists: the same builder as an app's Advanced
