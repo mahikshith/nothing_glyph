@@ -13,6 +13,21 @@ import java.util.Locale
 
 /** Contacts and the phone's region, as call screening needs them. Contact reads return null without access. */
 class CallerLookup(private val context: Context) {
+    companion object {
+        /** Visible, not deleted, not filled automatically, not the favourites group. */
+        const val GROUP_SELECTION = "${ContactsContract.Groups.DELETED} = 0 AND ${ContactsContract.Groups.GROUP_VISIBLE} = 1 AND " +
+            "${ContactsContract.Groups.AUTO_ADD} = 0 AND ${ContactsContract.Groups.FAVORITES} = 0"
+
+        /** The system ids of Contacts' own default groups. */
+        private val DEFAULT_SYSTEM_IDS = setOf("contacts", "starred")
+        private val DEFAULT_TITLES = setOf("my contacts", "starred in android", "starred")
+
+        /** A group a person made and can see: not "My Contacts" or "Starred", which every contact or favourite is in. */
+        fun isUserGroup(title: String?, systemId: String?, visible: Boolean, autoAdd: Boolean, favorites: Boolean): Boolean =
+            !title.isNullOrBlank() && visible && !autoAdd && !favorites &&
+                systemId?.lowercase() !in DEFAULT_SYSTEM_IDS && title.trim().lowercase() !in DEFAULT_TITLES
+    }
+
     private val cr get() = context.contentResolver
 
     fun canRead(): Boolean =
@@ -67,16 +82,25 @@ class CallerLookup(private val context: Context) {
         return groups().filter { it.first in ids }.map { it.second }.toSet()
     }
 
-    /** Contacts groups as (id, title), visible ones only. */
+    /**
+     * Contacts groups as (id, title): visible groups a person made. Contacts' own defaults ("My Contacts", which
+     * everyone is in, and "Starred in Android") are left out, so no group can quietly beat every app.
+     */
     private fun groups(): List<Pair<Long, String>> {
         val out = mutableListOf<Pair<Long, String>>()
         runCatching {
             cr.query(
                 ContactsContract.Groups.CONTENT_URI,
-                arrayOf(ContactsContract.Groups._ID, ContactsContract.Groups.TITLE),
-                "${ContactsContract.Groups.DELETED} = 0", null, null,
+                arrayOf(
+                    ContactsContract.Groups._ID, ContactsContract.Groups.TITLE, ContactsContract.Groups.SYSTEM_ID,
+                    ContactsContract.Groups.GROUP_VISIBLE, ContactsContract.Groups.AUTO_ADD, ContactsContract.Groups.FAVORITES,
+                ),
+                GROUP_SELECTION, null, null,
             )?.use { c ->
-                while (c.moveToNext()) c.getString(1)?.trim()?.takeIf { it.isNotEmpty() }?.let { out += c.getLong(0) to it }
+                while (c.moveToNext()) {
+                    val title = c.getString(1)
+                    if (isUserGroup(title, c.getString(2), c.getInt(3) == 1, c.getInt(4) == 1, c.getInt(5) == 1)) out += c.getLong(0) to title!!.trim()
+                }
             }
         }
         return out

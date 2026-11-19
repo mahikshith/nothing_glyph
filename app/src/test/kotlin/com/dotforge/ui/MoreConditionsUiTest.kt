@@ -92,14 +92,14 @@ class MoreConditionsUiTest {
     @Test fun conditionsBuiltInTheSheetMatchAll() {
         var saved: Group? = null
         builder { saved = it }
-        add("Title", "contains", "OTP")
-        add("Sender", "is not", "Bank")
+        add("Title", "has", "OTP")
+        add("Who sent it", "isn't", "Bank")
         // the rows read as one sentence
-        rule.onNodeWithText("Title has 'OTP'").assertExists()
-        rule.onNodeWithText("and not from 'Bank'").assertExists()
+        rule.onNodeWithText("Title has “OTP”").assertExists()
+        rule.onNodeWithText("and not from “Bank”").assertExists()
         rule.onNodeWithText("Save").tap()
         val r = MoreConditions.with(wa, saved!!)
-        assertEquals("Title has 'OTP' and not from 'Bank'", MoreConditions.summary(saved!!))
+        assertEquals("Title has “OTP” and not from “Bank”", MoreConditions.summary(saved!!))
         assertNotNull(RuleEngine.explain(r, msg("HDFC", "Your OTP is 1")))
         assertNull(RuleEngine.explain(r, msg("Bank", "Your OTP is 1")))
     }
@@ -107,11 +107,11 @@ class MoreConditionsUiTest {
     @Test fun matchAnyAndNotFromTheSheet() {
         var saved: Group? = null
         builder { saved = it }
-        add("Title", "contains", "OTP")
-        add("Contacts", "isn't in my contacts")
-        rule.onNodeWithText("Match any").tap()
+        add("Title", "has", "OTP")
+        add("Contacts", "isn't a contact")
+        rule.onNodeWithText("Any of these").tap()
         rule.waitForIdle()
-        rule.onNodeWithText("or sender isn't in my contacts").assertExists()
+        rule.onNodeWithText("or sender isn't a contact").assertExists()
         rule.onNodeWithText("Save").tap()
         val r = MoreConditions.with(wa, saved!!)
         assertNotNull(RuleEngine.explain(r, msg("Mom", "Your OTP", contact = true)))
@@ -124,7 +124,7 @@ class MoreConditionsUiTest {
         builder { saved = it }
         rule.onNodeWithText("Add a condition").tap()
         rule.waitForIdle()
-        rule.onNodeWithText("Text").tap()
+        rule.onNodeWithText("Message").tap()
         rule.onNodeWithText("isn't in list").tap()
         rule.waitForIdle()
         rule.onNodeWithText("+ New list").tap()
@@ -134,7 +134,7 @@ class MoreConditionsUiTest {
         rule.onNodeWithText("Save list").tap()
         rule.waitForIdle()
         assertEquals(listOf("hi", "hello"), AppGraph.rules.list("Greetings")?.entries)
-        rule.onNodeWithText("Reads: Text isn't in list 'Greetings'").assertExists()
+        rule.onNodeWithText("Reads: Message isn't in list “Greetings”").assertExists()
         rule.onNodeWithText("Add condition").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Save").tap()
@@ -153,16 +153,16 @@ class MoreConditionsUiTest {
         }
         rule.waitForIdle()
         rule.onNode(hasScrollAction() and androidx.compose.ui.test.hasAnyDescendant(hasText("More conditions"))).performScrollToNode(hasText("More conditions"))
-        rule.onNodeWithText("Title has 'OTP'").assertExists()
+        rule.onNodeWithText("Title has “OTP”").assertExists()
         // Advanced stays within 8 rows: brightness and speed share one
         rule.onNodeWithText("Brightness and speed").assertExists()
         rule.onNodeWithText("More conditions").tap()
         rule.waitForIdle()
-        add("Sender", "is not", "Bank")
+        add("Who sent it", "isn't", "Bank")
         rule.onNodeWithText("Save").tap()
         rule.waitForIdle()
         val saved = AppGraph.rules.rules.value.first { it.id == wa.id }
-        assertEquals("Title has 'OTP' and not from 'Bank'", MoreConditions.summary(MoreConditions.of(saved)))
+        assertEquals("Title has “OTP” and not from “Bank”", MoreConditions.summary(MoreConditions.of(saved)))
     }
 
     @Test fun aSpamRuleGetsMoreConditionsAndCountsThem() {
@@ -177,29 +177,36 @@ class MoreConditionsUiTest {
         rule.onNode(hasScrollAction() and androidx.compose.ui.test.hasAnyDescendant(hasText("More conditions"))).performScrollToNode(hasText("More conditions"))
         rule.onNodeWithText("More conditions").tap()
         rule.waitForIdle()
-        add("Contacts", "isn't in my contacts")
+        add("Contacts", "isn't a contact")
         rule.onNodeWithText("Block only when these are true too.").assertExists()
         rule.onNodeWithText("Save").tap()
         rule.waitForIdle()
-        rule.onNodeWithText("Sender isn't in my contacts").assertExists()
+        rule.onNodeWithText("Sender isn't a contact").assertExists()
         rule.onNodeWithText("Add").tap()
         rule.waitForIdle()
-        val added = AppGraph.rules.rules.value.first { it.name == "Mentions “loan”, sender isn't in my contacts" }
+        val added = AppGraph.rules.rules.value.first { it.name == "Mentions “loan”, sender isn't a contact" }
         assertTrue(SimpleRules.pattern(added) != null)
         assertEquals(1, MoreConditions.of(added).conditions.size)
     }
 
-    @Test fun theSpamTabSwitchesQuietUnknownHiddenAndFakedCalls() {
+    @Test fun theSpamTabSwitchesStrangersHiddenAndFakedCalls() {
         val nav = Nav(Tab.ALERTS).also { it.alertsRequest = "spam" }
         rule.setContent {
             DotForgeTheme { AlertsScreen(nav, Setup(rule.activity), rememberLazyListState(), AlertBanners(DeviceState.PHONE3, true, false, false)) }
         }
         rule.waitForIdle()
         rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Faked numbers"))
-        listOf("Unknown numbers" to RuleEngine.UNKNOWN_CALLS, "Hidden numbers" to RuleEngine.HIDDEN_CALLS, "Faked numbers" to RuleEngine.FAKED_CALLS).forEach { (name, id) ->
+        listOf("Hidden numbers" to RuleEngine.HIDDEN_CALLS, "Faked numbers" to RuleEngine.FAKED_CALLS).forEach { (name, id) ->
             rule.onNode(hasText(name) and androidx.compose.ui.test.isToggleable()).tap()
             rule.waitForIdle()
             assertTrue(name, AppGraph.rules.rules.value.first { it.id == id }.enabled)
         }
+        // people not in your contacts: one row, a choice for calls and one for messages
+        rule.onNodeWithText("Calls").tap()
+        rule.waitForIdle()
+        assertTrue(AppGraph.rules.rules.value.first { it.id == RuleEngine.UNKNOWN_CALLS }.enabled)
+        rule.onNodeWithText("Messages").tap()
+        rule.waitForIdle()
+        assertTrue(AppGraph.rules.rules.value.first { it.id == RuleEngine.UNKNOWN_SENDERS }.enabled)
     }
 }

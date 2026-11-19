@@ -201,9 +201,11 @@ fun ProgressFeature(nav: Nav, setup: Setup) {
                 ) { AppGraph.media.setOn(it) }
                 if (mediaOn && access) {
                     RowDivider(leading = true)
-                    SwitchRow("Only when locked or face down", "Keeps the ring dark while you use the phone", mediaAway) {
-                        AppGraph.media.setOnlyLockedOrFaceDown(it)
-                    }
+                    // a sub-option: its text lines up under "Media progress", past the glyph
+                    SwitchRow(
+                        "Only when the phone is locked", "Keeps the ring dark while you use the phone", mediaAway,
+                        modifier = Modifier.padding(start = com.dotforge.ui.design.TEXT_AFTER_ICON - Tokens.Gutter),
+                    ) { AppGraph.media.setOnlyLockedOrFaceDown(it) }
                 }
             }
         }

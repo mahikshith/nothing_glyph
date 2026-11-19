@@ -314,6 +314,19 @@ object SimpleRules {
 
     fun isGroupRule(r: Rule) = r.action == Action.SHOW && r.id.startsWith(GROUP_PREFIX)
 
+    /**
+     * Whose glyph a ringing call shows instead of Phone calls': the person named [name] or with [number] (one
+     * with a Glyph ringtone rings with it instead), else a Contacts group the caller is in ([groups]), else null.
+     */
+    fun callGlyphRule(rules: List<Rule>, name: String?, number: String?, groups: Set<String>): Rule? {
+        fun tail(n: String) = n.filter(Char::isDigit).takeLast(9)
+        val person = rules.firstOrNull { r ->
+            isPersonRule(r) && !isGroupRule(r) && r.enabled && r.callRingtone == null &&
+                (r.name.equals(name, ignoreCase = true) || (number != null && personNumbers(r).any { n -> tail(n) == tail(number) }))
+        }
+        return person ?: rules.firstOrNull { r -> isGroupRule(r) && r.enabled && groups.any { it.equals(r.name, ignoreCase = true) } }
+    }
+
     fun personNumbers(r: Rule): List<String> = r.match.conditions.firstOrNull { it.field == Field.NUMBER }?.cleanValues.orEmpty()
 
     fun renamePerson(r: Rule, name: String, numbers: List<String> = personNumbers(r)) = r.copy(name = name, match = personMatch(name, numbers))
@@ -399,7 +412,7 @@ object SimpleRules {
         val m = MoreConditions.base(r)
         if (r.action != Action.SPAM || m.groups.isNotEmpty() || m.all) return null
         val cs = m.conditions
-        if (r.id.startsWith(BLOCK_PREFIX) && cs.size == 1 && cs[0].field == Field.MESSAGE && cs[0].op == Op.CONTAINS && !cs[0].not && cs[0].list == null) {
+        if ((r.id.startsWith(BLOCK_PREFIX) || r.id == RuleEngine.SPAM_WORDS_RULE) && cs.size == 1 && cs[0].field == Field.MESSAGE && cs[0].op == Op.CONTAINS && !cs[0].not && cs[0].list == null) {
             val where = mutableSetOf<Where>()
             if (r.packages.isEmpty()) where += Where.ANY_APP
             if (r.packages.containsAll(SMS_APPS)) where += Where.SMS
@@ -453,7 +466,11 @@ object SimpleRules {
     fun appBlocks(rules: List<Rule>, pkg: String): List<Rule> =
         rules.filter { r -> pattern(r) != null && r.source != Source.CALLS && (r.packages.isEmpty() || pkg in r.packages) && r.packages.isNotEmpty() }
 
-    /** "Calls, SMS", or the app names for packages no chip covers. */
+    /**
+     * "Calls, SMS", or the app names for packages no chip covers. "Other apps" covers SMS and WhatsApp too (the rule
+     * has no app list), so a row reads "All apps" (or "Calls, all apps") rather than "Other apps".
+     */
     fun whereText(p: BlockPattern, label: (String) -> String): String =
-        (Where.entries.filter { it in p.where }.map { it.label } + p.apps.map(label)).joinToString(", ").ifEmpty { "Nowhere" }
+        if (Where.ANY_APP in p.where) listOfNotNull("Calls".takeIf { Where.CALLS in p.where }, "all apps").joinToString(", ").replaceFirstChar { it.uppercase() }
+        else (Where.entries.filter { it in p.where }.map { it.label } + p.apps.map(label)).joinToString(", ").ifEmpty { "Nowhere" }
 }

@@ -145,11 +145,11 @@ fun RuleSheet(
             ) { runCatching { ctx.startActivity(NothingSettings.glyphSettings(ctx.packageManager).intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
             // missed and screened calls: their own glyphs (they were under Old screens > Calls)
             val calls by AppGraph.calls.settings.collectAsStateWithLifecycle()
-            ListRow("Missed calls", subtitle = missedLine(calls), inset = 0.dp, trailing = { Chevron() }, modifier = Modifier.padding(top = Tokens.Small)) { callSheet = "missed" }
-            ListRow("Screened calls", subtitle = screenedLine(calls), inset = 0.dp, trailing = { Chevron() }) { callSheet = "screened" }
+            ListRow("Missed calls", subtitle = missedLine(calls), subtitleLines = Int.MAX_VALUE, inset = 0.dp, trailing = { Chevron() }, modifier = Modifier.padding(top = Tokens.Small)) { callSheet = "missed" }
+            ListRow(STOPPED_TITLE, subtitle = screenedLine(calls), subtitleLines = Int.MAX_VALUE, inset = 0.dp, trailing = { Chevron() }) { callSheet = "screened" }
         }
         val isGroup = SimpleRules.isGroupRule(r)
-        if (isGroup) Hint("Everyone in ${r.name} gets this glyph instead of the app's, in every app. A person you add on their own wins over the group.")
+        if (isGroup) Hint("Everyone in ${r.name} gets this glyph instead of the app's, for their calls and their messages in every app. A person you add on their own wins over the group.")
         else if (isPerson) Hint("${r.name}'s glyph shows instead of the app's glyph, in every app.")
 
         // what stops it showing as it should
@@ -207,14 +207,18 @@ fun RuleSheet(
             val t = r.timing?.over(Timing()) ?: Timing()
             if (isApp) {
                 val words = SimpleRules.words(r)
-                ListRow("Words", subtitle = if (words.isEmpty()) "Any message" else "Contains any of: ${words.joinToString(", ")}", inset = 0.dp, trailing = { Chevron() }) { textSheet = "words" }
+                ListRow("Words", subtitle = if (words.isEmpty()) "Any message" else "Has any of: ${words.joinToString(", ")}", inset = 0.dp, trailing = { Chevron() }) { textSheet = "words" }
                 val chats = SimpleRules.chats(r)
                 ListRow("Only these chats", subtitle = if (chats.isEmpty()) "All chats" else chats.joinToString(", "), inset = 0.dp, trailing = { Chevron() }) { textSheet = "chats" }
                 // days, hours and "only when locked" in one row (the old Notifications page's filter, per app)
                 ListRow("When", subtitle = SimpleRules.whenText(r), inset = 0.dp, trailing = { Chevron() }) { textSheet = "times" }
                 // any field, all or any, named lists: the full filter, in sentences
+                val lists by AppGraph.rules.lists.collectAsStateWithLifecycle()
+                val g = com.dotforge.rules.MoreConditions.of(r)
+                val broken = com.dotforge.rules.MoreConditions.missingLists(g, lists).isNotEmpty()
                 ListRow(
-                    "More conditions", subtitle = com.dotforge.rules.MoreConditions.summary(com.dotforge.rules.MoreConditions.of(r)),
+                    "More conditions", subtitle = if (broken) LIST_REMOVED else com.dotforge.rules.MoreConditions.summary(g),
+                    subtitleColor = if (broken) Tokens.AccentText else Tokens.Secondary,
                     inset = 0.dp, trailing = { Chevron() },
                 ) { more = true }
             }
@@ -228,7 +232,7 @@ fun RuleSheet(
                 ListRow("Remind me", subtitle = if (m == 0) "Off" else "Every $m min", inset = 0.dp, trailing = { Chevron() }) { picker = WordKind.SHOW_FOR }
             }
             if (isApp || isPerson) SwitchRow("One alert per chat per minute", null, r.noRepeat, inset = 0.dp) { save(r.copy(noRepeat = it)) }
-            if (isPerson) SwitchRow("Include group chats", "Light when ${r.name} writes in a group", r.groupChats, inset = 0.dp) { save(r.copy(groupChats = it)) }
+            if (isPerson) SwitchRow("Also when they write in group chats", null, r.groupChats, inset = 0.dp) { save(r.copy(groupChats = it)) }
             if (isApp || isPerson) ListRow("Who wins", subtitle = "Calls, then people, then apps", inset = 0.dp, trailing = { Chevron() }) { nav.push(Page.WhoWins) }
             if (isCalls) Hint("Names come from Contacts, then your phone app's caller ID, then other caller ID apps, then the number. A spam label shows the Spam glyph.")
         }
@@ -265,7 +269,7 @@ fun RuleSheet(
         }
     }
     when (textSheet) {
-        "words" -> ListSheet("Words", "Light only when the message contains any of these.", SimpleRules.words(r), pattern = SimpleRules.wordsPattern(r), onDismiss = { textSheet = null }) { list, p -> save(SimpleRules.withWords(r, list, p)) }
+        "words" -> ListSheet("Words", "Light only when the message has any of these.", SimpleRules.words(r), pattern = SimpleRules.wordsPattern(r), onDismiss = { textSheet = null }) { list, p -> save(SimpleRules.withWords(r, list, p)) }
         "chats" -> ListSheet("Only these chats", "Chat or group names, as $title shows them.", SimpleRules.chats(r), pattern = null, onDismiss = { textSheet = null }) { list, _ -> save(SimpleRules.withChats(r, list)) }
         "times" -> TimesSheet(r, onDismiss = { textSheet = null }) { save(it) }
     }

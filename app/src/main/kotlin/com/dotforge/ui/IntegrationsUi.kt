@@ -50,7 +50,7 @@ fun IntegrationsPage(nav: Nav, setup: Setup) {
             if (on) setup.needNotificationAccess()
         }
         if (mediaOn) {
-            SwitchRow("Only when locked or face down", "Keeps the matrix dark while you use the phone.", onlyAway, AppGraph.media::setOnlyLockedOrFaceDown)
+            SwitchRow("Only when the phone is locked", "Keeps the matrix dark while you use the phone.", onlyAway, AppGraph.media::setOnlyLockedOrFaceDown)
         }
 
         GroupTitle("PROGRESS BARS")

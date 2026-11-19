@@ -354,15 +354,20 @@ abstract class FeaturesScreens : ScreenshotTest() {
         capture(f, "25-live-progress-leads-calendar-off")
     }
 
-    /** The media ring (once only in Old screens): "Media progress" and its "Only when locked or face down". */
+    /** The media ring (once only in Old screens): "Media progress" and its "Only when the phone is locked", then
+     *  without Notification access (switched on but greyed out, and no sub-option). */
     @Test fun progressMedia() {
         AppGraph.media.setOn(true)
         AppGraph.media.setOnlyLockedOrFaceDown(true)
         try {
             page("progress")
             settle()
-            scrollTo("Only when locked or face down")
+            scrollTo("Only when the phone is locked")
             capture(f, "26-live-progress-media-ring")
+            page("progress", access = false)
+            settle()
+            scrollTo("Media progress")
+            capture(f, "26b-live-progress-media-ring-no-access")
         } finally {
             AppGraph.media.setOn(false)
             AppGraph.media.setOnlyLockedOrFaceDown(false)

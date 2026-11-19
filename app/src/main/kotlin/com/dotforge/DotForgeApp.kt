@@ -192,10 +192,9 @@ object AppGraph {
         moments = com.dotforge.system.PhoneMoments(app).also { it.start() }
         faceDown = FaceDownSensor(app)
         media = MediaRingSettings(app.getSharedPreferences("media", Context.MODE_PRIVATE))
-        // the sensor runs only while a filter or the media ring asks whether the phone is face down
+        // the sensor runs only while a filter asks whether the phone is face down
         MainScope().launch {
-            combine(filters.filters.map { it.onlyFaceDown }, media.on, media.onlyLockedOrFaceDown) { f, on, away -> f || (on && away) }
-                .distinctUntilChanged().collect(faceDown::setEnabled)
+            filters.filters.map { it.onlyFaceDown }.distinctUntilChanged().collect(faceDown::setEnabled)
         }
         designs = DesignsRepository(profile, File(app.filesDir, "designs.json"), legacyFile = File(app.filesDir, "studio_current.json"))
         toys = ToySettings(app.getSharedPreferences("toys", Context.MODE_PRIVATE))

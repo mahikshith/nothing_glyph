@@ -29,7 +29,7 @@ class MediaRingSettings(private val prefs: SharedPreferences) {
     private val _on = MutableStateFlow(prefs.getBoolean(KEY_ON, false))
     val on: StateFlow<Boolean> = _on.asStateFlow()
     private val _onlyAway = MutableStateFlow(prefs.getBoolean(KEY_ONLY_AWAY, false))
-    /** Only while the phone is locked or lies face down. */
+    /** "Only when the phone is locked" (the name is from when it also meant face down; face down hides app lights anyway). */
     val onlyLockedOrFaceDown: StateFlow<Boolean> = _onlyAway.asStateFlow()
 
     fun setOn(v: Boolean) {
@@ -107,7 +107,7 @@ class MediaRing(private val context: Context, private val listener: ComponentNam
             AppGraph.arbiter.remove(ID)
             return
         }
-        // while playing, look again every second: the position moves, and the phone may be locked or turned over
+        // while playing, look again every second: the position moves, and the phone may be locked
         main.postDelayed(tick, TICK_MS)
         val fraction = Progress.media(
             position = state!!.position,
@@ -117,7 +117,8 @@ class MediaRing(private val context: Context, private val listener: ComponentNam
             speed = state.playbackSpeed,
             playing = true,
         )
-        val away = keyguard?.isKeyguardLocked == true || AppGraph.faceDown.faceDown == true
+        // face down, Nothing hides app lights anyway: "only when locked" is what this option can promise
+        val away = keyguard?.isKeyguardLocked == true
         if (fraction == null || (AppGraph.media.onlyLockedOrFaceDown.value && !away)) {
             AppGraph.arbiter.remove(ID)
             return

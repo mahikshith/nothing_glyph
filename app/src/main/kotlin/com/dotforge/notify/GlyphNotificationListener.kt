@@ -90,6 +90,11 @@ class GlyphNotificationListener : NotificationListenerService() {
             region = region,
             spamList = AppGraph.spamList::contains,
         )
+        // a call DotForge silenced or declined leaves a missed call: the user chose not to hear it, so it doesn't light
+        if (n.category == Notification.CATEGORY_MISSED_CALL && AppGraph.calls.screened.covers(info.number, info.title, info.postedAt)) {
+            AppGraph.log(LogEntry(info, verdict, false))
+            return
+        }
         var cooldown = false
         // the missed call glyph (Calls page option) repeats until the phone is unlocked, unless a filter holds it back
         if (replay) {
@@ -165,6 +170,8 @@ class GlyphNotificationListener : NotificationListenerService() {
                 key = info.key + ":" + info.postedAt, at = info.postedAt, outcome = outcome, detail = detail,
                 appLabel = info.appLabel, packageName = info.packageName, title = info.title, text = info.text,
                 sender = info.sender, number = info.number.orEmpty(), ruleId = rule?.id, rule = rule?.name, action = rule?.action,
+                channel = info.channel,
+                locked = runCatching { getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked }.getOrNull(),
             ),
         )
 

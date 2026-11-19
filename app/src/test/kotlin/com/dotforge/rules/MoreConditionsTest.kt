@@ -36,28 +36,36 @@ class MoreConditionsTest {
     // ---------------------------------------------------------------- the sentence summary
 
     @Test fun theSummaryReadsAsASentence() {
-        assertEquals("Title has 'OTP' and not from 'Bank'", MoreConditions.summary(Group(true, listOf(otp, notBank))))
-        assertEquals("Title has 'OTP' or not from 'Bank'", MoreConditions.summary(Group(false, listOf(otp, notBank))))
+        assertEquals("Title has “OTP” and not from “Bank”", MoreConditions.summary(Group(true, listOf(otp, notBank))))
+        assertEquals("Title has “OTP” or not from “Bank”", MoreConditions.summary(Group(false, listOf(otp, notBank))))
         assertEquals("None", MoreConditions.summary(Group()))
-        assertEquals("Title has 'OTP' and not from 'Bank', +2 more", MoreConditions.summary(Group(true, listOf(otp, notBank, loans, unknown))))
-        assertEquals("Sender isn't in my contacts", MoreConditions.summary(Group(true, listOf(unknown))))
-        assertEquals("Text is in list 'Loans'", MoreConditions.summary(Group(true, listOf(loans))))
+        assertEquals("Title has “OTP” and not from “Bank”, +2 more", MoreConditions.summary(Group(true, listOf(otp, notBank, loans, unknown))))
+        assertEquals("Sender isn't a contact", MoreConditions.summary(Group(true, listOf(unknown))))
+        assertEquals("Message is in list “Loans”", MoreConditions.summary(Group(true, listOf(loans))))
     }
 
     @Test fun everyTestHasItsOwnWords() {
         fun s(p: Pick, t: T, v: String = "x") = MoreConditions.sentence(MoreConditions.condition(p, t, v, list = "L"))
-        assertEquals("Title doesn't have 'x'", s(Pick.TITLE, T.NOT_CONTAINS))
-        assertEquals("Number starts with '140'", s(Pick.NUMBER, T.STARTS, "140"))
-        assertEquals("Channel ends with 'x'", s(Pick.CHANNEL, T.ENDS))
-        assertEquals("App is 'x'", s(Pick.APP, T.IS))
-        assertEquals("Text isn't 'x'", s(Pick.TEXT, T.IS_NOT))
-        assertEquals("from 'x'", s(Pick.SENDER, T.IS))
-        assertEquals("sender has 'x'".replaceFirstChar { it.uppercase() }, s(Pick.SENDER, T.CONTAINS))
-        assertEquals("not from list 'L'", s(Pick.SENDER, T.NOT_IN_LIST))
-        assertEquals("Title isn't in list 'L'", s(Pick.TITLE, T.NOT_IN_LIST))
-        assertEquals("sender is in my contacts", s(Pick.CONTACTS, T.IN_CONTACTS))
+        // one verb ("has"), curly quotes, and lower case: callers capitalise where a sentence starts
+        assertEquals("title doesn't have “x”", s(Pick.TITLE, T.NOT_CONTAINS))
+        assertEquals("number starts with “140”", s(Pick.NUMBER, T.STARTS, "140"))
+        assertEquals("notification type ends with “x”", s(Pick.CHANNEL, T.ENDS))
+        assertEquals("app is “x”", s(Pick.APP, T.IS))
+        assertEquals("message isn't “x”", s(Pick.TEXT, T.IS_NOT))
+        assertEquals("from “x”", s(Pick.SENDER, T.IS))
+        assertEquals("sender has “x”", s(Pick.SENDER, T.CONTAINS))
+        assertEquals("not from list “L”", s(Pick.SENDER, T.NOT_IN_LIST))
+        assertEquals("title isn't in list “L”", s(Pick.TITLE, T.NOT_IN_LIST))
+        assertEquals("sender is a contact", s(Pick.CONTACTS, T.IN_CONTACTS))
+        assertEquals("sender isn't a contact", s(Pick.CONTACTS, T.NOT_IN_CONTACTS))
         // several values, separated with commas
-        assertEquals("Text has 'loan' or 'credit'", s(Pick.TEXT, T.CONTAINS, "loan, credit"))
+        assertEquals("message has “loan” or “credit”", s(Pick.TEXT, T.CONTAINS, "loan, credit"))
+        // the builder's words
+        assertEquals(listOf("Who sent it", "Title", "Message", "Number", "Notification type", "App", "Contacts"), Pick.entries.map { it.label })
+        assertEquals(
+            listOf("has", "doesn't have", "starts with", "ends with", "is", "isn't", "is in list", "isn't in list", "is a contact", "isn't a contact"),
+            T.entries.map { it.label },
+        )
     }
 
     @Test fun aConditionReadsBackAsTheTestItWasBuiltWith() {
@@ -113,7 +121,7 @@ class MoreConditionsTest {
     @Test fun anAppsOwnRowsKeepWorkingAlongside() {
         val r = SimpleRules.withWords(MoreConditions.with(wa, Group(true, listOf(notBank))), listOf("OTP"))
         assertEquals(listOf("OTP"), SimpleRules.words(r))
-        assertEquals(Group(true, listOf(notBank)), MoreConditions.of(r))
+        assertEquals(Group(true, listOf(notBank), more = true), MoreConditions.of(r))
         assertNull(RuleEngine.explain(r, msg("Bank", "x", text = "OTP 1")))
         assertNotNull(RuleEngine.explain(r, msg("HDFC", "x", text = "OTP 1")))
         // taking them away leaves the words
@@ -130,8 +138,8 @@ class MoreConditionsTest {
         val r = SimpleRules.blockRule(p, id = "block-x", more = Group(true, listOf(unknown)))
         // still the same simple rule in the Spam list, with its More conditions apart
         assertEquals(p, SimpleRules.pattern(r))
-        assertEquals(Group(true, listOf(unknown)), MoreConditions.of(r))
-        assertEquals("Mentions “loan”, sender isn't in my contacts", r.name)
+        assertEquals(Group(true, listOf(unknown), more = true), MoreConditions.of(r))
+        assertEquals("Mentions “loan”, sender isn't a contact", r.name)
         assertNotNull(RuleEngine.explain(r, msg("AX-LOANS", "x", text = "Pre-approved loan", contact = false, app = sms)))
         assertNull(RuleEngine.explain(r, msg("Mom", "x", text = "the loan", contact = true, app = sms)))
         assertNull(RuleEngine.explain(r, msg("AX-LOANS", "x", text = "hello", contact = false, app = sms)))

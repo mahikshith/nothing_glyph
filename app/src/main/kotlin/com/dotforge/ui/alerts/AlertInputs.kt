@@ -141,11 +141,13 @@ fun LabeledField(
     showError: Boolean = false,
     keyboard: KeyboardType = KeyboardType.Text,
     trailing: (@Composable () -> Unit)? = null,
+    /** Several lines that grow as they are typed (a list's entries). */
+    multiLine: Boolean = false,
 ) = Column(modifier.fillMaxWidth().padding(top = Tokens.Small)) {
     Text(label, style = MaterialTheme.typography.titleSmall, color = Tokens.Secondary, modifier = Modifier.padding(bottom = Tokens.Tiny))
     val bad = showError && error != null
     OutlinedTextField(
-        value, onChange, Modifier.fillMaxWidth().semantics { contentDescription = label }, singleLine = true,
+        value, onChange, Modifier.fillMaxWidth().semantics { contentDescription = label }, singleLine = !multiLine, minLines = if (multiLine) 2 else 1,
         placeholder = placeholder?.let { { Text(it, color = Tokens.Secondary) } },
         isError = bad,
         supportingText = (if (bad) error else helper)?.let { t -> { Text(t, color = if (bad) Tokens.AccentText else Tokens.Secondary) } },

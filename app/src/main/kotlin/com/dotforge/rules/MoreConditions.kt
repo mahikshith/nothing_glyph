@@ -7,25 +7,25 @@ import com.dotforge.filter.Match
 import com.dotforge.filter.Op
 
 /**
- * "More conditions": tests on any field (sender, title, text, number, channel, app, Contacts) that a rule's sheet
- * or a block rule adds on top of what its own rows set. They are one [Group] in the rule's [Match], so the
- * filter engine runs them like any other condition: no new kind of rule.
+ * "More conditions": tests on any field (who sent it, title, message, number, notification type, app, Contacts)
+ * that a rule's sheet or a block rule adds on top of what its own rows set. They are one [Group] in the rule's
+ * [Match], marked [Group.more], so the filter engine runs them like any other condition: no new kind of rule.
  *
  * - A rule whose match is "all" (an app's row: its words, chats, times and people are all-conditions) keeps
- *   them as its last group.
+ *   them as its marked group, beside any group of its own.
  * - A rule whose match is "any" (a block rule: sender or number) is wrapped once there are any: all of
  *   (any of its own conditions) and (the more conditions).
  */
 object MoreConditions {
-    /** The fields offered, in plain words. [CONTACTS] is the "in my contacts" flag. */
-    enum class Pick(val label: String, val field: Field) {
-        SENDER("Sender", Field.SENDER),
-        TITLE("Title", Field.TITLE),
-        TEXT("Text", Field.TEXT),
-        NUMBER("Number", Field.NUMBER),
-        CHANNEL("Channel", Field.CHANNEL),
-        APP("App", Field.APP),
-        CONTACTS("Contacts", Field.CONTACT),
+    /** "What to check", in plain words; [noun] is how a sentence names it. [CONTACTS] is the "is a contact" flag. */
+    enum class Pick(val label: String, val field: Field, val noun: String) {
+        SENDER("Who sent it", Field.SENDER, "sender"),
+        TITLE("Title", Field.TITLE, "title"),
+        TEXT("Message", Field.TEXT, "message"),
+        NUMBER("Number", Field.NUMBER, "number"),
+        CHANNEL("Notification type", Field.CHANNEL, "notification type"),
+        APP("App", Field.APP, "app"),
+        CONTACTS("Contacts", Field.CONTACT, "sender"),
         ;
 
         /** The tests this field takes. */
@@ -39,18 +39,18 @@ object MoreConditions {
         }
     }
 
-    /** How a field is compared. The "not" tests read as their own words. [list] tests take a named list. */
+    /** "How" a field is compared, with one verb ("has") throughout. [list] tests take a named list. */
     enum class Test(val label: String, val op: Op, val not: Boolean = false, val list: Boolean = false, val flag: Boolean = false) {
-        CONTAINS("contains", Op.CONTAINS),
-        NOT_CONTAINS("doesn't contain", Op.NOT_CONTAINS),
+        CONTAINS("has", Op.CONTAINS),
+        NOT_CONTAINS("doesn't have", Op.NOT_CONTAINS),
         STARTS("starts with", Op.STARTS),
         ENDS("ends with", Op.ENDS),
         IS("is", Op.IS),
-        IS_NOT("is not", Op.IS_NOT),
+        IS_NOT("isn't", Op.IS_NOT),
         IN_LIST("is in list", Op.IN_LIST, list = true),
         NOT_IN_LIST("isn't in list", Op.IN_LIST, not = true, list = true),
-        IN_CONTACTS("is in my contacts", Op.IS, flag = true),
-        NOT_IN_CONTACTS("isn't in my contacts", Op.IS, not = true, flag = true),
+        IN_CONTACTS("is a contact", Op.IS, flag = true),
+        NOT_IN_CONTACTS("isn't a contact", Op.IS, not = true, flag = true),
         ;
 
         companion object {
@@ -90,36 +90,66 @@ object MoreConditions {
 
     // ---------------------------------------------------------------- reading and writing a rule
 
-    /** The rule's more conditions (an empty "all" group when it has none). */
-    fun of(r: Rule): Group = if (r.match.all) r.match.groups.lastOrNull() ?: Group() else Group()
+    /**
+     * The rule's more conditions (an empty "all" group when it has none): the group marked [Group.more]. Other
+     * groups, like the people group a version 2 rule was migrated with, are the rule's own and never shown here.
+     * A block rule wrapped before groups were marked ("any" of its own, then the more conditions) is read too.
+     */
+    fun of(r: Rule): Group {
+        val m = r.match
+        m.groups.firstOrNull { it.more }?.let { return it }
+        if (r.action == Action.SPAM && wrapped(m)) return m.groups[1].copy(more = true)
+        return Group(more = true)
+    }
+
+    private fun wrapped(m: Match) = m.all && m.conditions.isEmpty() && m.groups.size == 2 && !m.groups[0].all && !m.groups[0].not && !m.groups[0].more
 
     /** [r] with [g] as its more conditions; an empty [g] takes them away. */
     fun with(r: Rule, g: Group): Rule {
-        val clean = g.copy(conditions = g.conditions.filter(::complete)).takeIf { it.conditions.isNotEmpty() }
+        val clean = g.copy(conditions = g.conditions.filter(::complete), more = true).takeIf { it.conditions.isNotEmpty() }
         val m = r.match
         if (!m.all) {
             // an "any" match (a block rule): wrap its own conditions so the more conditions add to them
             if (clean == null) return r
             return r.copy(match = Match(all = true, groups = listOf(Group(all = false, conditions = m.conditions), clean)))
         }
-        val rest = if (m.groups.isEmpty()) emptyList() else m.groups.dropLast(1)
+        val legacy = r.action == Action.SPAM && wrapped(m) && m.groups.none { it.more }
+        val rest = if (legacy) m.groups.take(1) else m.groups.filterNot { it.more }
         if (clean != null) return r.copy(match = m.copy(groups = rest + clean))
         // taken away from a wrapped block rule: back to its own "any" match
         val only = rest.singleOrNull()
-        if (m.conditions.isEmpty() && only != null && !only.all && !only.not) return r.copy(match = Match(all = false, conditions = only.conditions))
+        if (r.action == Action.SPAM && m.conditions.isEmpty() && only != null && !only.all && !only.not) return r.copy(match = Match(all = false, conditions = only.conditions))
         return r.copy(match = m.copy(groups = rest))
     }
 
     /** A block rule's own (sender or number) conditions, with any more conditions set apart. */
     fun base(r: Rule): Match {
         val m = r.match
-        val g = m.groups
-        return if (m.all && m.conditions.isEmpty() && g.size == 2 && !g[0].all && !g[0].not) Match(all = false, conditions = g[0].conditions) else m
+        val own = m.groups.filterNot { it.more }
+        val wrappedNow = r.action == Action.SPAM && m.all && m.conditions.isEmpty() && own.size == 1 && m.groups.size == 2 && !own[0].all && !own[0].not
+        return when {
+            wrappedNow -> Match(all = false, conditions = own[0].conditions)
+            r.action == Action.SPAM && wrapped(m) -> Match(all = false, conditions = m.groups[0].conditions)
+            else -> m
+        }
+    }
+
+    /** The lists [g]'s conditions use that are gone ("List removed · Fix"). */
+    fun missingLists(g: Group, lists: List<com.dotforge.filter.NamedList>): List<String> =
+        g.conditions.filter { com.dotforge.filter.FilterEngine.missingList(it, lists) }.mapNotNull { it.list }.distinct()
+
+    /**
+     * When a block rule turns to calls only: the conditions a call can never meet (title, message, notification
+     * type, app) are taken out. Returns what stays and what was taken out, for the note and its Undo.
+     */
+    fun forCalls(g: Group): Pair<Group, List<Condition>> {
+        val gone = g.conditions.filterNot { it.field.availableFor(calls = true, notifications = false) }
+        return g.copy(conditions = g.conditions - gone.toSet()) to gone
     }
 
     // ---------------------------------------------------------------- words
 
-    private fun quoted(v: String) = "'$v'"
+    private fun quoted(v: String) = "“$v”"
 
     private fun values(c: Condition): String {
         val v = c.cleanValues
@@ -131,15 +161,15 @@ object MoreConditions {
     }
 
     /**
-     * One condition as a short sentence: "Title has 'OTP'", "not from 'Bank'", "sender isn't in my contacts",
-     * "Text is in list 'Loans'". Starts in lower case unless it starts with a field name.
+     * One condition as a short sentence, in lower case: "title has “OTP”", "not from “Bank”", "sender isn't a
+     * contact", "message is in list “Loans”". Callers capitalise it where it starts a sentence.
      */
     fun sentence(c: Condition): String {
         val pick = Pick.of(c.field)
         val test = Test.of(c)
         val list = c.list?.let { "list ${quoted(it)}" }
         if (pick == null || test == null) return com.dotforge.filter.FilterEngine.describe(c)
-        if (pick == Pick.CONTACTS) return if (test == Test.IN_CONTACTS) "sender is in my contacts" else "sender isn't in my contacts"
+        if (pick == Pick.CONTACTS) return if (test == Test.IN_CONTACTS) "sender is a contact" else "sender isn't a contact"
         val v = values(c)
         if (pick == Pick.SENDER) when (test) {
             Test.IS -> return "from $v"
@@ -148,7 +178,7 @@ object MoreConditions {
             Test.NOT_IN_LIST -> return "not from ${list ?: "a list"}"
             else -> Unit
         }
-        val name = pick.label
+        val name = pick.noun
         return when (test) {
             Test.CONTAINS -> "$name has $v"
             Test.NOT_CONTAINS -> "$name doesn't have $v"
@@ -163,7 +193,7 @@ object MoreConditions {
     }
 
     /**
-     * The row's subtitle: "Title has 'OTP' and not from 'Bank'", "Sender is 'A' or Title has 'B'", the first two
+     * The row's subtitle: "Title has “OTP” and not from “Bank”", "Sender is “A” or title has “B”", the first two
      * and "+N more" past that, or "None".
      */
     fun summary(g: Group): String {

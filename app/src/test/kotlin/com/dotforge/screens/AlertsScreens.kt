@@ -383,8 +383,8 @@ abstract class AlertsScreens : ScreenshotTest() {
     private fun scrollSheetTo(text: String) =
         rule.onNode(hasScrollAction() and androidx.compose.ui.test.hasAnyDescendant(hasText(text))).performScrollToNode(hasText(text))
 
-    private fun builder(g: com.dotforge.filter.Group, edit: Int? = null, list: String? = null) {
-        AppGraph.rules.upsert(wa)
+    private fun builder(g: com.dotforge.filter.Group, edit: Int? = null, list: String? = null, base: com.dotforge.rules.Rule = wa) {
+        AppGraph.rules.upsert(base)
         alerts(over = {
             com.dotforge.ui.alerts.ConditionsSheet(
                 g, calls = false, apps = true, blocking = false, preview = { mc.with(wa, it) }, onDismiss = {}, startEdit = edit, startList = list,
@@ -438,7 +438,14 @@ abstract class AlertsScreens : ScreenshotTest() {
     @Test fun spamCallSwitches() {
         alerts(request = "spam")
         rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Faked numbers"))
-        capture(f, "49h-spam-calls-that-dont-ring")
+        capture(f, "49h-spam-strangers-and-hidden-callers")
+    }
+
+    /** A Contacts part with History but no Contacts: "Can't count this part yet", never 0. */
+    @Test fun moreConditionsCantCount() {
+        history()
+        builder(com.dotforge.filter.Group(true, listOf(mc.condition(com.dotforge.rules.MoreConditions.Pick.CONTACTS, com.dotforge.rules.MoreConditions.Test.NOT_IN_CONTACTS))))
+        capture(f, "49i-more-conditions-cant-count")
     }
 
     // ---------------------------------------------------------------- what moved out of Old screens
@@ -457,8 +464,8 @@ abstract class AlertsScreens : ScreenshotTest() {
         AppGraph.calls.updateSettings { it.copy(missedGlyph = true) }
         try {
             sheet(SimpleRules.PHONE_CALLS)
-            scrollSheetTo("Screened calls")
-            capture(f, "71-sheet-phone-calls-missed-and-screened")
+            scrollSheetTo("Calls DotForge stopped")
+            capture(f, "71-sheet-phone-calls-missed-and-stopped")
             rule.onNodeWithText("Missed calls").performClick()
             scrollSheetTo("Timing")
             capture(f, "71b-missed-calls-sheet")
@@ -497,28 +504,128 @@ abstract class AlertsScreens : ScreenshotTest() {
         capture(f, "72d-sheet-group")
     }
 
+    private fun screening() =
+        org.robolectric.Shadows.shadowOf(activity.getSystemService(android.app.role.RoleManager::class.java)).addHeldRole(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+
     @Test fun addRuleWhatToDo() {
+        screening()
         alerts(request = "spam", start = AlertSheet.AddBlock())
         rule.onNode(hasSetTextAction() and hasContentDescription("Number")).performTextInput("140555")
         scrollSheetTo("Decline")
         rule.onNodeWithText("Decline").performClick()
-        scrollSheetTo("Hide the notification")
+        scrollSheetTo("The notification is hidden.")
         capture(f, "73-add-rule-what-to-do-decline")
     }
 
-    @Test fun spamMenuRestore() {
-        AppGraph.rules.delete("preset-otp")
-        alerts(request = "spam")
-        rule.onNode(hasContentDescription("More options")).performClick()
-        capture(f, "73b-spam-menu-restore-starter-rules")
-        rule.onNodeWithText("Restore the starter rules").performClick()
-        capture(f, "73c-starter-rules-restored-undo")
+    /** Without the call screening role the call choices wait for it, and say why. */
+    @Test fun addRuleNeedsCallScreening() {
+        alerts(request = "spam", start = AlertSheet.AddBlock())
+        rule.onNode(hasSetTextAction() and hasContentDescription("Number")).performTextInput("140555")
+        scrollSheetTo("The notification is hidden.")
+        capture(f, "73d-add-rule-needs-call-screening")
     }
 
-    @Test fun spamMessages() {
+    @Test fun spamMenuRestore() {
+        AppGraph.rules.delete(com.dotforge.rules.RuleEngine.HIDDEN_CALLS)
         alerts(request = "spam")
-        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Unknown senders"))
-        capture(f, "74-spam-messages")
+        rule.onNode(hasContentDescription("More options")).performClick()
+        capture(f, "73b-spam-menu-restore-starter-spam-rules")
+        rule.onNodeWithText("Restore starter spam rules").performClick()
+        capture(f, "73c-starter-spam-rules-restored-undo")
+    }
+
+    @Test fun appsMenuRestore() {
+        AppGraph.rules.delete("preset-otp")
+        AppGraph.rules.delete("preset-delivery")
+        alerts()
+        rule.onNode(hasContentDescription("More options")).performClick()
+        capture(f, "73e-apps-menu-restore-starter-app-rules")
+        rule.onNodeWithText("Restore starter app rules").performClick()
+        capture(f, "73f-starter-app-rules-restored-undo")
+    }
+
+    /** Strangers switched on with neither Contacts nor Call screening: what each needs, in red, with Allow. */
+    @Test fun spamStrangersNeedPermissions() {
+        listOf(com.dotforge.rules.RuleEngine.UNKNOWN_CALLS, com.dotforge.rules.RuleEngine.UNKNOWN_SENDERS, com.dotforge.rules.RuleEngine.HIDDEN_CALLS).forEach { id ->
+            AppGraph.rules.rules.value.firstOrNull { it.id == id }?.let { AppGraph.rules.upsert(it.copy(enabled = true)) }
+        }
+        alerts(request = "spam")
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Faked numbers"))
+        capture(f, "74-spam-strangers-need-contacts-and-call-screening")
+    }
+
+    @Test fun alwaysLetThrough() {
+        AppGraph.rules.addToList(com.dotforge.rules.RuleEngine.ALLOWED, "+919810055555")
+        alerts(request = "spam", start = AlertSheet.AllowList)
+        capture(f, "74b-always-let-through")
+    }
+
+    // ---------------------------------------------------------------- lists in use
+
+    private val notBank = mc.condition(com.dotforge.rules.MoreConditions.Pick.SENDER, com.dotforge.rules.MoreConditions.Test.NOT_IN_LIST, list = "Banks")
+
+    private fun banksInUse() {
+        AppGraph.rules.putList(com.dotforge.filter.NamedList("Banks", listOf("HDFC", "ICICI", "SBI")))
+        AppGraph.rules.upsert(mc.with(wa, com.dotforge.filter.Group(true, listOf(notBank))))
+        AppGraph.rules.upsert(SimpleRules.blockRule(BlockPattern(PatternType.WORDS, "loan", setOf(Where.SMS)), id = "block-banks", more = com.dotforge.filter.Group(true, listOf(notBank))))
+    }
+
+    @Test fun listInUse() {
+        banksInUse()
+        // WhatsApp's own rule and the "loan" block rule both use "Banks"
+        builder(com.dotforge.filter.Group(true, listOf(notBank)), edit = 0, list = "Banks", base = mc.with(wa, com.dotforge.filter.Group(true, listOf(notBank))))
+        capture(f, "75-list-used-by-2-rules")
+        rule.onNodeWithText("Delete “Banks”").performClick()
+        capture(f, "75b-list-deleted-undo")
+    }
+
+    @Test fun listRemoved() {
+        banksInUse()
+        AppGraph.rules.deleteList("Banks")
+        builder(com.dotforge.filter.Group(true, listOf(notBank)))
+        capture(f, "75c-condition-list-removed")
+        rule.onNodeWithText("List removed · Fix").performClick()
+        capture(f, "75d-condition-editor-list-removed")
+    }
+
+    @Test fun listRemovedRows() {
+        banksInUse()
+        AppGraph.rules.deleteList("Banks")
+        alerts()
+        capture(f, "75e-app-row-list-removed")
+        alerts(request = "spam")
+        capture(f, "75f-block-rule-list-removed")
+    }
+
+    @Test fun newList() {
+        builder(com.dotforge.filter.Group(true, listOf(mc.condition(com.dotforge.rules.MoreConditions.Pick.TEXT, com.dotforge.rules.MoreConditions.Test.IN_LIST))), edit = 0, list = "")
+        rule.onNode(hasSetTextAction() and hasContentDescription("Name")).performTextInput("Greetings")
+        rule.onNode(hasSetTextAction() and hasContentDescription("Entries")).performTextInput("good morning, happy birthday, best wishes,\nhappy new year, congratulations")
+        capture(f, "75g-new-list-entries-grow")
+    }
+
+    @Test fun callsOnlyTakesOut() {
+        alerts(
+            request = "spam",
+            start = AlertSheet.AddBlock(more = com.dotforge.filter.Group(true, listOf(mc.condition(com.dotforge.rules.MoreConditions.Pick.TITLE, com.dotforge.rules.MoreConditions.Test.CONTAINS, "OTP")))),
+        )
+        rule.onNode(hasSetTextAction() and hasContentDescription("Number")).performTextInput("140555")
+        scrollSheetTo("SMS")
+        rule.onNodeWithText("SMS").performClick()
+        scrollSheetTo("Silence")
+        capture(f, "76-add-rule-calls-only-took-out-undo")
+    }
+
+    @Test fun groupAdvanced() {
+        AppGraph.rules.upsert(SimpleRules.newGroup("Family").copy(id = SimpleRules.GROUP_PREFIX + "family"))
+        sheet(SimpleRules.GROUP_PREFIX + "family", request = "people", advanced = true)
+        rule.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText("Who wins"))
+        capture(f, "72f-sheet-group-advanced")
+    }
+
+    @Test fun addGroupNone() {
+        alerts(request = "people", over = { com.dotforge.ui.alerts.AddGroupSheet(setup(), onDismiss = {}, groups = emptyList()) {} })
+        capture(f, "72e-add-group-no-contacts-groups")
     }
 
     // ---------------------------------------------------------------- History

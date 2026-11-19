@@ -61,6 +61,8 @@ object AlertSentence {
             }
             r.moment != null -> listOf(t("When ${r.moment.sentence}, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR), t("."))
             r.id == SimpleRules.REMINDERS -> listOf(t("When a reminder or event arrives, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
+            // a Contacts group covers its people's calls too (their ring shows the group's glyph and name)
+            SimpleRules.isGroupRule(r) -> listOf(t("When someone in "), t(r.name), t(" calls or messages, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
             SimpleRules.isPersonRule(r) -> listOf(t("When "), t(r.name), t(" messages, the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
             else -> listOf(t("When "), w(appName, WordKind.APP), t(" sends something from "), w(whoWord(r), WordKind.WHO), t(", the "), w(glyph, WordKind.GLYPH), t(" shows "), w(show, WordKind.SHOW_FOR)) + sound
         }

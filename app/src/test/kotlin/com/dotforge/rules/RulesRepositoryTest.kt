@@ -26,9 +26,12 @@ class RulesRepositoryTest {
         assertEquals(showPresets, shows(repo.rules.value))
         assertTrue(repo.rules.value.any { it.id == "spam-contacts" && it.enabled })
         assertTrue(repo.rules.value.any { it.id == "spam-repeated" && it.enabled })
-        assertFalse(repo.rules.value.first { it.id == "spam-words" }.enabled)
+        val words = repo.rules.value.first { it.id == "spam-words" }
+        assertFalse(words.enabled)
+        // the starter spam words are an ordinary block rule now, with the words in it
+        assertEquals(BlockPattern(PatternType.WORDS, SpamSettings.DEFAULT_KEYWORDS.joinToString(", "), setOf(Where.ANY_APP)), SimpleRules.pattern(words))
         assertEquals(
-            listOf(RuleEngine.ALLOWED, RuleEngine.BLOCKED, RuleEngine.SPAM_WORDS, RuleEngine.SPAM_PREFIXES),
+            listOf(RuleEngine.ALLOWED, RuleEngine.BLOCKED, RuleEngine.SPAM_PREFIXES),
             repo.lists.value.map { it.name },
         )
     }
@@ -47,18 +50,18 @@ class RulesRepositoryTest {
         val reloaded = RulesRepository(file).rules.value
         assertEquals(listOf("Boss", "Phone calls", "OTP codes", "Delivery"), shows(reloaded))
         assertEquals(added.copy(enabled = false), reloaded.first())
-        assertTrue(file.readText().startsWith("""{"version":6,"""))
+        assertTrue(file.readText().startsWith("""{"version":7,"""))
     }
 
     @Test fun addPresetsRestoresOnlyMissingOnes() {
         val repo = RulesRepository(tmp.root.resolve("rules.json"))
         repo.delete("preset-otp")
         repo.delete("spam-list")
-        repo.deleteList(RuleEngine.SPAM_WORDS)
+        repo.deleteList(RuleEngine.SPAM_PREFIXES)
         assertEquals(listOf("OTP codes", "Spam list"), repo.missingPresets().map { it.name })
         repo.addPresets(repo.missingPresets().take(1))
         assertEquals(listOf("Spam list"), repo.missingPresets().map { it.name })
-        assertTrue(repo.list(RuleEngine.SPAM_WORDS) != null) // missing preset lists come back too
+        assertTrue(repo.list(RuleEngine.SPAM_PREFIXES) != null) // missing preset lists come back too
     }
 
     @Test fun ensurePresetAddsOrSwitchesOn() {
@@ -108,7 +111,7 @@ class RulesRepositoryTest {
         assertFalse(rules[1].enabled) // the rest is kept as it was
         val progress = rules.first { it.id == RuleEngine.PROGRESS_PRESET }
         assertTrue(progress.enabled && progress.action == Action.PROGRESS && progress.packages.isEmpty())
-        assertTrue(file.readText().startsWith("""{"version":6,"""))
+        assertTrue(file.readText().startsWith("""{"version":7,"""))
         // a deleted progress rule stays deleted
         val repo = RulesRepository(file)
         repo.delete(RuleEngine.PROGRESS_PRESET)
@@ -129,7 +132,7 @@ class RulesRepositoryTest {
         assertFalse(rules.getValue("spam-prefixes").enabled) // the user's own rules stay as they were
         assertTrue(RuleEngine.needsCallScreening(rules.values.toList()))
         assertFalse(RuleEngine.needsCallScreening(listOf(RuleEngine.progressPreset(), Rule(name = "x"))))
-        assertTrue(file.readText().startsWith("""{"version":6,"""))
+        assertTrue(file.readText().startsWith("""{"version":7,"""))
     }
 
     @Test fun unreadableFileFallsBackToPresets() {
@@ -160,7 +163,7 @@ class RulesRepositoryTest {
         assertTrue(migrated.none { it.id == "s" })
         assertTrue(migrated.any { it.id == "spam-list" }) // spam rules join
 
-        assertTrue(file.readText().startsWith("""{"version":6,"""))
+        assertTrue(file.readText().startsWith("""{"version":7,"""))
         assertEquals(migrated, RulesRepository(file).rules.value)
     }
 
@@ -212,9 +215,11 @@ class RulesRepositoryTest {
         val repo = RulesRepository(file, legacySpam = legacy)
         val rules = repo.rules.value.associateBy { it.id }
         assertTrue(rules.getValue("spam-words").enabled)
-        assertTrue(rules.getValue("spam-words").match.conditions.contains(Condition(Field.MESSAGE, Op.REGEX, listOf("win\\s+big"))))
+        assertEquals("casino", SimpleRules.pattern(rules.getValue("spam-words"))!!.text)
+        // the old filter's patterns keep working as their own rule
+        assertTrue(rules.getValue(RuleEngine.SPAM_PATTERNS_RULE).enabled)
+        assertEquals(listOf(Condition(Field.MESSAGE, Op.REGEX, listOf("win\\s+big"))), rules.getValue(RuleEngine.SPAM_PATTERNS_RULE).match.conditions)
         assertTrue(rules.getValue("spam-unknown").enabled)
-        assertEquals(listOf("casino"), repo.list(RuleEngine.SPAM_WORDS)!!.entries)
         assertEquals(listOf("Bank"), repo.list(RuleEngine.ALLOWED)!!.entries)
         // read once: a later start keeps what the user changed
         repo.upsert(rules.getValue("spam-unknown").copy(enabled = false))
@@ -231,5 +236,23 @@ class RulesRepositoryTest {
         // an untouched old spam filter changes nothing
         val other = tmp.root.resolve("other.json")
         assertFalse(RulesRepository(other, legacySpam = SpamSettings()).rules.value.first { it.id == "spam-words" }.enabled)
+    }
+
+    @Test fun versionSixSpamWordsBecomeAnEditableBlockRule() {
+        val file = tmp.root.resolve("rules.json")
+        file.writeText(
+            """{"version":6,"rules":[
+              {"id":"spam-words","name":"Spam words","enabled":true,"source":"APPS","action":"SPAM",
+               "match":{"all":false,"conditions":[{"field":"MESSAGE","op":"CONTAINS","list":"Spam words"}]}}
+            ],"lists":[{"name":"Spam words","entries":["loan","lottery"]}]}""",
+        )
+        val repo = RulesRepository(file)
+        val r = repo.rules.value.single { it.id == RuleEngine.SPAM_WORDS_RULE }
+        assertTrue(r.enabled)
+        assertEquals(BlockPattern(PatternType.WORDS, "loan, lottery", setOf(Where.ANY_APP)), SimpleRules.pattern(r))
+        // the list stays, in case another rule uses it, and nothing else is added
+        assertEquals(listOf("loan", "lottery"), repo.list(RuleEngine.SPAM_WORDS)!!.entries)
+        assertFalse(repo.rules.value.any { it.id == RuleEngine.SPAM_PATTERNS_RULE })
+        assertTrue(file.readText().startsWith("""{"version":7,"""))
     }
 }

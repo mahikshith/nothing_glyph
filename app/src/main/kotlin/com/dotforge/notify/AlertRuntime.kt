@@ -80,6 +80,9 @@ object AlertRuntime {
 
     private var callAt = 0L
 
+    /** The ringing caller's Contacts groups, looked up once per call. */
+    private var callGroups: Set<String>? = null
+
     private fun showCall(d: CallDisplay?) {
         if (d == null) {
             AppGraph.arbiter.remove(CALL_ID)
@@ -91,11 +94,11 @@ object AlertRuntime {
         if (phone == null || !phone.enabled) return
         val p = AppGraph.profile
         val info = NotificationInfo(CALL_ID, "phone", "Phone", d.name?.name.orEmpty(), "", 0, sender = d.name?.name.orEmpty(), number = d.number)
-        // a person's glyph shows instead of the Phone calls glyph
-        val person = rules.firstOrNull { r ->
-            SimpleRules.isPersonRule(r) && r.enabled && r.callRingtone == null &&
-                (r.name.equals(d.name?.name, ignoreCase = true) || (d.number != null && SimpleRules.personNumbers(r).any { n -> n.filter(Char::isDigit).takeLast(9) == d.number.filter(Char::isDigit).takeLast(9) }))
-        }
+        // a person's glyph shows instead of the Phone calls glyph, else their Contacts group's
+        if (callAt == 0L) callGroups = null
+        val groups = if (rules.none { SimpleRules.isGroupRule(it) && it.enabled } || d.number == null || !::app.isInitialized) emptySet()
+        else callGroups ?: runCatching { com.dotforge.calls.CallerLookup(app).caller(d.number)?.groups }.getOrNull().orEmpty().also { callGroups = it }
+        val person = SimpleRules.callGlyphRule(rules, d.name?.name, d.number, groups)
         val glyphRule = person ?: phone
         val glyph = RuleEngine.animation(glyphRule, info, p, AppGraph::designAnimation, ::appIcon)
         val anim = CallSession.animation(p, d, phone.callShow, glyph, Effects.spam(p))

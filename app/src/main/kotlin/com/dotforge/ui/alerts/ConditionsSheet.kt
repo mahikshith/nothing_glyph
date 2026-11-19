@@ -18,12 +18,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
-import com.dotforge.calls.CallerLookup
+import com.dotforge.filter.FilterEngine
+import com.dotforge.rules.Counts
+import com.dotforge.ui.design.rememberSnacks
+import androidx.compose.runtime.LaunchedEffect
 import com.dotforge.filter.Condition
 import com.dotforge.filter.Group
 import com.dotforge.filter.NamedList
@@ -43,9 +45,9 @@ import com.dotforge.ui.design.Segmented
 import com.dotforge.ui.design.Tokens
 
 /**
- * More conditions: tests on any field, built as plain sentences ("Title has 'OTP'", "and not from 'Bank'"),
- * combined with Match all or Match any, and named lists made or edited in place. It writes one group of the
- * rule's match ([MoreConditions]), which the filter engine runs like any other condition. [calls] and [apps]
+ * More conditions: tests on any field, built as plain sentences ("Title has “OTP”", "and not from “Bank”"),
+ * combined with All of these or Any of these, and named lists made or edited in place. It writes one group of
+ * the rule's match ([MoreConditions]), which the filter engine runs like any other condition. [calls] and [apps]
  * pick the fields that mean something for the rule; [preview] is the whole rule with a group, so the last
  * 30 days can be counted ("Would have blocked 3"). [startEdit] (-1: a new condition) and [startList] ("": a new
  * list) open the stacked sheets, for screenshots.
@@ -67,22 +69,24 @@ fun ConditionsSheet(
     var edit by remember { mutableStateOf(startEdit) }
     val history by AppGraph.history.entries.collectAsStateWithLifecycle()
     val lists by AppGraph.rules.lists.collectAsStateWithLifecycle()
-    val ctx = LocalContext.current
-    val region = remember { runCatching { CallerLookup(ctx).region() }.getOrNull() }
-    val g = Group(all = all, conditions = conditions)
-    val matched = remember(g, history, lists) { if (conditions.isEmpty()) 0 else wouldHaveMatched(preview(g), history, region, lists) }
+    val g = Group(all = all, conditions = conditions, more = true)
+    val count = rememberCount(if (conditions.isEmpty()) null else preview(g), history, lists)
 
     FullSheet(onDismiss, "More conditions", confirm = "Save", onConfirm = { onSave(g); onDismiss() }) {
-        Hint(if (blocking) "Block only when these are true too." else "Light only when these are true too.")
-        if (conditions.size > 1) Segmented(listOf("Match all", "Match any"), if (all) 0 else 1, Modifier.padding(top = Tokens.Small)) { all = it == 0 }
+        val verb = if (blocking) "Block" else "Light"
+        Hint(if (all || conditions.size < 2) "$verb only when these are true too." else "$verb only when any of these is true.")
+        if (conditions.size > 1) Segmented(listOf("All of these", "Any of these"), if (all) 0 else 1, Modifier.padding(top = Tokens.Small)) { all = it == 0 }
         RowGroup(Modifier.padding(top = Tokens.Small)) {
             conditions.forEachIndexed { i, c ->
                 if (i > 0) RowDivider()
                 // the rows read as one sentence: the first, then "and …" or "or …"
                 val words = MoreConditions.sentence(c)
+                val gone = FilterEngine.missingList(c, lists)
                 ListRow(
                     if (i == 0) words.replaceFirstChar { it.uppercase() } else (if (all) "and " else "or ") + words,
                     titleLines = Int.MAX_VALUE, inset = Tokens.Gutter,
+                    // a list that was deleted: the condition matches nothing until it is fixed
+                    subtitle = if (gone) LIST_REMOVED else null, subtitleColor = Tokens.AccentText,
                     trailing = {
                         IconButton(onClick = { conditions = conditions.filterIndexed { j, _ -> j != i } }) {
                             Icon(Icons.Filled.Close, contentDescription = "Remove $words", tint = Tokens.Secondary)
@@ -94,23 +98,30 @@ fun ConditionsSheet(
             AddRow("Add a condition") { edit = -1 }
         }
         when {
-            conditions.isEmpty() -> Hint("For example: Title contains “OTP”, or Sender isn't in my contacts.")
-            blocking -> Hint(if (matched == 0) "Would have blocked nothing in the last 30 days" else "Would have blocked $matched in the last 30 days")
-            else -> Hint(if (matched == 0) "Wouldn't have lit in the last 30 days" else "Would have lit $matched ${if (matched == 1) "time" else "times"} in the last 30 days")
+            conditions.isEmpty() -> Hint("For example: title has “OTP”, or the sender isn't a contact.")
+            count == null -> Unit
+            blocking -> Hint(Counts.blockedText(count))
+            else -> Hint(Counts.litText(count))
         }
     }
     edit?.let { i ->
-        ConditionEditor(conditions.getOrNull(i), calls, apps, lists, startList, onDismiss = { edit = null }) { c ->
+        ConditionEditor(conditions.getOrNull(i), calls, apps, blocking, lists, startList, onDismiss = { edit = null }) { c ->
             conditions = if (i !in conditions.indices) conditions + c else conditions.mapIndexed { j, old -> if (j == i) c else old }
         }
     }
 }
 
-/** One condition: Field, Test and Value as chips and a field; a list test picks, makes or edits a named list. */
+/** A condition's line when its list was deleted. */
+const val LIST_REMOVED = "List removed · Fix"
+
+/**
+ * One condition: What to check, How and the value as chips and a field; a list test picks, makes or edits a named
+ * list. A light rule isn't offered the spam filter's own lists.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ConditionEditor(
-    start: Condition?, calls: Boolean, apps: Boolean, lists: List<NamedList>, startList: String?,
+    start: Condition?, calls: Boolean, apps: Boolean, blocking: Boolean, lists: List<NamedList>, startList: String?,
     onDismiss: () -> Unit, onDone: (Condition) -> Unit,
 ) {
     val picks = Pick.available(calls, apps)
@@ -119,17 +130,27 @@ private fun ConditionEditor(
     var value by remember { mutableStateOf(start?.cleanValues?.joinToString(", ").orEmpty()) }
     var list by remember { mutableStateOf(start?.list) }
     var listSheet by remember { mutableStateOf(startList) }
+    var deleted by remember { mutableStateOf<NamedList?>(null) }
     val c = MoreConditions.condition(pick, test, value, list)
+    val gone = test.list && FilterEngine.missingList(c, lists)
+    val offered = if (blocking) lists else lists.filterNot { l -> RuleEngine.SPAM_LISTS.any { it.equals(l.name, ignoreCase = true) } }
     FullSheet(
         onDismiss, if (start == null) "Add a condition" else "Edit condition", confirm = if (start == null) "Add condition" else "Save condition",
-        confirmEnabled = MoreConditions.complete(c),
+        confirmEnabled = MoreConditions.complete(c) && !gone,
         onConfirm = { onDone(c); onDismiss() },
     ) {
-        Label("Field")
+        // a list deleted from here says so on this sheet, with Undo that puts it back exactly
+        val snacks = rememberSnacks()
+        LaunchedEffect(deleted) {
+            val d = deleted ?: return@LaunchedEffect
+            snacks?.show("“${d.name}” deleted", undo = { AppGraph.rules.putList(d); list = d.name })
+            deleted = null
+        }
+        Label("What to check")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
             picks.forEach { p -> Chip(p.label, p == pick) { pick = p; if (test !in p.tests) test = p.tests.first() } }
         }
-        Label("Test")
+        Label("How")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
             pick.tests.forEach { t -> Chip(t.label, t == test) { test = t } }
         }
@@ -138,10 +159,14 @@ private fun ConditionEditor(
             test.list -> {
                 Label("List")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
-                    lists.forEach { l -> Chip(l.name, l.name.equals(list, ignoreCase = true)) { list = l.name } }
+                    offered.forEach { l -> Chip(l.name, l.name.equals(list, ignoreCase = true)) { list = l.name } }
                     Chip("+ New list", false) { listSheet = "" }
                 }
-                list?.let { name ->
+                if (gone) Text(
+                    "“$list” was deleted. Pick another list or make a new one.", style = MaterialTheme.typography.bodyMedium,
+                    color = Tokens.AccentText, modifier = Modifier.padding(top = Tokens.Small),
+                )
+                else list?.let { name ->
                     TextButton(onClick = { listSheet = name }, modifier = Modifier.heightIn(min = Tokens.Target), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                         Text("Edit “$name”", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelLarge)
                     }
@@ -160,10 +185,10 @@ private fun ConditionEditor(
                 keyboard = if (pick == Pick.NUMBER) KeyboardType.Phone else KeyboardType.Text,
             )
         }
-        if (MoreConditions.complete(c)) Hint("Reads: " + MoreConditions.sentence(c).replaceFirstChar { it.uppercase() }, Modifier.padding(top = Tokens.Small))
+        if (MoreConditions.complete(c) && !gone) Hint("Reads: " + MoreConditions.sentence(c).replaceFirstChar { it.uppercase() }, Modifier.padding(top = Tokens.Small))
     }
     listSheet?.let { name ->
-        ListEditor(lists.firstOrNull { it.name.equals(name, ignoreCase = true) }, onDismiss = { listSheet = null }) { saved -> list = saved }
+        ListEditor(lists.firstOrNull { it.name.equals(name, ignoreCase = true) }, onDismiss = { listSheet = null }, onDeleted = { deleted = it }) { saved -> list = saved }
     }
 }
 
@@ -172,16 +197,20 @@ private fun Label(text: String) =
     Text(text, style = MaterialTheme.typography.titleSmall, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Gap, bottom = Tokens.Tiny))
 
 /**
- * A named list, made or edited in place: its name and entries. Renaming keeps every rule that uses it; the
- * spam filter's own lists can't be deleted. [onSaved] gets the name (null once deleted).
+ * A named list, made or edited in place: its name and entries (several lines, growing as they are typed). It says
+ * how many rules use it. Renaming keeps every rule that uses it; deleting happens at once ([onDeleted] gets the
+ * list, for Undo), and until it is back the rules' conditions on it match nothing. The spam filter's own lists
+ * can't be deleted. [onSaved] gets the name (null once deleted).
  */
 @Composable
-fun ListEditor(existing: NamedList?, onDismiss: () -> Unit, onSaved: (String?) -> Unit) {
+fun ListEditor(existing: NamedList?, onDismiss: () -> Unit, onDeleted: (NamedList) -> Unit = {}, onSaved: (String?) -> Unit) {
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var entries by remember { mutableStateOf(existing?.entries?.joinToString(", ").orEmpty()) }
+    val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
     val clean = name.trim()
     val taken = clean.isNotEmpty() && AppGraph.rules.lists.value.any { it.name.equals(clean, ignoreCase = true) && !it.name.equals(existing?.name, ignoreCase = true) }
-    val builtIn = existing != null && RuleEngine.presetLists().any { it.name.equals(existing.name, ignoreCase = true) }
+    val builtIn = existing != null && RuleEngine.SPAM_LISTS.any { it.equals(existing.name, ignoreCase = true) }
+    val users = existing?.let { com.dotforge.rules.RulesRepository.usersOf(rules, it.name).size } ?: 0
     FullSheet(
         onDismiss, if (existing == null) "New list" else "Edit list", confirm = "Save list", confirmEnabled = clean.isNotEmpty() && !taken,
         onConfirm = {
@@ -190,14 +219,25 @@ fun ListEditor(existing: NamedList?, onDismiss: () -> Unit, onSaved: (String?) -
             onDismiss()
         },
     ) {
-        Hint("A list several rules can share, like your banks or delivery apps.")
+        Hint(
+            when {
+                existing == null -> "A list several rules can share, like your banks or delivery apps."
+                users == 0 -> "No rules use it yet."
+                users == 1 -> "Used by 1 rule. Changes apply to it at once."
+                else -> "Used by $users rules. Changes apply to all of them at once."
+            },
+        )
         LabeledField(
             "Name", name, { name = it }, placeholder = "Like Banks",
             error = "There's already a list called that".takeIf { taken }, showError = taken,
         )
-        LabeledField("Entries", entries, { entries = it }, placeholder = "Like HDFC, ICICI, SBI", helper = "Separate with commas")
+        LabeledField("Entries", entries, { entries = it }, placeholder = "Like HDFC, ICICI, SBI", helper = "Separate with commas or new lines", multiLine = true)
         if (existing != null && !builtIn) TextButton(
-            onClick = { AppGraph.rules.deleteList(existing.name); onSaved(null); onDismiss() },
+            onClick = {
+                AppGraph.rules.deleteList(existing.name)?.let(onDeleted)
+                onSaved(null)
+                onDismiss()
+            },
             modifier = Modifier.heightIn(min = Tokens.Target).padding(top = Tokens.Small), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
         ) { Text("Delete “${existing.name}”", color = Tokens.AccentText, style = MaterialTheme.typography.labelLarge) }
     }

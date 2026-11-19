@@ -89,6 +89,9 @@ class SimpleRulesTest {
         assertFalse(RuleEngine.decide(note("com.whatsapp", "1409876", "1409876"), listOf(r)).blocked)
         assertFalse(RuleEngine.decide(call("5551401234"), listOf(r)).blocked)
         assertEquals("Calls, SMS", SimpleRules.whereText(p) { it })
+        // "Other apps" has no app list, so it covers SMS and WhatsApp too: the row says so
+        assertEquals("All apps", SimpleRules.whereText(p.copy(where = setOf(Where.SMS, Where.ANY_APP))) { it })
+        assertEquals("Calls, all apps", SimpleRules.whereText(p.copy(where = setOf(Where.CALLS, Where.ANY_APP))) { it })
     }
 
     @Test fun whereChipsMapToSourceAndPackages() {
@@ -118,7 +121,9 @@ class SimpleRulesTest {
     }
 
     @Test fun otherSpamRulesAreNotPatterns() {
-        for (r in RuleEngine.spamPresets()) assertNull(r.name, SimpleRules.pattern(r))
+        // the starter spam words are the one exception: a block rule like any the user adds
+        for (r in RuleEngine.spamPresets().filterNot { it.id == RuleEngine.SPAM_WORDS_RULE }) assertNull(r.name, SimpleRules.pattern(r))
+        org.junit.Assert.assertNotNull(SimpleRules.pattern(RuleEngine.spamPresets().first { it.id == RuleEngine.SPAM_WORDS_RULE }))
         assertNull(SimpleRules.pattern(SimpleRules.newApp("a", "A")))
     }
 }

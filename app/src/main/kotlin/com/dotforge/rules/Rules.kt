@@ -394,7 +394,10 @@ object RuleEngine {
     fun progressPreset() = Rule(id = PROGRESS_PRESET, name = "Progress bars", action = Action.PROGRESS)
 
     /** The spam filter's built-in rules, for calls and messages alike. */
-    fun spamPresets(spamWords: Boolean = false, unknown: Boolean = false, patterns: List<String> = emptyList()) = listOf(
+    fun spamPresets(
+        spamWords: Boolean = false, unknown: Boolean = false, patterns: List<String> = emptyList(), words: List<String> = SpamSettings.DEFAULT_KEYWORDS,
+        patternsOn: Boolean = spamWords,
+    ) = listOf(
         Rule(id = "spam-allowed", name = ALLOWED, source = Source.EVERYTHING, match = senderIn(ALLOWED), action = Action.ALLOW),
         Rule(id = "spam-contacts", name = "Contacts", source = Source.EVERYTHING, match = Match(conditions = listOf(Condition.flag(Field.CONTACT))), action = Action.ALLOW),
         Rule(id = "spam-repeated", name = "Repeated callers", source = Source.CALLS, match = Match(conditions = listOf(Condition.flag(Field.REPEATED))), action = Action.ALLOW),
@@ -404,15 +407,13 @@ object RuleEngine {
             match = Match(conditions = listOf(Condition(Field.NUMBER, Op.STARTS, list = SPAM_PREFIXES))), action = Action.SPAM,
         ),
         Rule(id = "spam-list", name = "Spam list", source = Source.EVERYTHING, match = Match(conditions = listOf(Condition.flag(Field.SPAM_LIST))), action = Action.SPAM),
-        Rule(
-            id = "spam-words", name = SPAM_WORDS, enabled = spamWords, source = Source.APPS,
-            match = Match(
-                all = false,
-                conditions = listOf(Condition(Field.MESSAGE, Op.CONTAINS, list = SPAM_WORDS)) +
-                    listOfNotNull(patterns.takeIf { it.isNotEmpty() }?.let { Condition(Field.MESSAGE, Op.REGEX, it) }),
-            ),
-            action = Action.SPAM,
-        ),
+        spamWordsRule(words, spamWords),
+    ) + listOfNotNull(
+        // the old spam filter's own patterns, kept working beside the words
+        patterns.takeIf { it.isNotEmpty() }?.let {
+            Rule(id = SPAM_PATTERNS_RULE, name = "Spam patterns", enabled = patternsOn, source = Source.APPS, match = Match(conditions = listOf(Condition(Field.MESSAGE, Op.REGEX, it))), action = Action.SPAM)
+        },
+    ) + listOf(
         Rule(id = "spam-unknown", name = "Unknown senders", enabled = unknown, source = Source.APPS, match = Match(conditions = listOf(Condition.flag(Field.CONTACT, yes = false))), action = Action.SPAM),
         Rule(id = "spam-hidden", name = "Hidden numbers", enabled = false, source = Source.CALLS, match = Match(conditions = listOf(Condition.flag(Field.HIDDEN))), action = Action.SILENCE),
         // calls from numbers not in Contacts don't ring (Contacts and saved numbers still do)
@@ -420,12 +421,24 @@ object RuleEngine {
         Rule(id = "spam-faked", name = "Faked numbers", enabled = false, source = Source.CALLS, match = Match(conditions = listOf(Condition.flag(Field.UNVERIFIED))), action = Action.REJECT),
     )
 
-    fun presetLists(allowed: List<String> = emptyList(), words: List<String> = SpamSettings.DEFAULT_KEYWORDS) = listOf(
+    fun presetLists(allowed: List<String> = emptyList()) = listOf(
         NamedList(ALLOWED, allowed),
         NamedList(BLOCKED),
-        NamedList(SPAM_WORDS, words),
         NamedList(SPAM_PREFIXES),
     )
+
+    /** The spam filter's own lists, which a light rule's list picker doesn't offer. */
+    val SPAM_LISTS = setOf(ALLOWED, BLOCKED, SPAM_WORDS, SPAM_PREFIXES)
+
+    /**
+     * "Messages that mention: loan, lottery…": the starter words, as an ordinary block rule in Spam > Block rules,
+     * edited like any other (it was a switch over the "Spam words" list).
+     */
+    fun spamWordsRule(words: List<String> = SpamSettings.DEFAULT_KEYWORDS, enabled: Boolean = false): Rule =
+        SimpleRules.blockRule(BlockPattern(PatternType.WORDS, words.joinToString(", "), setOf(Where.ANY_APP)), id = SPAM_WORDS_RULE)
+            .copy(enabled = enabled)
+
+    const val SPAM_PATTERNS_RULE = "spam-patterns"
 
     const val UNKNOWN_CALLS = "spam-unknown-calls"
     const val HIDDEN_CALLS = "spam-hidden"

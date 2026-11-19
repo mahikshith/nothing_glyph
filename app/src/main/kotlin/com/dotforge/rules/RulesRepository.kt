@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Serializable
 private data class RulesFile(val version: Int = VERSION, val rules: List<Rule>, val lists: List<NamedList> = emptyList()) {
     companion object {
-        const val VERSION = 6
+        const val VERSION = 7
     }
 }
 
@@ -151,14 +151,13 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
     private fun fromV2(old: List<RuleV2>): RulesFile {
         val spam = legacySpam
         val spamRules = RuleEngine.spamPresets(
-            spamWords = spam?.enabled == true && (spam.keywords.isNotEmpty() || spam.patterns.isNotEmpty()),
+            spamWords = spam?.enabled == true && spam.keywords.isNotEmpty(),
             unknown = spam?.enabled == true && spam.blockUnknown,
             patterns = spam?.patterns.orEmpty(),
+            words = spam?.keywords?.takeIf { it.isNotEmpty() } ?: SpamSettings.DEFAULT_KEYWORDS,
+            patternsOn = spam?.enabled == true && spam.patterns.isNotEmpty(),
         )
-        val lists = RuleEngine.presetLists(
-            allowed = spam?.allowedSenders.orEmpty(),
-            words = spam?.keywords ?: SpamSettings.DEFAULT_KEYWORDS,
-        )
+        val lists = RuleEngine.presetLists(allowed = spam?.allowedSenders.orEmpty())
         return RulesFile(rules = old.map { it.migrate() } + spamRules, lists = lists)
     }
 
@@ -191,30 +190,54 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
         return f.copy(version = RulesFile.VERSION, rules = rules + added)
     }
 
+    /**
+     * Version 7: "Spam words" was a switch over the "Spam words" list; it becomes an ordinary block rule with
+     * the list's words ("Messages that mention: …"), on or off as it was. The old filter's patterns keep working
+     * as their own rule. The list itself stays, in case a rule uses it.
+     */
+    private fun withSpamWordsRule(f: RulesFile): RulesFile {
+        val old = f.rules.firstOrNull { it.id == RuleEngine.SPAM_WORDS_RULE }
+        if (old == null || SimpleRules.pattern(old) != null) return f.copy(version = RulesFile.VERSION)
+        val words = f.lists.firstOrNull { it.name.equals(RuleEngine.SPAM_WORDS, ignoreCase = true) }?.entries?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() } ?: SpamSettings.DEFAULT_KEYWORDS
+        val patterns = old.match.allConditions.filter { it.op == Op.REGEX }.flatMap { it.cleanValues }
+        val replaced = RuleEngine.spamWordsRule(words, old.enabled)
+        val extra = patterns.takeIf { it.isNotEmpty() && f.rules.none { r -> r.id == RuleEngine.SPAM_PATTERNS_RULE } }?.let {
+            Rule(
+                id = RuleEngine.SPAM_PATTERNS_RULE, name = "Spam patterns", enabled = old.enabled, source = Source.APPS,
+                match = Match(conditions = listOf(Condition(Field.MESSAGE, Op.REGEX, it))), action = Action.SPAM,
+            )
+        }
+        return f.copy(version = RulesFile.VERSION, rules = f.rules.map { if (it.id == old.id) replaced else it } + listOfNotNull(extra))
+    }
+
     private fun load(): RulesFile {
         if (!file.exists()) return fresh()
         val loaded = runCatching {
             val element = json.parseToJsonElement(file.readText())
             if (element is JsonArray) {
-                withAlerts(withProgress(fromV2(json.decodeFromJsonElement(ListSerializer(LegacyRule.serializer()), element).filterNot { it.suppress }.map { it.migrate() })))
+                withSpamWordsRule(withAlerts(withProgress(fromV2(json.decodeFromJsonElement(ListSerializer(LegacyRule.serializer()), element).filterNot { it.suppress }.map { it.migrate() }))))
                     .also(::write)
             } else {
                 val version = element.jsonObject["version"]?.jsonPrimitive?.int ?: RulesFile.VERSION
                 when {
                     version < 3 -> {
                         val old = element.jsonObject["rules"]?.let { json.decodeFromJsonElement(ListSerializer(RuleV2.serializer()), it) }.orEmpty()
-                        withAlerts(withProgress(fromV2(old))).also(::write)
+                        withSpamWordsRule(withAlerts(withProgress(fromV2(old)))).also(::write)
                     }
-                    version == 3 -> withAlerts(withSpamOn(withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element)))).also(::write)
-                    version == 4 -> withAlerts(withSpamOn(json.decodeFromJsonElement(RulesFile.serializer(), element))).also(::write)
-                    version == 5 -> withAlerts(json.decodeFromJsonElement(RulesFile.serializer(), element)).also(::write)
-                    // "Call live" was a phone moment for a while before release: Phone calls covers it
-                    else -> json.decodeFromJsonElement(RulesFile.serializer(), element).let { f -> f.copy(rules = f.rules.filterNot { it.id == "moment-call" }) }
+                    version == 3 -> withSpamWordsRule(withAlerts(withSpamOn(withProgress(json.decodeFromJsonElement(RulesFile.serializer(), element))))).also(::write)
+                    version == 4 -> withSpamWordsRule(withAlerts(withSpamOn(json.decodeFromJsonElement(RulesFile.serializer(), element)))).also(::write)
+                    version == 5 -> withSpamWordsRule(withAlerts(json.decodeFromJsonElement(RulesFile.serializer(), element))).also(::write)
+                    version == 6 -> withSpamWordsRule(clean(json.decodeFromJsonElement(RulesFile.serializer(), element))).also(::write)
+                    else -> clean(json.decodeFromJsonElement(RulesFile.serializer(), element))
                 }
             }
         }.getOrNull() ?: return fresh()
         return loaded
     }
+
+    /** "Call live" was a phone moment for a while before release: Phone calls covers it. */
+    private fun clean(f: RulesFile) = f.copy(rules = f.rules.filterNot { it.id == "moment-call" })
 
     private fun write(f: RulesFile) {
         runCatching { file.writeText(json.encodeToString(RulesFile.serializer(), f)) }
@@ -274,7 +297,42 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
         save(rules, lists.sortedBy { it.name.lowercase() })
     }
 
-    fun deleteList(name: String) = synchronized(lock) { save(lists = _lists.value.filterNot { it.name.equals(name, ignoreCase = true) }) }
+    /**
+     * Deletes the list [name] at once and returns it, for Undo ([putList] puts it back exactly). Rules that use
+     * it keep pointing at it; until it is back, those conditions match nothing ([com.dotforge.filter.FilterEngine]).
+     */
+    fun deleteList(name: String): NamedList? = synchronized(lock) {
+        val gone = list(name)
+        save(lists = _lists.value.filterNot { it.name.equals(name, ignoreCase = true) })
+        gone
+    }
+
+    /** The rules with a condition on the list [name] ("Used by 2 rules"). */
+    fun listUsers(name: String): List<Rule> = usersOf(_rules.value, name)
+
+    /** What [restorePresets] added, so Undo can take exactly that away again. */
+    data class Restored(val rules: List<Rule>, val lists: List<NamedList>)
+
+    /**
+     * Adds back the missing ones of [presets] with the missing lists they use (Restore starter rules), and says
+     * what came back.
+     */
+    fun restorePresets(presets: List<Rule>): Restored = synchronized(lock) {
+        val have = _rules.value.map { it.id }.toSet()
+        val rules = presets.filterNot { it.id in have }
+        val used = rules.flatMap { r -> r.match.allConditions.mapNotNull { it.list } }.map { it.lowercase() }.toSet()
+        val names = _lists.value.map { it.name.lowercase() }.toSet()
+        val lists = RuleEngine.presetLists().filter { it.name.lowercase() in used && it.name.lowercase() !in names }
+        save(rules = _rules.value + rules, lists = (_lists.value + lists).sortedBy { it.name.lowercase() })
+        Restored(rules, lists)
+    }
+
+    /** Undo of [restorePresets]: the rules and lists it added go again. */
+    fun undoRestore(r: Restored) = synchronized(lock) {
+        val ids = r.rules.map { it.id }.toSet()
+        val names = r.lists.map { it.name.lowercase() }.toSet()
+        save(rules = _rules.value.filterNot { it.id in ids }, lists = _lists.value.filterNot { it.name.lowercase() in names })
+    }
 
     /** Adds [entry] to the list [name] (made when missing) and takes it off [removeFrom]. */
     fun addToList(name: String, entry: String, removeFrom: String? = null) = synchronized(lock) {
@@ -288,6 +346,12 @@ class RulesRepository(private val file: File, private val legacySpam: SpamSettin
             }
         }
         save(lists = if (lists.any { it.name.equals(name, ignoreCase = true) }) lists else lists + NamedList(name, listOf(e)))
+    }
+
+    companion object {
+        /** The rules in [rules] with a condition on the list [name]. */
+        fun usersOf(rules: List<Rule>, name: String): List<Rule> =
+            rules.filter { r -> r.match.allConditions.any { it.list?.equals(name, ignoreCase = true) == true } }
     }
 
     private fun renameList(m: Match, from: String, to: String): Match {

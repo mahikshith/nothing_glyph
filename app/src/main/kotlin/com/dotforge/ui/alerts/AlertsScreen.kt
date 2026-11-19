@@ -136,15 +136,14 @@ fun AlertsScreen(
                 DropdownMenu(open, onDismissRequest = { open = false }, containerColor = Tokens.Raised) {
                     DropdownMenuItem({ Text("Alert settings") }, onClick = { open = false; nav.push(Page.AlertSettings) })
                     DropdownMenuItem({ Text("How it works") }, onClick = { open = false; sheet = AlertSheet.HowItWorks })
-                    // the built-in rules (Phone calls, Messages, OTP codes, Delivery, the spam filter's) that were deleted
-                    if (segment == Segment.SPAM) DropdownMenuItem({ Text("Restore the starter rules") }, onClick = {
+                    // the starter rules that were deleted, for this segment only: the snackbar names them, Undo takes them away again
+                    if (segment == Segment.APPS) DropdownMenuItem({ Text("Restore starter app rules") }, onClick = {
                         open = false
-                        val missing = AppGraph.rules.missingPresets()
-                        if (missing.isEmpty()) snacks?.show("The starter rules are all there")
-                        else {
-                            AppGraph.rules.addPresets(missing)
-                            snacks?.show(if (missing.size == 1) "1 starter rule restored" else "${missing.size} starter rules restored", undo = { missing.forEach { AppGraph.rules.delete(it.id) } })
-                        }
+                        restore(snacks, spam = false)
+                    })
+                    if (segment == Segment.SPAM) DropdownMenuItem({ Text("Restore starter spam rules") }, onClick = {
+                        open = false
+                        restore(snacks, spam = true)
                     })
                     if (segment == Segment.HISTORY && history.isNotEmpty()) DropdownMenuItem({ Text("Clear history") }, onClick = {
                         open = false
@@ -179,7 +178,7 @@ fun AlertsScreen(
             startBlock = s.block,
             startMore = s.more,
         )
-        is AlertSheet.AddBlock -> AddRuleSheet(s, onDismiss = { sheet = null })
+        is AlertSheet.AddBlock -> AddRuleSheet(s, setup, onDismiss = { sheet = null })
         is AlertSheet.Entry -> HistorySheet(s.key, label, onDismiss = { sheet = null }, open = { sheet = it })
         AlertSheet.AddPerson -> AddPersonSheet(setup, onDismiss = { sheet = null }) { r -> sheet = AlertSheet.RuleOf(r.id) }
         AlertSheet.AddGroup -> AddGroupSheet(setup, onDismiss = { sheet = null }) { r -> sheet = AlertSheet.RuleOf(r.id) }
@@ -190,6 +189,28 @@ fun AlertsScreen(
         AlertSheet.AllowList -> AllowListSheet(onDismiss = { sheet = null })
         null -> Unit
     }
+}
+
+/**
+ * Puts back the deleted starter rules: the spam filter's ([spam]) or the Apps ones (Phone calls, Messages, OTP
+ * codes, Delivery, progress bars, reminders, phone moments), with the lists they use. The snackbar names what
+ * came back; Undo takes those rules and lists away again.
+ */
+fun restore(snacks: com.dotforge.ui.design.Snacks?, spam: Boolean) {
+    val missing = AppGraph.rules.missingPresets().filter { RuleEngine.isSpamRule(it) == spam }
+    if (missing.isEmpty()) {
+        snacks?.show(if (spam) "The starter spam rules are all there" else "The starter app rules are all there")
+        return
+    }
+    val restored = AppGraph.rules.restorePresets(missing)
+    snacks?.show(restoredText(restored.rules.map { blockRuleTitle(it) }), undo = { AppGraph.rules.undoRestore(restored) })
+}
+
+/** "Restored OTP codes", "Restored OTP codes and Delivery", "Restored OTP codes, Delivery and 2 more". */
+fun restoredText(names: List<String>): String = "Restored " + when (names.size) {
+    1 -> names[0]
+    2 -> "${names[0]} and ${names[1]}"
+    else -> "${names[0]}, ${names[1]} and ${names.size - 2} more"
 }
 
 /** Row 67 and row 68: what stops alerts working, in words with an icon and one button. */
@@ -223,11 +244,17 @@ private fun LazyListScope.appsItems(rules: List<Rule>, label: (String) -> String
                 val ringtone = b.ringtoneLights && calls.enabled && calls.callShow != com.dotforge.rules.CallShow.GLYPH
                 RuleRow(calls, "Phone calls", if (ringtone) "Names need ringtone lights set to Sound only" else AlertSentence.summary(calls, hasIcon = ::hasAppIcon), open)
             }
+            val lists = AppGraph.rules.lists.value
             apps.forEach { r ->
                 RowDivider(leading = true)
                 val title = ruleTitle(r, label)
                 val warn = b.doubleLights && r.enabled && r.packages.size == 1
-                RuleRow(r, title, if (warn) "Nothing lights it too · Fix" else AlertSentence.summary(r, hasIcon = ::hasAppIcon), open)
+                // a list its More conditions use was deleted: that part matches nothing until it is fixed
+                val broken = com.dotforge.rules.MoreConditions.missingLists(com.dotforge.rules.MoreConditions.of(r), lists).isNotEmpty()
+                when {
+                    broken -> RuleRow(r, title, LIST_REMOVED, open, red = true, start = AlertSheet.RuleOf(r.id, more = true))
+                    else -> RuleRow(r, title, if (warn) "Nothing lights it too · Fix" else AlertSentence.summary(r, hasIcon = ::hasAppIcon), open)
+                }
             }
             RowDivider(leading = true)
             AddRow("Add an app") { nav.push(Page.AlertApps("app")) }
@@ -258,42 +285,53 @@ fun momentsText(moments: List<Rule>): String {
 
 /** A rule row: where it listens, its name and line, then its glyph (40 dp still) and its own switch. The row opens the sheet. */
 @Composable
-private fun RuleRow(r: Rule, title: String, subtitle: String, open: (AlertSheet) -> Unit) {
+private fun RuleRow(r: Rule, title: String, subtitle: String, open: (AlertSheet) -> Unit, red: Boolean = false, start: AlertSheet = AlertSheet.RuleOf(r.id)) {
     ListRow(
         title, subtitle = subtitle, leading = { SourceIcon(r, title) }, subtitleLines = Int.MAX_VALUE,
+        subtitleColor = if (red) Tokens.AccentText else Tokens.Secondary,
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RulePoster(r, title)
                 RowSwitch(r.enabled, title) { AppGraph.rules.upsert(r.copy(enabled = it)) }
             }
         },
-    ) { open(AlertSheet.RuleOf(r.id)) }
+    ) { open(start) }
 }
 
 // ---------------------------------------------------------------- People
 
+/**
+ * People, then Groups: a person's glyph and a Contacts group's glyph show instead of the app's, for calls and
+ * messages. Both add the same way, with a row at the end of their list.
+ */
 private fun LazyListScope.peopleItems(rules: List<Rule>, open: (AlertSheet) -> Unit) {
-    val people = rules.filter(SimpleRules::isPersonRule)
-    if (people.isEmpty()) {
+    val people = rules.filter { SimpleRules.isPersonRule(it) && !SimpleRules.isGroupRule(it) }
+    val groups = rules.filter(SimpleRules::isGroupRule)
+    if (people.isEmpty() && groups.isEmpty()) {
         item(key = "people-empty") {
-            EmptyState("Give the people who matter their own glyph. It shows for their calls and messages in every app.", "Add a person", glyph = "heart") { open(AlertSheet.AddPerson) }
+            EmptyState("Give the people who matter their own glyph. It shows for their calls and messages in every app.", glyph = "heart")
         }
-        item(key = "group-add") { RowGroup { AddRow("Add a group") { open(AlertSheet.AddGroup) } } }
-        return
     }
     item(key = "people") {
         RowGroup {
-            people.forEachIndexed { i, r ->
-                if (i > 0) RowDivider(leading = true)
+            people.forEach { r ->
                 RuleRow(r, r.name, AlertSentence.summary(r), open)
+                RowDivider(leading = true)
             }
-            RowDivider(leading = true)
             AddRow("Add a person") { open(AlertSheet.AddPerson) }
-            RowDivider(leading = true)
+        }
+    }
+    item(key = "groups-label") { SectionLabel("Groups") }
+    item(key = "groups") {
+        RowGroup {
+            groups.forEach { r ->
+                RuleRow(r, r.name, "Contacts group · " + AlertSentence.summary(r), open)
+                RowDivider(leading = true)
+            }
             AddRow("Add a group") { open(AlertSheet.AddGroup) }
         }
     }
-    item(key = "people-hint") { Hint("People win over apps: Mom's glyph shows instead of the WhatsApp glyph. A person wins over their group.") }
+    item(key = "people-hint") { Hint("People and groups win over apps: Mom's glyph shows instead of the WhatsApp glyph. A person wins over their group.") }
 }
 
 /**
@@ -339,7 +377,7 @@ fun AddGroupSheet(setup: Setup, onDismiss: () -> Unit, groups: List<String>? = n
     val have = rules.filter(SimpleRules::isGroupRule).map { it.name.lowercase() }.toSet()
     val found = groups ?: remember(setup.contacts) { if (setup.contacts) runCatching { com.dotforge.calls.CallerLookup(ctx).groupTitles() }.getOrDefault(emptyList()) else emptyList() }
     FullSheet(onDismiss, "Add a group", half = true, confirm = null) {
-        Hint("One glyph for everyone in a Contacts group, like Family or Work, in every app.")
+        Hint("One glyph for everyone in a Contacts group, like Family or Work: for their calls, and their messages in every app.")
         when {
             groups == null && !setup.contacts -> StatusBanner("Allow Contacts to see your groups", Modifier.padding(top = Tokens.Small), button = "Allow") { setup.needContacts() }
             found.isEmpty() -> Hint("No groups in Contacts yet. Make one in your Contacts app, then come back.", Modifier.padding(top = Tokens.Small))
@@ -347,7 +385,7 @@ fun AddGroupSheet(setup: Setup, onDismiss: () -> Unit, groups: List<String>? = n
                 found.forEachIndexed { i, title ->
                     if (i > 0) RowDivider(leading = true)
                     val added = title.lowercase() in have
-                    ListRow(title, subtitle = if (added) "Added" else null, leading = { com.dotforge.ui.design.LibraryGlyph("people", still = true) }, enabled = !added) {
+                    ListRow(title, subtitle = if (added) "Added" else "Contacts group", leading = { com.dotforge.ui.design.LibraryGlyph("people", still = true) }, enabled = !added) {
                         val r = SimpleRules.newGroup(title)
                         AppGraph.rules.upsert(r)
                         onAdded(r)

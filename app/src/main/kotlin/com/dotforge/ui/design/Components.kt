@@ -235,6 +235,8 @@ fun ListRow(
     subtitleLines: Int = 2,
     titleLines: Int = 2,
     onLongClick: (() -> Unit)? = null,
+    /** Red for a line that says something is broken ("List removed · Fix"). */
+    subtitleColor: Color = Tokens.Secondary,
     onClick: (() -> Unit)? = null,
 ) {
     val click = if (onClick != null || onLongClick != null) {
@@ -252,7 +254,7 @@ fun ListRow(
         leading?.let { Box(Modifier.size(Tokens.Avatar), contentAlignment = Alignment.Center) { it() } }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = titleLines, overflow = TextOverflow.Ellipsis)
-            subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = subtitleLines, overflow = TextOverflow.Ellipsis) }
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = subtitleColor, maxLines = subtitleLines, overflow = TextOverflow.Ellipsis) }
         }
         trailing?.invoke()
     }
@@ -781,11 +783,12 @@ fun SecondaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolea
  * chip still takes a 48 dp touch. Selected is white with black text.
  */
 @Composable
-fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         modifier.heightIn(min = CHIP_ROW).widthIn(min = Tokens.Target)
             .clip(RoundedCornerShape(CHIP_ROW / 2))
-            .selectable(selected = selected, role = Role.Button, onClick = onClick),
+            .selectable(selected = selected, enabled = enabled, role = Role.Button, onClick = onClick)
+            .then(if (enabled) Modifier else Modifier.alpha(DISABLED_ALPHA)),
         contentAlignment = Alignment.Center,
     ) {
         Box(

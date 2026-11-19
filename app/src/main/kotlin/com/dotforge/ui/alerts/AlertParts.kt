@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -159,7 +160,8 @@ fun RulePoster(r: Rule, title: String) {
 
 /**
  * The leading slot of a rule row: the app's icon, or what stands for where it listens (a phone for calls, a
- * bell for any app, an envelope for several chat apps, a calendar for reminders, a letter for a person).
+ * bell for any app, an envelope for several chat apps, a calendar for reminders, a letter for a person, the
+ * people glyph for a Contacts group).
  */
 @Composable
 fun SourceIcon(r: Rule, title: String) {
@@ -167,6 +169,7 @@ fun SourceIcon(r: Rule, title: String) {
     when {
         r.id == SimpleRules.PHONE_CALLS -> IconCircle(Icons.Filled.Call)
         r.id == SimpleRules.REMINDERS -> IconCircle(Icons.Filled.DateRange)
+        SimpleRules.isGroupRule(r) -> com.dotforge.ui.design.LibraryGlyph("people", still = true)
         SimpleRules.isPersonRule(r) -> Avatar(r.name)
         pkg != null -> AppIcon(pkg, title)
         r.packages.isEmpty() -> IconCircle(Icons.Filled.Notifications)
@@ -254,3 +257,18 @@ fun RowSwitch(checked: Boolean, label: String, enabled: Boolean = true, onChange
 /** Remembers a value across recompositions that a sheet edits before saving. */
 @Composable
 fun <T> rememberDraft(initial: T) = remember { mutableStateOf(initial) }
+
+/**
+ * What a switch or choice needs before it can work, in red, with the button that fixes it: "Needs call
+ * screening" · Allow, "Needs Contacts" · Allow.
+ */
+@Composable
+fun NeedsLine(text: String, button: String, modifier: Modifier = Modifier, onClick: () -> Unit) =
+    androidx.compose.foundation.layout.Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.Text(
+            text, Modifier.weight(1f), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, color = com.dotforge.ui.design.Tokens.AccentText,
+        )
+        androidx.compose.material3.TextButton(onClick = onClick, modifier = Modifier.heightIn(min = com.dotforge.ui.design.Tokens.Target)) {
+            androidx.compose.material3.Text(button, color = androidx.compose.ui.graphics.Color.White, style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+        }
+    }

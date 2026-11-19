@@ -51,21 +51,21 @@ private fun glyphName(style: GlyphStyle?, designId: String?, builtIn: String): S
     else -> style.label
 }
 
-/** "Until you check · again every 5 min", "Until you check", "For 10 s". */
+/** "Until you check · again every 5 min" (a no-break space keeps "5 min" together), "Until you check", "For 10 s". */
 fun missedTimingText(s: CallSettings): String {
     val t = s.missedTiming ?: CallActions.MISSED_TIMING
-    if (t.showFor == ShowFor.SECONDS) return "For ${t.seconds ?: 5} s"
+    if (t.showFor == ShowFor.SECONDS) return "For ${t.seconds ?: 5}\u00A0s"
     val m = t.remindMinutes ?: 0
-    return if (m > 0) "Until you check · again every $m min" else "Until you check"
+    return if (m > 0) "Until you check · again every $m\u00A0min" else "Until you check"
 }
 
 /** The Phone calls sheet's "Missed calls" line: "Off", or the glyph and timing. */
 fun missedLine(s: CallSettings): String =
     if (!s.missedGlyph) "Off" else glyphName(s.missedStyle, s.missedDesign, "Missed call glyph") + " · " + missedTimingText(s).replaceFirstChar { it.lowercase() }
 
-/** The Phone calls sheet's "Screened calls" line. */
+/** The Phone calls sheet's "Calls DotForge stopped" line. */
 fun screenedLine(s: CallSettings): String =
-    if (!s.screenedGlyph) "Off" else glyphName(s.screenedStyle, s.screenedDesign, "Silenced and Declined glyphs")
+    if (!s.screenedGlyph) "Off" else glyphName(s.screenedStyle, s.screenedDesign, "Silenced and declined glyphs")
 
 /**
  * Phone calls > Missed calls: a switch, the glyph (the built-in one, or any from the picker), and the shared
@@ -103,27 +103,30 @@ fun MissedCallSheet(onDismiss: () -> Unit) {
     }
 }
 
-/** Phone calls > Screened calls: a switch and the glyph for a call that was silenced or declined. */
+/** The calls a rule silenced or declined, as the Phone calls sheet names them. */
+const val STOPPED_TITLE = "Calls DotForge stopped"
+
+/** Phone calls > Calls DotForge stopped: a switch and the glyph for a call that was silenced or declined. */
 @Composable
 fun ScreenedCallSheet(onDismiss: () -> Unit) {
     val s by AppGraph.calls.settings.collectAsStateWithLifecycle()
     var picker by remember { mutableStateOf(false) }
     val anim = remember(s.screenedStyle, s.screenedDesign) { callAnimation(s.screenedStyle, s.screenedDesign) { Effects.callBlocked(AppGraph.profile) } }
     fun set(t: (CallSettings) -> CallSettings) = AppGraph.calls.updateSettings(t)
-    FullSheet(onDismiss, "Screened calls") {
-        SwitchRow("Light when a call is screened", "A short glyph when a rule silences or declines a call. Spam calls use the spam alert.", s.screenedGlyph, inset = 0.dp) { on ->
+    FullSheet(onDismiss, STOPPED_TITLE) {
+        SwitchRow("Light when DotForge stops a call", "A short glyph when a rule silences or declines a call. Spam calls use the spam alert.", s.screenedGlyph, inset = 0.dp) { on ->
             set { it.copy(screenedGlyph = on) }
         }
         if (s.screenedGlyph) {
             ListRow(
-                "Glyph", subtitle = glyphName(s.screenedStyle, s.screenedDesign, "Silenced and Declined glyphs"), inset = 0.dp,
-                leading = { GlyphPreview(remember(anim) { stillOf(anim) }, "Screened call glyph") }, trailing = { Chevron() },
+                "Glyph", subtitle = glyphName(s.screenedStyle, s.screenedDesign, "Silenced and declined glyphs"), inset = 0.dp,
+                leading = { GlyphPreview(remember(anim) { stillOf(anim) }, "Stopped call glyph") }, trailing = { Chevron() },
             ) { picker = true }
             BuiltInButton(s.screenedStyle != null) { set { it.copy(screenedStyle = null, screenedDesign = null) } }
         }
         Hint("It stays until you unlock the phone.")
     }
-    if (picker) GlyphPicker(Rule(id = "screened-call", name = "Screened call"), "Screened call", isApp = false, onDismiss = { picker = false }) { c ->
+    if (picker) GlyphPicker(Rule(id = "screened-call", name = "Stopped call"), "Stopped call", isApp = false, onDismiss = { picker = false }) { c ->
         set { it.copy(screenedStyle = c.style, screenedDesign = c.id) }
         picker = false
     }

@@ -90,6 +90,9 @@ class CallsRepository(private val file: File, private val now: () -> Long = Syst
 
     val recent: List<RecentCall> get() = synchronized(lock) { state.recent }
 
+    /** Calls DotForge silenced or declined lately, so their missed call glyph is skipped. */
+    val screened = ScreenedCalls()
+
     fun updateSettings(transform: (CallSettings) -> CallSettings) = update { it.copy(settings = transform(it.settings)) }
 
     /** Remembers an incoming call for repeated-caller checks (the last hour is kept). */

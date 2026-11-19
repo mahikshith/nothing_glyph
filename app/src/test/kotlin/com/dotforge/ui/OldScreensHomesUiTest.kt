@@ -29,6 +29,7 @@ import com.dotforge.ui.alerts.AddGroupSheet
 import com.dotforge.ui.alerts.AlertBanners
 import com.dotforge.ui.alerts.AlertSheet
 import com.dotforge.ui.alerts.AlertsScreen
+import com.dotforge.ui.alerts.blockRuleTitle
 import com.dotforge.ui.alerts.DeviceState
 import com.dotforge.ui.design.DotForgeTheme
 import com.dotforge.ui.design.UndoSnackbarHost
@@ -107,7 +108,7 @@ class OldScreensHomesUiTest {
         rule.onNode(hasText("Light for missed calls") and isToggleable()).tap()
         rule.waitForIdle()
         assertTrue(AppGraph.calls.settings.value.missedGlyph)
-        rule.onNodeWithText("Until you check · again every 5 min").assertExists()
+        rule.onNodeWithText("Until you check · again every 5\u00A0min").assertExists()
     }
 
     @Test fun aGroupIsAddedFromPeople() {
@@ -119,7 +120,11 @@ class OldScreensHomesUiTest {
         assertEquals("Family", g.match.conditions.single().cleanValues.single())
     }
 
+    private fun screening() =
+        org.robolectric.Shadows.shadowOf(rule.activity.getSystemService(android.app.role.RoleManager::class.java)).addHeldRole(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+
     @Test fun addARuleDeclinesCalls() {
+        screening()
         alerts(AlertSheet.AddBlock(), request = "spam")
         rule.onNode(hasSetTextAction() and hasContentDescription("Number")).performTextInput("140555")
         sheetScrollTo("Decline")
@@ -127,7 +132,8 @@ class OldScreensHomesUiTest {
         rule.onNodeWithText("Decline").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Declined. It stays in your call log.").assertExists()
-        rule.onNodeWithText("Hide the notification").assertExists()
+        // one thing happens to a message: it is said, not offered as a choice
+        rule.onNodeWithText("The notification is hidden.").assertExists()
         rule.onNodeWithText("Add").tap()
         rule.waitForIdle()
         val r = AppGraph.rules.rules.value.first { it.name == "Starts with 140555" }
@@ -135,28 +141,26 @@ class OldScreensHomesUiTest {
         assertEquals(Action.REJECT, com.dotforge.calls.CallActions.of(r))
     }
 
-    @Test fun theSpamTabRestoresTheStarterRulesWithUndo() {
-        AppGraph.rules.delete("preset-otp")
+    @Test fun theSpamTabRestoresTheStarterSpamRulesWithUndo() {
+        AppGraph.rules.delete(RuleEngine.HIDDEN_CALLS)
         alerts(request = "spam")
         rule.onNodeWithContentDescription("More options").tap()
         rule.waitForIdle()
-        rule.onNodeWithText("Restore the starter rules").tap()
+        rule.onNodeWithText("Restore starter spam rules").tap()
         rule.waitForIdle()
-        assertTrue(AppGraph.rules.rules.value.any { it.id == "preset-otp" })
+        assertTrue(AppGraph.rules.rules.value.any { it.id == RuleEngine.HIDDEN_CALLS })
+        // the snackbar names what came back
+        rule.onNodeWithText("Restored Hidden numbers").assertExists()
         rule.onNodeWithText("Undo").tap()
         rule.waitForIdle()
-        assertFalse(AppGraph.rules.rules.value.any { it.id == "preset-otp" })
+        assertFalse(AppGraph.rules.rules.value.any { it.id == RuleEngine.HIDDEN_CALLS })
     }
 
-    @Test fun theSpamTabSwitchesSpamWordsAndUnknownSenders() {
+    @Test fun theSpamWordsAreAStarterBlockRule() {
         alerts(request = "spam")
-        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Unknown senders"))
-        listOf("Spam words" to RuleEngine.SPAM_WORDS_RULE, "Unknown senders" to RuleEngine.UNKNOWN_SENDERS).forEach { (name, id) ->
-            val was = AppGraph.rules.rules.value.firstOrNull { it.id == id }?.enabled == true
-            rule.onNode(hasText(name) and isToggleable()).tap()
-            rule.waitForIdle()
-            assertEquals(name, !was, AppGraph.rules.rules.value.first { it.id == id }.enabled)
-        }
+        val title = blockRuleTitle(AppGraph.rules.rules.value.first { it.id == RuleEngine.SPAM_WORDS_RULE })
+        assertTrue(title, title.startsWith("Messages that mention: lottery, you have won…"))
+        rule.onNodeWithText(title).assertExists()
     }
 
     @Test fun liveProgressHasTheMediaRingAndItsOption() {
@@ -171,8 +175,8 @@ class OldScreensHomesUiTest {
         rule.onNode(hasText("Media progress") and isToggleable()).tap()
         rule.waitForIdle()
         assertTrue(AppGraph.media.on.value)
-        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Only when locked or face down"))
-        rule.onNode(hasText("Only when locked or face down") and isToggleable()).tap()
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Only when the phone is locked"))
+        rule.onNode(hasText("Only when the phone is locked") and isToggleable()).tap()
         rule.waitForIdle()
         assertTrue(AppGraph.media.onlyLockedOrFaceDown.value)
     }

@@ -18,8 +18,9 @@ import kotlinx.serialization.json.Json
 enum class Outcome(val label: String) { LIT("Lit"), BLOCKED("Blocked"), SKIPPED("Skipped") }
 
 /**
- * One line of Alerts > History (row 52): a call or notification and what happened to it. [detail] finishes
- * the outcome line: "Chat glyph · 30 s", "starts with 140", "Quiet", "phone face down".
+ * One line of Alerts > History (row 52): a call or notification and what happened to it, at [at] (when it
+ * arrived). [detail] finishes the outcome line: "Chat glyph · 30 s", "starts with 140", "Quiet", "phone face
+ * down". [channel] and [locked] let "Would have lit" count a rule against it.
  */
 @Serializable
 data class HistoryEntry(
@@ -40,6 +41,10 @@ data class HistoryEntry(
     val ruleId: String? = null,
     val rule: String? = null,
     val action: Action? = null,
+    /** The notification's type (its channel), for counts; empty before it was stored. */
+    val channel: String = "",
+    /** Whether the phone was locked, for counts of "Only when locked"; null when not stored. */
+    val locked: Boolean? = null,
 ) {
     /** Who it was from: the sender, the number, the title, or the app. */
     val who: String get() = sender.ifBlank { title.ifBlank { number.ifBlank { appLabel } } }

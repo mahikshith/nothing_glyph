@@ -111,9 +111,12 @@ data class Condition(
     }
 }
 
-/** A nested group (one level only): all or any of its conditions, optionally negated. */
+/**
+ * A nested group (one level only): all or any of its conditions, optionally negated. [more] marks the group the
+ * More conditions builder writes, so other groups (like a migrated rule's people) are never shown as its.
+ */
 @Serializable
-data class Group(val all: Boolean = true, val conditions: List<Condition> = emptyList(), val not: Boolean = false)
+data class Group(val all: Boolean = true, val conditions: List<Condition> = emptyList(), val not: Boolean = false, val more: Boolean = false)
 
 /** What a rule tests: all (AND) or any (OR) of its conditions and groups. Empty matches everything. */
 @Serializable
@@ -197,7 +200,18 @@ object FilterEngine {
         return r != g.not
     }
 
-    fun test(c: Condition, s: Subject, lists: List<NamedList>): Boolean = raw(c, s, lists) != c.not
+    /**
+     * A condition on a list that no longer exists matches nothing, whatever its test: "isn't in list" fails
+     * too, so deleting a list never widens a rule.
+     */
+    fun test(c: Condition, s: Subject, lists: List<NamedList>): Boolean {
+        if (c.list != null && missingList(c, lists)) return false
+        return raw(c, s, lists) != c.not
+    }
+
+    /** True when [c] points at a list that isn't in [lists]. */
+    fun missingList(c: Condition, lists: List<NamedList>): Boolean =
+        c.list != null && lists.none { it.name.equals(c.list, ignoreCase = true) }
 
     private fun valuesOf(c: Condition, lists: List<NamedList>): List<String> {
         val listed = c.list?.let { name -> lists.firstOrNull { it.name.equals(name, ignoreCase = true) }?.entries.orEmpty() }.orEmpty()

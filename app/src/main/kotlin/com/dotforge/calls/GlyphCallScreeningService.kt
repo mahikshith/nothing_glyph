@@ -72,13 +72,15 @@ class GlyphCallScreeningService : CallScreeningService() {
             return
         }
 
+        // it was the user's choice not to hear it: its missed call doesn't light again
+        calls.screened.note(number, caller?.name, nowMs)
         val who = caller?.name ?: number ?: "Hidden number"
         AppGraph.history.add(
             com.dotforge.rules.HistoryEntry(
                 key = "call:$nowMs", at = nowMs, outcome = com.dotforge.rules.Outcome.BLOCKED,
                 detail = gate?.rule?.let(com.dotforge.rules.HistoryText::blockedDetail).orEmpty(),
                 appLabel = "Phone", title = who, sender = caller?.name.orEmpty(), number = number.orEmpty(), call = true,
-                ruleId = gate?.rule?.id, rule = gate?.rule?.name, action = action,
+                ruleId = gate?.rule?.id, rule = gate?.rule?.name, action = action, locked = conditions.locked,
             ),
         )
         main.post {
