@@ -20,6 +20,8 @@ import com.dotforge.device.AnimFrame
 import com.dotforge.device.Animation
 import com.dotforge.device.Effects
 import com.dotforge.device.Frame
+import com.dotforge.device.Timings
+import com.dotforge.system.FeatureTiming
 import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
 import com.dotforge.ringtones.RingtoneImporter
@@ -109,9 +111,9 @@ object AutomationRunner {
 
     private fun execute(ctx: Context, c: Command): String = when (c) {
         is Command.ShowGlyph -> {
-            val anim = glyph(c)
+            val plan = Timings.plan(glyph(c), Automation.timingFor(c, AppGraph.features.timing(FeatureTiming.APPS).value))
             AppGraph.arbiter.post(
-                DisplayRequest(GLYPH_ID, Priority.NOTIFICATION, anim, loop = true, timeoutMs = c.seconds * 1000L, label = "Automation: ${Automation.describe(c)}"),
+                DisplayRequest(GLYPH_ID, Priority.NOTIFICATION, plan.animation, loop = plan.loop, timeoutMs = plan.showMs, label = "Automation: ${Automation.describe(c)}"),
             )
             "shown"
         }
@@ -188,28 +190,54 @@ internal fun Bundle.toMap(): Map<String, Any?> = keySet().associateWith {
 /** The automation API (see [Automation]). Holds [Automation.PERMISSION]; only apps the user allowed are obeyed. */
 class AutomationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val settings = AppGraph.automation
+        // a keyed broadcast is KeyReceiver's (sent to the package, both receivers get it)
+        if (intent.hasExtra(Automation.EXTRA_KEY)) return
         val shared = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) sentFromPackage else null
         val caller = runCatching { intent.getParcelableExtra(Automation.EXTRA_CALLER, PendingIntent::class.java)?.creatorPackage }.getOrNull()
-        val sender = shared ?: caller
-        when (val gate = Automation.check(sender, settings.allowed.value, context.packageName)) {
-            Gate.UnknownSender -> {
-                AutomationRunner.note("Ignored ${intent.action}: the sender didn't identify itself (add a PendingIntent as \"${Automation.EXTRA_CALLER}\").")
-                return
-            }
-            is Gate.NotAllowed -> {
-                settings.noteAsked(gate.packageName)
-                AutomationRunner.note("Ignored ${intent.action} from ${gate.packageName}: allow it on the Integrations page.")
-                return
-            }
-            Gate.Allowed -> Unit
+        receive(this, context, intent, shared ?: caller, key = null)
+    }
+}
+
+/**
+ * The same API for apps that can't hold the permission, such as Tasker's Send intent: exported without one, and
+ * obeys only a broadcast carrying the Integrations page's key ([Automation.EXTRA_KEY]).
+ */
+class KeyReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val key = intent.getStringExtra(Automation.EXTRA_KEY) ?: return
+        val shared = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) sentFromPackage else null
+        receive(this, context, intent, shared, key)
+    }
+}
+
+private fun receive(r: BroadcastReceiver, context: Context, intent: Intent, sender: String?, key: String?) {
+    val settings = AppGraph.automation
+    if (sender != context.packageName && !AppGraph.features.showDesigns.value) {
+        AutomationRunner.note("Ignored ${intent.action}: \"Let other apps show designs\" is off.")
+        return
+    }
+    when (val gate = Automation.check(sender, settings.allowed.value, context.packageName, key, AppGraph.features.key.value)) {
+        Gate.UnknownSender -> {
+            AutomationRunner.note("Ignored ${intent.action}: the sender didn't identify itself (add a PendingIntent as \"${Automation.EXTRA_CALLER}\", or the key as \"${Automation.EXTRA_KEY}\").")
+            return
         }
-        when (val p = Automation.parse(intent.action, intent.extras?.toMap().orEmpty())) {
-            is Parsed.Rejected -> AutomationRunner.note("Ignored ${intent.action} from $sender: ${p.reason}")
-            is Parsed.Ok -> {
-                val pending = goAsync()
-                AutomationRunner.run(context, p.command, sender.orEmpty()) { pending.finish() }
-            }
+        Gate.WrongKey -> {
+            AutomationRunner.note("Ignored ${intent.action}: the key doesn't match. Copy it again from the Integrations page.")
+            return
+        }
+        is Gate.NotAllowed -> {
+            settings.noteAsked(gate.packageName)
+            AutomationRunner.note("Ignored ${intent.action} from ${gate.packageName}: allow it on the Integrations page.")
+            return
+        }
+        Gate.Allowed -> Unit
+    }
+    val from = sender ?: "an app with the key"
+    when (val p = Automation.parse(intent.action, intent.extras?.toMap().orEmpty())) {
+        is Parsed.Rejected -> AutomationRunner.note("Ignored ${intent.action} from $from: ${p.reason}")
+        is Parsed.Ok -> {
+            val pending = r.goAsync()
+            AutomationRunner.run(context, p.command, from) { pending.finish() }
         }
     }
 }
@@ -221,6 +249,10 @@ class PluginFireReceiver : BroadcastReceiver() {
         val settings = AppGraph.automation
         if (!settings.plugin.value) {
             AutomationRunner.note("Ignored a Tasker action: the plugin is switched off.")
+            return
+        }
+        if (!AppGraph.features.showDesigns.value) {
+            AutomationRunner.note("Ignored a Tasker action: \"Let other apps show designs\" is off.")
             return
         }
         val values = intent.getBundleExtra(PluginBundle.EXTRA_BUNDLE)?.toMap() ?: return

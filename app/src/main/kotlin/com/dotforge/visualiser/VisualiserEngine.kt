@@ -108,6 +108,8 @@ class VisualiserEngine(
     private val context: Context,
     private val profile: DeviceProfile,
     private val style: () -> VisualStyle,
+    /** The loudness range one ring of lights covers (Sensitivity), and how fast the lights fall back (Speed). */
+    private val tune: () -> Pair<Float, Float> = { 36f to 1f },
     private val onFrame: (IntArray) -> Unit,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -138,6 +140,7 @@ class VisualiserEngine(
             var last = SystemClock.uptimeMillis()
             while (isActive) {
                 val now = SystemClock.uptimeMillis()
+                tune().let { (range, fall) -> levels.rangeDb = range; levels.fall = fall }
                 latest?.let { mags ->
                     levels.update(SpectrumBands.bandDb(mags, latestRate), ((now - last) / 1000f).coerceIn(0.01f, 0.2f))
                 }

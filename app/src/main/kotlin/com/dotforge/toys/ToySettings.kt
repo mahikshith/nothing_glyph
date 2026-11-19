@@ -57,6 +57,47 @@ class ToySettings(private val prefs: SharedPreferences) {
         get() = prefs.getInt(TIMER_MINUTES, 0)
         set(v) = prefs.edit().putInt(TIMER_MINUTES, v).apply()
 
+    /** DF Weather: a typed place, or null for where the phone is. */
+    var weatherPlace: String?
+        get() = prefs.getString(WEATHER_PLACE, null)
+        set(v) { prefs.edit().putString(WEATHER_PLACE, v?.trim()?.ifBlank { null }).remove(WEATHER_LATLON).remove(WEATHER_JSON).apply() }
+
+    /** The typed place's latitude and longitude, once looked up. */
+    var weatherPlaceAt: Pair<Double, Double>?
+        get() = prefs.getString(WEATHER_LATLON, null)?.split(',')?.mapNotNull { it.toDoubleOrNull() }?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+        set(v) = prefs.edit().putString(WEATHER_LATLON, v?.let { "${it.first},${it.second}" }).apply()
+
+    var weatherFahrenheit: Boolean
+        get() = prefs.getBoolean(WEATHER_F, false)
+        set(v) = prefs.edit().putBoolean(WEATHER_F, v).apply()
+
+    /** A press shows today's chance of rain. */
+    var weatherRain: Boolean
+        get() = prefs.getBoolean(WEATHER_RAIN, true)
+        set(v) = prefs.edit().putBoolean(WEATHER_RAIN, v).apply()
+
+    /** The last Open-Meteo answer and when it came. */
+    var weatherJson: String?
+        get() = prefs.getString(WEATHER_JSON, null)
+        set(v) = prefs.edit().putString(WEATHER_JSON, v).apply()
+    var weatherAt: Long
+        get() = prefs.getLong(WEATHER_AT, 0L)
+        set(v) = prefs.edit().putLong(WEATHER_AT, v).apply()
+
+    /** DF Day dots' daily goal, in minutes of screen time. */
+    var dayGoalMinutes: Int
+        get() = prefs.getInt(DAY_GOAL, 180)
+        set(v) = prefs.edit().putInt(DAY_GOAL, v).apply()
+
+    /** The hour DF Day dots starts a new day. */
+    var dayResetHour: Int
+        get() = prefs.getInt(DAY_RESET, 0)
+        set(v) = prefs.edit().putInt(DAY_RESET, v).apply()
+
+    var mazeLevel: com.dotforge.device.TiltMaze.Level
+        get() = com.dotforge.device.TiltMaze.Level.entries.firstOrNull { it.name == prefs.getString(MAZE_LEVEL, null) } ?: com.dotforge.device.TiltMaze.Level.EASY
+        set(v) = prefs.edit().putString(MAZE_LEVEL, v.name).apply()
+
     /** Calls [onChange] when any toy option changes (a toy redraws at once); returns the way to stop. */
     fun listen(onChange: () -> Unit): () -> Unit {
         val l = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> onChange() }
@@ -76,6 +117,18 @@ class ToySettings(private val prefs: SharedPreferences) {
         private const val BATTERY_CHARGE = "battery_charge_animation"
         private const val DICE_SHAKE = "dice_shake"
         private const val PLAYER_DESIGN = "player_design"
+        private const val WEATHER_PLACE = "weather_place"
+        private const val WEATHER_LATLON = "weather_latlon"
+        private const val WEATHER_F = "weather_f"
+        private const val WEATHER_RAIN = "weather_rain"
+        private const val WEATHER_JSON = "weather_json"
+        private const val WEATHER_AT = "weather_at"
+        private const val DAY_GOAL = "day_goal"
+        private const val DAY_RESET = "day_reset"
+        private const val MAZE_LEVEL = "maze_level"
+
+        /** DF Day dots' goal chips, in hours. */
+        val DAY_GOALS = listOf(2, 3, 4, 6)
 
         /** Hour as shown on the clock: 0-23, or 1-12 on a 12-hour clock. */
         fun displayHour(hour: Int, use24h: Boolean): Int = if (use24h) hour else (hour % 12).let { if (it == 0) 12 else it }

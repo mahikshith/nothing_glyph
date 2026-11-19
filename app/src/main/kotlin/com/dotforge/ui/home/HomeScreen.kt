@@ -306,16 +306,20 @@ internal fun nowLine(n: HomeNow, device: DeviceState, notice: String? = null, no
 
 /** What a request is called on Home: the alert's own words, "Torch · off in 4:12", the library design's name. */
 internal fun showingName(r: DisplayRequest, nowMs: Long): String = when (r.id) {
-    TorchTileService.ID -> "Torch · off in " + torchLeft(nowMs)
+    TorchTileService.ID -> torchLine(nowMs, prefix = "Torch")
     LiveVisualiser.ID -> "Visualiser"
     else -> r.label.removePrefix("Library: ").removePrefix("Try it: ")
 }
 
-/** "4:12": what is left of the torch's 5 minutes. */
-internal fun torchLeft(nowMs: Long, since: Long = TorchTileService.onSince): String {
-    val left = ((since + TorchTileService.AUTO_OFF_MS - nowMs) / 1000).coerceIn(0, TorchTileService.AUTO_OFF_MS / 1000)
+/** "4:12": what is left of the torch's auto-off ([offMs], 5 minutes unless the Torch page says otherwise). */
+internal fun torchLeft(nowMs: Long, since: Long = TorchTileService.onSince, offMs: Long = TorchTileService.AUTO_OFF_MS): String {
+    val left = ((since + offMs - nowMs) / 1000).coerceIn(0, offMs / 1000)
     return "%d:%02d".format(left / 60, left % 60)
 }
+
+/** "Torch · off in 4:12", or "Torch · stays on" with no auto-off; [prefix] "On" for the tile. */
+internal fun torchLine(nowMs: Long, prefix: String = "On", offMs: Long? = TorchTileService.autoOffMs()): String =
+    if (offMs == null) "$prefix · stays on" else "$prefix · off in " + torchLeft(nowMs, offMs = offMs)
 
 /** The one red button while something of ours shows: "Turn off torch", "Stop all" (alerts waiting) or "Stop". */
 internal fun stopLabel(n: HomeNow): String? {
@@ -604,7 +608,7 @@ private fun QuickSwitches(s: HomeStatus, n: HomeNow, setup: Setup, nav: Nav) {
 
     HomeTileRow({ m ->
         if (note != null) blocked("Torch", torchPage, m)
-        else HomeTile("Torch", if (torchOn) "On · off in ${torchLeft(clock)}" else "Off", TileControl.Toggle(torchOn) { TorchTileService.toggle() }, m, onOpen = torchPage)
+        else HomeTile("Torch", if (torchOn) torchLine(clock) else "Off", TileControl.Toggle(torchOn) { TorchTileService.toggle() }, m, onOpen = torchPage)
     }, { m ->
         if (note != null) blocked("Alerts", alertsPage, m)
         else if (!s.access) HomeTile("Alerts", "Needs access", TileControl.Action("Allow", "Allow notification access") { setup.needNotificationAccess() }, m, onOpen = alertsPage)

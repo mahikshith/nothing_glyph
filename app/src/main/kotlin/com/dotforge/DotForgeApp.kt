@@ -80,6 +80,8 @@ object AppGraph {
     lateinit var media: MediaRingSettings
         private set
     lateinit var system: SystemGlyphSettings
+    /** The Features pages' timings and settings (torch, charging, volume, visualiser, toys, integrations). */
+    lateinit var features: com.dotforge.system.FeatureSettings
         private set
     /** Alerts > History (it replaced the Spam log). */
     lateinit var history: com.dotforge.rules.HistoryRepository
@@ -201,9 +203,16 @@ object AppGraph {
         calls = CallsRepository(File(app.filesDir, "calls.json"))
         spamList = SpamListStore(File(app.filesDir, "spam-list"))
         automation = AutomationSettings(app.getSharedPreferences("automation", Context.MODE_PRIVATE))
+        features = com.dotforge.system.FeatureSettings(app.getSharedPreferences("features", Context.MODE_PRIVATE))
         system = SystemGlyphSettings(app.getSharedPreferences("system_glyphs", Context.MODE_PRIVATE))
         val systemGlyphs = SystemGlyphs(app, system).also { it.start() }
         MainScope().launch { combine(system.wiggle, system.shakeTorch) { a, b -> a to b }.collect { systemGlyphs.refresh() } }
+        // "Tell other apps when something lights": the kind of thing that took the Glyph, nothing more
+        MainScope().launch {
+            arbiter.active.map { it.firstOrNull() }.distinctUntilChanged { a, b -> a?.id == b?.id }.collect { top ->
+                if (top != null && features.tellOthers.value) com.dotforge.automation.GlyphEvents.name(top)?.let { com.dotforge.automation.GlyphEvents.send(app, it) }
+            }
+        }
         // the spam list is fetched (and refreshed weekly) only while a rule uses it
         MainScope().launch {
             rules.rules.map { list -> list.any { r -> r.enabled && r.match.allConditions.any { it.field == Field.SPAM_LIST } } }.distinctUntilChanged().collect { on ->

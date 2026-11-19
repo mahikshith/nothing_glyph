@@ -86,7 +86,15 @@ data class TimingParts(
     val repeatTitle: String = "Repeat",
     /** Brightness as chips only; the slider and the phone's setting sit behind an "Exact brightness" row. */
     val compactBrightness: Boolean = false,
+    /** The place's own Speed controls (or a [PartNote] where speed doesn't apply), under [speedTitle]. */
+    val speedSlot: (@Composable () -> Unit)? = null,
+    /** The place's own Repeat controls (or a [PartNote] where repeat doesn't apply), under [repeatTitle]. */
+    val repeatSlot: (@Composable () -> Unit)? = null,
 )
+
+/** One plain line in a part that has nothing to pick here ("Follows the music."), so all four parts still show. */
+@Composable
+fun PartNote(text: String) = Text(text, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
 
 /**
  * The one timing panel: Show for, Speed, Repeat and Brightness; Direction, Start delay and Fade under More.
@@ -190,7 +198,10 @@ fun TimingPanel(
         }
 
         // ---- Speed
-        if (animated && parts.speed) {
+        if (parts.speedSlot != null) {
+            Part(parts.speedTitle)
+            parts.speedSlot.invoke()
+        } else if (animated && parts.speed) {
             Part(parts.speedTitle)
             FlowRow(horizontalArrangement = chips) {
                 if (b != null) OwnChip(speedText(b.speed), b.speed == t.speed) { onChange(t.copy(speed = b.speed)) }
@@ -209,7 +220,10 @@ fun TimingPanel(
             }
         }
         // ---- Repeat, for a place that names it: the done animation's plays, or the finish coming back
-        if (parts.playsTimes != null) {
+        if (parts.repeatSlot != null) {
+            Part(parts.repeatTitle)
+            parts.repeatSlot.invoke()
+        } else if (parts.playsTimes != null) {
             val n = parts.playsTimes
             Part(parts.repeatTitle)
             FlowRow(horizontalArrangement = chips) {
@@ -233,7 +247,7 @@ fun TimingPanel(
         }
         if (animated) {
             // ---- Repeat: only when the whole animation plays
-            if (t.showFor == ShowFor.WHOLE && parts.playsTimes == null && !parts.remindAlways && parts.showForSlot == null) {
+            if (t.showFor == ShowFor.WHOLE && parts.playsTimes == null && !parts.remindAlways && parts.showForSlot == null && parts.repeatSlot == null) {
                 Part("Repeat")
                 FlowRow(horizontalArrangement = chips) {
                     if (b != null) OwnChip(repeatText(b), b.repeat == t.repeat && b.times == t.times) { onChange(t.copy(repeat = b.repeat, times = b.times)) }

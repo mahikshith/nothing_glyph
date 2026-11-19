@@ -8,8 +8,11 @@ sealed interface Command {
     /** Play a saved composition (its sound and lights), found by title or content URI. */
     data class PlayComposition(val composition: String) : Command
 
-    /** Show a glyph style or saved design by name, or scroll [text], for [seconds]. */
-    data class ShowGlyph(val glyph: String?, val text: String?, val seconds: Int) : Command
+    /**
+     * Show a glyph style or saved design by name, or scroll [text], for [seconds] or [loops] times (loops win);
+     * with neither, as Features > Integrations > On the Glyph says.
+     */
+    data class ShowGlyph(val glyph: String?, val text: String?, val seconds: Int?, val loops: Int? = null) : Command
 
     data class Visualiser(val on: Boolean) : Command
 
@@ -29,6 +32,8 @@ sealed interface Gate {
     data object UnknownSender : Gate
     /** A known app the user hasn't allowed (yet): it is listed on the Integrations page. */
     data class NotAllowed(val packageName: String) : Gate
+    /** It sent a key, but not this phone's key (it was renewed, or guessed). */
+    data object WrongKey : Gate
 }
 
 /**
@@ -38,10 +43,14 @@ sealed interface Gate {
  *
  * Actions and extras:
  * - [ACTION_PLAY]: [EXTRA_COMPOSITION] (title or content URI)
- * - [ACTION_GLYPH]: [EXTRA_GLYPH] (style or design name) or [EXTRA_TEXT], [EXTRA_SECONDS] (1-60, default 5)
+ * - [ACTION_GLYPH]: [EXTRA_GLYPH] (style or design name) or [EXTRA_TEXT], and [EXTRA_SECONDS] (1-60) or
+ *   [EXTRA_LOOPS] (1-10); with neither, the Integrations page's On the Glyph timing (10 s)
  * - [ACTION_VISUALISER]: [EXTRA_ON]
  * - [ACTION_RULE]: [EXTRA_RULE] (name or id), [EXTRA_ON]
  * Booleans and numbers may also be strings ("true", "on", "1", "10"), as Tasker sends them.
+ *
+ * An app that can't hold the permission (Tasker's Send intent) sends the same broadcast to
+ * `.automation.KeyReceiver` with [EXTRA_KEY], the key shown on the Integrations page; the key alone lets it in.
  */
 object Automation {
     const val PERMISSION = "com.dotforge.permission.AUTOMATE"
@@ -56,13 +65,16 @@ object Automation {
     const val EXTRA_GLYPH = "glyph"
     const val EXTRA_TEXT = "text"
     const val EXTRA_SECONDS = "seconds"
+    const val EXTRA_LOOPS = "loops"
+    /** The Integrations page's key: an app that sends it is obeyed without being allowed first. */
+    const val EXTRA_KEY = "key"
     const val EXTRA_ON = "on"
     const val EXTRA_RULE = "rule"
     /** A PendingIntent the sender made (any kind); its creator package identifies the sender. */
     const val EXTRA_CALLER = "caller"
 
-    const val DEFAULT_SECONDS = 5
     const val MAX_SECONDS = 60
+    const val MAX_LOOPS = 10
     private const val MAX_TEXT = 64
 
     private fun text(v: Any?): String? = v?.toString()?.trim()?.takeIf { it.isNotEmpty() }
@@ -88,8 +100,9 @@ object Automation {
         ACTION_PLAY -> text(extras[EXTRA_COMPOSITION])?.let { Parsed.Ok(Command.PlayComposition(it)) }
             ?: Parsed.Rejected("Say which composition: extra \"$EXTRA_COMPOSITION\".")
         ACTION_GLYPH -> {
-            val seconds = (int(extras[EXTRA_SECONDS]) ?: DEFAULT_SECONDS).coerceIn(1, MAX_SECONDS)
-            Parsed.Ok(Command.ShowGlyph(text(extras[EXTRA_GLYPH]), text(extras[EXTRA_TEXT])?.take(MAX_TEXT), seconds))
+            val loops = int(extras[EXTRA_LOOPS])?.coerceIn(1, MAX_LOOPS)
+            val seconds = int(extras[EXTRA_SECONDS])?.coerceIn(1, MAX_SECONDS)?.takeIf { loops == null }
+            Parsed.Ok(Command.ShowGlyph(text(extras[EXTRA_GLYPH]), text(extras[EXTRA_TEXT])?.take(MAX_TEXT), seconds, loops))
         }
         ACTION_VISUALISER -> bool(extras[EXTRA_ON])?.let { Parsed.Ok(Command.Visualiser(it)) }
             ?: Parsed.Rejected("Say on or off: extra \"$EXTRA_ON\".")
@@ -103,16 +116,35 @@ object Automation {
         else -> Parsed.Rejected("Unknown action $action.")
     }
 
-    fun check(sender: String?, allowed: Set<String>, self: String): Gate = when {
+    /**
+     * Who may run a command: DotForge itself, an allowed app, or anyone that sent the right [key] ([secret] is
+     * this phone's key). A wrong key is refused even from an allowed app, so a renewed key shuts old senders out.
+     */
+    fun check(sender: String?, allowed: Set<String>, self: String, key: String? = null, secret: String? = null): Gate = when {
+        key != null -> if (secret != null && java.security.MessageDigest.isEqual(key.trim().toByteArray(), secret.toByteArray())) Gate.Allowed else Gate.WrongKey
         sender.isNullOrBlank() -> Gate.UnknownSender
         sender == self || sender in allowed -> Gate.Allowed
         else -> Gate.NotAllowed(sender)
     }
 
+    /**
+     * The timing for a design another app asked for: the Integrations page's timing (its speed, brightness and
+     * the rest), with the app's own seconds or loops when it gave them.
+     */
+    fun timingFor(c: Command.ShowGlyph, page: com.dotforge.device.Timing): com.dotforge.device.Timing = when {
+        c.loops != null -> page.copy(showFor = com.dotforge.device.ShowFor.WHOLE, repeat = if (c.loops <= 1) com.dotforge.device.Repeat.ONCE else com.dotforge.device.Repeat.TIMES, times = c.loops.coerceIn(2, 10))
+        c.seconds != null -> page.copy(showFor = com.dotforge.device.ShowFor.SECONDS, seconds = c.seconds)
+        else -> page
+    }
+
     /** A short line for logs and the plugin's blurb. */
     fun describe(c: Command): String = when (c) {
         is Command.PlayComposition -> "Play ${c.composition}"
-        is Command.ShowGlyph -> "Show ${c.text?.let { "\"$it\"" } ?: c.glyph ?: "a glyph"} for ${c.seconds} s"
+        is Command.ShowGlyph -> "Show ${c.text?.let { "\"$it\"" } ?: c.glyph ?: "a glyph"}" + when {
+            c.loops != null -> if (c.loops == 1) " once" else " ${c.loops} times"
+            c.seconds != null -> " for ${c.seconds} s"
+            else -> ""
+        }
         is Command.Visualiser -> if (c.on) "Start the visualiser" else "Stop the visualiser"
         is Command.SetRule -> "Turn ${c.rule} ${if (c.on) "on" else "off"}"
     }
@@ -153,7 +185,8 @@ object PluginBundle {
                 put(KEY_ACTION, Automation.ACTION_GLYPH)
                 command.glyph?.let { put(Automation.EXTRA_GLYPH, it) }
                 command.text?.let { put(Automation.EXTRA_TEXT, it) }
-                put(Automation.EXTRA_SECONDS, command.seconds)
+                command.seconds?.let { put(Automation.EXTRA_SECONDS, it) }
+                command.loops?.let { put(Automation.EXTRA_LOOPS, it) }
             }
             is Command.Visualiser -> mapOf(KEY_ACTION to Automation.ACTION_VISUALISER, Automation.EXTRA_ON to command.on)
             is Command.SetRule -> mapOf(KEY_ACTION to Automation.ACTION_RULE, Automation.EXTRA_RULE to command.rule, Automation.EXTRA_ON to command.on)

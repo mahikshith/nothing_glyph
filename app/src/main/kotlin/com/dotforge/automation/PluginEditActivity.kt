@@ -103,7 +103,9 @@ private fun PluginEditor(previous: Command?, onCancel: () -> Unit, onSave: (Comm
     }
     var glyph by remember { mutableStateOf((previous as? Command.ShowGlyph)?.glyph ?: GlyphStyle.PULSE.label) }
     var text by remember { mutableStateOf((previous as? Command.ShowGlyph)?.text.orEmpty()) }
-    var seconds by remember { mutableFloatStateOf(((previous as? Command.ShowGlyph)?.seconds ?: Automation.DEFAULT_SECONDS).toFloat()) }
+    var seconds by remember { mutableFloatStateOf(((previous as? Command.ShowGlyph)?.seconds ?: 10).toFloat()) }
+    var loops by remember { mutableFloatStateOf(((previous as? Command.ShowGlyph)?.loops ?: 3).toFloat()) }
+    var byLoops by remember { mutableStateOf((previous as? Command.ShowGlyph)?.loops != null) }
     var composition by remember { mutableStateOf((previous as? Command.PlayComposition)?.composition) }
     var rule by remember { mutableStateOf((previous as? Command.SetRule)?.rule) }
     var on by remember {
@@ -111,7 +113,10 @@ private fun PluginEditor(previous: Command?, onCancel: () -> Unit, onSave: (Comm
     }
 
     val command: Command? = when (kind) {
-        Kind.GLYPH -> Command.ShowGlyph(glyph.takeIf { text.isBlank() }, text.trim().take(64).ifBlank { null }, seconds.roundToInt())
+        Kind.GLYPH -> Command.ShowGlyph(
+            glyph.takeIf { text.isBlank() }, text.trim().take(64).ifBlank { null },
+            seconds.roundToInt().takeIf { !byLoops }, loops.roundToInt().takeIf { byLoops },
+        )
         Kind.PLAY -> composition?.let(Command::PlayComposition)
         Kind.VISUALISER -> Command.Visualiser(on)
         Kind.RULE -> rule?.let { Command.SetRule(it, on) }
@@ -137,8 +142,13 @@ private fun PluginEditor(previous: Command?, onCancel: () -> Unit, onSave: (Comm
                     text, { text = it.take(64) }, Modifier.fillMaxWidth(),
                     placeholder = { Text("Scrolls by, up to 64 letters", color = Muted) }, singleLine = true,
                 )
-                GroupTitle("FOR ${seconds.roundToInt()} S")
-                Slider(
+                GroupTitle("HOW LONG")
+                Choice("For ${seconds.roundToInt()} s", !byLoops) { byLoops = false }
+                Choice("${loops.roundToInt()} times through", byLoops) { byLoops = true }
+                if (byLoops) Slider(
+                    loops, { loops = it }, valueRange = 1f..Automation.MAX_LOOPS.toFloat(), steps = Automation.MAX_LOOPS - 2,
+                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = NothingRed),
+                ) else Slider(
                     seconds, { seconds = it }, valueRange = 1f..Automation.MAX_SECONDS.toFloat(),
                     colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = NothingRed),
                 )

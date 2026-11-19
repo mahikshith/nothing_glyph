@@ -28,8 +28,9 @@ class AutomationTest {
     }
 
     @Test fun secondsAreClampedAndTextIsCut() {
-        assertEquals(Automation.DEFAULT_SECONDS, (ok(Automation.ACTION_GLYPH) as Command.ShowGlyph).seconds)
-        assertEquals(Automation.DEFAULT_SECONDS, (ok(Automation.ACTION_GLYPH, "seconds" to "soon") as Command.ShowGlyph).seconds)
+        // no time given: the Integrations page's timing decides
+        assertEquals(null, (ok(Automation.ACTION_GLYPH) as Command.ShowGlyph).seconds)
+        assertEquals(null, (ok(Automation.ACTION_GLYPH, "seconds" to "soon") as Command.ShowGlyph).seconds)
         assertEquals(60, (ok(Automation.ACTION_GLYPH, "seconds" to 9999) as Command.ShowGlyph).seconds)
         assertEquals(1, (ok(Automation.ACTION_GLYPH, "seconds" to -4) as Command.ShowGlyph).seconds)
         assertEquals(64, (ok(Automation.ACTION_GLYPH, "text" to "x".repeat(200)) as Command.ShowGlyph).text!!.length)
@@ -90,5 +91,63 @@ class AutomationTest {
         assertEquals("Show \"Hi\" for 5 s", Automation.describe(Command.ShowGlyph(null, "Hi", 5)))
         assertEquals("Turn Work off", Automation.describe(Command.SetRule("Work", false)))
         assertEquals("Start the visualiser", Automation.describe(Command.Visualiser(true)))
+    }
+
+    @Test fun loopsOrSecondsAndTheKey() {
+        assertEquals(Command.ShowGlyph("Heart", null, 10), ok(Automation.ACTION_GLYPH, "glyph" to "Heart", "seconds" to "10"))
+        assertEquals(Command.ShowGlyph("Heart", null, null, 3), ok(Automation.ACTION_GLYPH, "glyph" to "Heart", "loops" to "3"))
+        // loops win over seconds; both are kept in range
+        assertEquals(Command.ShowGlyph("Heart", null, null, 3), ok(Automation.ACTION_GLYPH, "glyph" to "Heart", "loops" to 3, "seconds" to 10))
+        assertEquals(Automation.MAX_LOOPS, (ok(Automation.ACTION_GLYPH, "loops" to 99) as Command.ShowGlyph).loops)
+        assertEquals("Show Heart 3 times", Automation.describe(Command.ShowGlyph("Heart", null, null, 3)))
+        assertEquals("Show Heart once", Automation.describe(Command.ShowGlyph("Heart", null, null, 1)))
+        assertEquals("Show Heart", Automation.describe(Command.ShowGlyph("Heart", null, null)))
+
+        val secret = "0123456789abcdef0123456789abcdef"
+        assertEquals(Gate.Allowed, Automation.check(null, emptySet(), "com.dotforge", key = secret, secret = secret))
+        assertEquals(Gate.Allowed, Automation.check(null, emptySet(), "com.dotforge", key = " $secret ", secret = secret))
+        assertEquals(Gate.WrongKey, Automation.check(null, emptySet(), "com.dotforge", key = "nope", secret = secret))
+        // a wrong key shuts out even an allowed app, so a new key ends old senders
+        assertEquals(Gate.WrongKey, Automation.check("net.dinglisch.android.taskerm", setOf("net.dinglisch.android.taskerm"), "com.dotforge", key = "old", secret = secret))
+        assertEquals(Gate.UnknownSender, Automation.check(null, emptySet(), "com.dotforge"))
+    }
+
+    @Test fun theIntegrationsTimingFillsInWhatTheAppLeftOut() {
+        val page = com.dotforge.system.FeatureTiming.APPS.default.copy(brightness = 60, speed = 2f)
+        val none = Automation.timingFor(Command.ShowGlyph("Heart", null, null), page)
+        assertEquals(page, none)
+        val secs = Automation.timingFor(Command.ShowGlyph("Heart", null, 25), page)
+        assertEquals(com.dotforge.device.ShowFor.SECONDS, secs.showFor)
+        assertEquals(25, secs.seconds)
+        assertEquals(60, secs.brightness)
+        val three = Automation.timingFor(Command.ShowGlyph("Heart", null, null, 3), page)
+        assertEquals(com.dotforge.device.ShowFor.WHOLE, three.showFor)
+        assertEquals(com.dotforge.device.Repeat.TIMES, three.repeat)
+        assertEquals(3, three.times)
+        assertEquals(2f, three.speed)
+        assertEquals(com.dotforge.device.Repeat.ONCE, Automation.timingFor(Command.ShowGlyph("Heart", null, null, 1), page).repeat)
+        // 3 loops of a 1 s design: 3 s, then off
+        val heart = com.dotforge.device.Animation(com.dotforge.device.DeviceProfile.Phone3, List(4) { com.dotforge.device.AnimFrame(com.dotforge.device.Frame.blank(com.dotforge.device.DeviceProfile.Phone3).fill(it * 60), 250) })
+        val plan = com.dotforge.device.Timings.plan(heart, Automation.timingFor(Command.ShowGlyph("Heart", null, null, 3), com.dotforge.system.FeatureTiming.APPS.default))
+        assertEquals(3_000, plan.animation.totalMs)
+        assertEquals(false, plan.loop)
+    }
+
+    @Test fun theOutgoingEventSaysOnlyWhatKind() {
+        fun r(id: String, prio: Int) = com.dotforge.engine.DisplayRequest(id, prio, com.dotforge.device.Animation.single(com.dotforge.device.Frame.blank(com.dotforge.device.DeviceProfile.Phone3)))
+        val P = com.dotforge.engine.Priority
+        assertEquals("call", GlyphEvents.name(r("call", P.CALL)))
+        assertEquals("torch", GlyphEvents.name(r(com.dotforge.tile.TorchTileService.ID, P.TORCH)))
+        assertEquals("timer", GlyphEvents.name(r("timer", P.TIMER)))
+        assertEquals("timer", GlyphEvents.name(r("timer", P.TIMER_DONE)))
+        assertEquals("music", GlyphEvents.name(r(com.dotforge.visualiser.LiveVisualiser.ID, P.LIVE)))
+        assertEquals("battery", GlyphEvents.name(r(com.dotforge.system.SystemGlyphs.BATTERY_ID, P.NOTIFICATION)))
+        assertEquals("volume", GlyphEvents.name(r(com.dotforge.system.SystemGlyphs.VOLUME_ID, P.NOTIFICATION)))
+        assertEquals("automation", GlyphEvents.name(r(AutomationRunner.GLYPH_ID, P.NOTIFICATION)))
+        assertEquals("progress", GlyphEvents.name(r("progress:zomato", P.PROGRESS)))
+        assertEquals("alert", GlyphEvents.name(r("alert", P.NOTIFICATION)))
+        // DotForge's own previews never leave the app
+        assertEquals(null, GlyphEvents.name(r("try", P.STUDIO_PREVIEW)))
+        assertTrue(GlyphEvents.NAMES.containsAll(listOf("alert", "call", "timer", "progress", "torch", "battery", "volume", "music", "automation")))
     }
 }

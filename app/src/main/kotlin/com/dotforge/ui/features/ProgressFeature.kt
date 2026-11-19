@@ -298,9 +298,9 @@ private fun nowLine(item: LiveProgressRuntime.Item): String =
     if (item.done) (if (item.app?.kind == TripKind.RIDE) "Arrived" else "Delivered") + " · Tap to open"
     else LiveProgress.summary(item.reading)
 
-/** One "Middle shows" choice: its preview over its name, outlined when chosen. */
+/** One choice shown as a tile ("Middle shows", the charging design): its preview over its name, outlined when chosen. */
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.Middle(name: String, line: String, selected: Boolean, preview: Animation, onPick: () -> Unit) {
+internal fun androidx.compose.foundation.layout.RowScope.Middle(name: String, line: String, selected: Boolean, preview: Animation, poster: com.dotforge.device.Frame? = null, onPick: () -> Unit) {
     Column(
         Modifier.weight(1f)
             .border(if (selected) 2.dp else 1.dp, if (selected) Color.White else Tokens.Hairline, RoundedCornerShape(16.dp))
@@ -308,7 +308,7 @@ private fun androidx.compose.foundation.layout.RowScope.Middle(name: String, lin
             .padding(Tokens.Gap),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        GlyphPreview(preview, "$name in the middle", size = PreviewSize.MEDIUM)
+        GlyphPreview(preview, "$name in the middle", size = PreviewSize.MEDIUM, posterFrame = poster)
         Text(name, Modifier.padding(top = Tokens.Small), style = MaterialTheme.typography.bodyLarge)
         Text(line, style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary)
     }

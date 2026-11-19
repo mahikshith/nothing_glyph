@@ -15,6 +15,9 @@ import android.media.session.PlaybackState
 import android.os.BatteryManager
 import android.os.SystemClock
 import com.dotforge.AppGraph
+import com.dotforge.device.TimerFaces
+import com.dotforge.live.TimerShown
+import com.dotforge.timer.GlyphTimers
 import com.dotforge.device.Animation
 import com.dotforge.device.Effects
 import com.dotforge.device.Frame
@@ -204,13 +207,13 @@ class NowPlayingToy : GlyphToyService() {
     override fun onAodTick() = render()
 }
 
-/** Stopwatch, or a countdown (minutes set in its settings). Press: start or pause. Long press: reset. */
+/**
+ * DF Timer shows DotForge's timer (Features > Timer & stopwatch) on the Glyph Button: the timer the Glyph shows,
+ * in its style, or the stopwatch. Press: pause or carry on (with nothing running, start the first preset; a
+ * timer that ended is dismissed). Long press: stop it.
+ */
 class TimerToy : GlyphToyService() {
-    private var elapsedMs = 0L
-    private var startedAt: Long? = null
-    private var done = false
-
-    private val totalMs: Long get() = AppGraph.toys.timerMinutes * 60_000L
+    private var burst = false
 
     override fun onToyStart() {
         toyScope.launch {
@@ -221,38 +224,41 @@ class TimerToy : GlyphToyService() {
         }
     }
 
-    private fun now(): Long = elapsedMs + (startedAt?.let { SystemClock.elapsedRealtime() - it } ?: 0)
-
     private fun render() {
-        if (isPlaying) return
-        val ms = now()
-        val total = totalMs
-        if (total > 0) {
-            val left = (total - ms).coerceAtLeast(0)
-            if (left == 0L && startedAt != null && !done) {
-                done = true
-                startedAt = null
-                elapsedMs = total
-                play(Animation(profile, List(4) { Effects.flash(profile).frames }.flatten()))
+        val p = profile
+        when (val shown = GlyphTimers.shown()) {
+            is TimerShown.Done -> {
+                if (!burst) play(TimerFaces.finished(p), loop = true)
+                burst = true
                 return
             }
-            show(ToyFaces.timer(profile, left.toFloat() / total, (left + 999) / 1000))
-        } else {
-            // stopwatch: the ring runs once a minute
-            show(ToyFaces.timer(profile, (ms % 60_000) / 60_000f, ms / 1000))
+            is TimerShown.Running -> show(TimerFaces.countdown(p, GlyphTimers.style.value, shown.leftMs, shown.timer.totalMs))
+            is TimerShown.Paused -> show(TimerFaces.paused(p, TimerFaces.countdown(p, GlyphTimers.style.value, shown.leftMs, shown.timer.totalMs)).frames.first().frame)
+            is TimerShown.Watch -> show(TimerFaces.stopwatch(p, GlyphTimers.watchStyle.value, shown.elapsedMs))
+            null -> show(TimerFaces.countdown(p, GlyphTimers.style.value, firstPreset(), firstPreset()))
         }
+        if (burst) { burst = false; stopAnimation() }
     }
 
+    private fun firstPreset(): Long = GlyphTimers.presets.value.firstOrNull() ?: 5 * 60_000L
+
     override fun onPress(press: Press) {
+        val shown = GlyphTimers.shown()
         when (press) {
-            Press.SHORT, Press.DOUBLE -> if (startedAt == null) {
-                if (done) { elapsedMs = 0; done = false }
-                startedAt = SystemClock.elapsedRealtime()
-            } else {
-                elapsedMs = now()
-                startedAt = null
+            Press.SHORT, Press.DOUBLE -> when (shown) {
+                is TimerShown.Done -> GlyphTimers.dismiss(shown.timer.id)
+                is TimerShown.Running -> GlyphTimers.pause(shown.timer.id)
+                is TimerShown.Paused -> GlyphTimers.resume(shown.timer.id)
+                is TimerShown.Watch -> if (shown.stopwatch.running) GlyphTimers.stopwatchPause() else GlyphTimers.stopwatchStart()
+                null -> GlyphTimers.start(firstPreset())
             }
-            Press.LONG -> { elapsedMs = 0; startedAt = null; done = false; stopAnimation() }
+            Press.LONG -> when (shown) {
+                is TimerShown.Done -> GlyphTimers.dismiss(shown.timer.id)
+                is TimerShown.Running -> GlyphTimers.cancel(shown.timer.id)
+                is TimerShown.Paused -> GlyphTimers.cancel(shown.timer.id)
+                is TimerShown.Watch -> GlyphTimers.stopwatchReset()
+                null -> Unit
+            }
         }
         render()
     }

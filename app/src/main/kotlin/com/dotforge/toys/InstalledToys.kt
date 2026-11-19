@@ -123,3 +123,56 @@ object InstalledToys {
         }
     }
 }
+
+/** Where a DotForge toy stands in Nothing's toy list. */
+enum class ToyStatus(val label: String) {
+    ADDED("Added in Glyph Toys"),
+    NOT_ADDED("Not added in Glyph Toys yet"),
+    /** On, but this phone doesn't say whether it's in the list. */
+    ON("On · add it in Glyph Toys"),
+    OFF("Off"),
+    ;
+
+    companion object {
+        /** [active]: what Nothing's toy list says (null when it can't be read). */
+        fun of(on: Boolean, active: Boolean?): ToyStatus = when {
+            !on -> OFF
+            active == true -> ADDED
+            active == false -> NOT_ADDED
+            else -> ON
+        }
+    }
+}
+
+/**
+ * Nothing's toy list (`content://com.nothing.glyphtoyprovider/glyph_toy`, exported but unsupported, so read only
+ * and any failure means "can't tell"): which of DotForge's toys are in it, and whether each is active.
+ */
+object ToyList {
+    private val URI by lazy { android.net.Uri.parse("content://com.nothing.glyphtoyprovider/glyph_toy") }
+    private const val OURS = "com.dotforge.toys."
+
+    /** Simple class name to is_active, from the table's rows (column name to value). Pure; tested. */
+    fun parse(rows: List<Map<String, String?>>): Map<String, Boolean> = buildMap {
+        for (row in rows) {
+            val full = row.values.firstNotNullOfOrNull { v -> v?.takeIf { it.contains(OURS) }?.substringAfter(OURS) }
+            // a service kept as ".toys.ClockToy" next to the package "com.dotforge"
+            val short = if (row.values.any { it == "com.dotforge" }) row.values.firstNotNullOfOrNull { v -> v?.takeIf { it.startsWith(".toys.") }?.removePrefix(".toys.") } else null
+            val cls = (full ?: short)?.substringBefore('}')?.substringBefore(' ')?.takeIf { it.isNotEmpty() } ?: continue
+            val active = row.entries.firstOrNull { it.key.equals("is_active", ignoreCase = true) }?.value?.trim()
+            put(cls, active == "1" || active.equals("true", ignoreCase = true))
+        }
+    }
+
+    /** Null when the list can't be read (not a Nothing phone, or the provider changed). */
+    fun read(ctx: Context): Map<String, Boolean>? = runCatching {
+        ctx.contentResolver.query(URI, null, null, null, null)?.use { c ->
+            val rows = mutableListOf<Map<String, String?>>()
+            while (c.moveToNext()) {
+                rows += (0 until c.columnCount).associate { i -> c.getColumnName(i) to runCatching { c.getString(i) }.getOrNull() }
+            }
+            parse(rows)
+        }
+    }.getOrNull()
+}
+

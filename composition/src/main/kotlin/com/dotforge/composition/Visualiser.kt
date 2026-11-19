@@ -81,7 +81,9 @@ object SpectrumBands {
  * falls slowly, so quiet songs still fill the matrix while the balance between bass and treble is kept), then
  * smoothed with a fast attack and a slower decay.
  */
-class LiveLevels(bands: Int = SpectrumBands.BANDS, private val rangeDb: Float = 36f) {
+class LiveLevels(bands: Int = SpectrumBands.BANDS, var rangeDb: Float = 36f) {
+    /** How quickly the lights fall back: 1 is the default; 0.5 smoother, 2 snappier. */
+    var fall: Float = 1f
     private var peak = -200f
     val levels = FloatArray(bands)
 
@@ -94,13 +96,17 @@ class LiveLevels(bands: Int = SpectrumBands.BANDS, private val rangeDb: Float = 
         for (b in levels.indices) {
             val v = db.getOrElse(b) { -200f }
             val target = ((v - (ref - rangeDb)) / rangeDb).coerceIn(0f, 1f)
-            levels[b] = if (target > levels[b]) levels[b] + (target - levels[b]) * 0.7f else levels[b] * 0.82f + target * 0.18f
+            val keep = decay(fall)
+            levels[b] = if (target > levels[b]) levels[b] + (target - levels[b]) * 0.7f else levels[b] * keep + target * (1 - keep)
         }
     }
 
     companion object {
         /** Below this a band counts as silence, whatever the recent peak. */
         const val MIN_PEAK_DB = -60f
+
+        /** The share of a band's level kept each frame as it falls, for a [fall] speed (0.25x-4x). */
+        fun decay(fall: Float): Float = 0.82f.toDouble().pow(fall.coerceIn(0.25f, 4f).toDouble()).toFloat()
     }
 }
 
@@ -150,5 +156,26 @@ object VisualiserRenderer {
             out[cell] = (v * 255).toInt().coerceIn(0, 255)
         }
         return out
+    }
+
+    /**
+     * A made-up beat drawn in [style], for the style rows and the On the Glyph sheet: a kick every 8 frames over
+     * moving mids, through [LiveLevels] with the given [rangeDb] and [fall], so the preview reacts like the Glyph.
+     */
+    fun demo(style: VisualStyle, profile: DeviceProfile = DeviceProfile.Phone3, rangeDb: Float = 36f, fall: Float = 1f, frames: Int = 32, frameMs: Int = 66): com.dotforge.device.Animation {
+        val levels = LiveLevels(rangeDb = rangeDb).also { it.fall = fall }
+        val bands = SpectrumBands.BANDS
+        fun spectrum(i: Int) = FloatArray(bands) { b ->
+            val kick = i % 8 == 0 || i % 8 == 1
+            val bass = if (kick) -4f - b * 3f else -40f
+            val mids = -24f - abs(b - 6) * 2.5f + 10f * kotlin.math.sin(i * 0.6f + b * 0.9f)
+            max(bass, mids)
+        }
+        // settle the peak first, so the first frame isn't a cold start
+        repeat(16) { levels.update(spectrum(it), frameMs / 1000f) }
+        return com.dotforge.device.Animation(profile, (0 until frames).map { i ->
+            levels.update(spectrum(i), frameMs / 1000f)
+            com.dotforge.device.AnimFrame(com.dotforge.device.Frame.of(profile, frame(levels.levels, style, profile)), frameMs)
+        })
     }
 }

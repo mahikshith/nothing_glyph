@@ -418,4 +418,22 @@ class LiveRingTest {
             }
         }
     }
+
+    /** Ring drain and Orbit: the small m:ss in the middle is drawn at full brightness, the same as the big seconds. */
+    @Test fun theSmallClockIsFullBrightness() {
+        val p = DeviceProfile.Phone3
+        for (style in listOf(TimerStyle.RING_DRAIN, TimerStyle.ORBIT)) {
+            for ((left, text) in listOf(300_000L to "5:00", 252_000L to "4:12", 61_000L to "1:01")) {
+                val face = TimerFaces.countdown(p, style, left, 300_000L)
+                val digits = TimerFaces.small(p, text)
+                val lit = p.ledCells.filter { digits.pixels[it] > 0 }
+                assertTrue("$style $text has digits", lit.isNotEmpty())
+                lit.forEach { assertEquals("$style $text at cell $it", 255, face.pixels[it]) }
+            }
+            // and the big seconds in the last minute
+            val big = TimerFaces.digits(p, "42")
+            val face = TimerFaces.countdown(p, style, 42_000L, 300_000L)
+            p.ledCells.filter { big.pixels[it] > 0 }.forEach { assertEquals(255, face.pixels[it]) }
+        }
+    }
 }

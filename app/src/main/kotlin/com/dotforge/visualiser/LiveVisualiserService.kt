@@ -18,6 +18,7 @@ import com.dotforge.device.Animation
 import com.dotforge.device.Frame
 import com.dotforge.engine.DisplayRequest
 import com.dotforge.engine.Priority
+import com.dotforge.system.FeatureTiming
 import com.dotforge.ui.MainActivity
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
@@ -86,7 +87,10 @@ class LiveVisualiserService : Service() {
             return START_NOT_STICKY
         }
         if (engine == null) {
-            val e = VisualiserEngine(this, AppGraph.profile, { AppGraph.toys.visualStyle }) { frame -> onFrame(frame) }
+            val e = VisualiserEngine(
+                this, AppGraph.profile, { AppGraph.toys.visualStyle },
+                { AppGraph.features.sensitivity.value.rangeDb to AppGraph.features.timing(FeatureTiming.MUSIC).value.speed },
+            ) { frame -> onFrame(frame) }
             if (!e.start()) {
                 e.close()
                 stopSelf()
@@ -109,8 +113,10 @@ class LiveVisualiserService : Service() {
         val e = engine ?: return
         val playing = e.musicActive()
         LiveVisualiser.setMusic(playing)
-        if (playing) {
-            val frame = Frame.of(AppGraph.profile, pixels)
+        // "While music plays" keeps the Glyph dark between songs; "Until I turn it off" shows the quiet outline
+        if (playing || !AppGraph.features.mediaOnly.value) {
+            val brightness = AppGraph.features.timing(FeatureTiming.MUSIC).value.brightness
+            val frame = Frame.of(AppGraph.profile, pixels).let { if (brightness < 100) it.scaled(brightness / 100f) else it }
             AppGraph.arbiter.post(DisplayRequest(LiveVisualiser.ID, Priority.LIVE, Animation.single(frame, 1_000), loop = true, label = "Music"))
         } else if (AppGraph.arbiter.has(LiveVisualiser.ID)) {
             AppGraph.arbiter.remove(LiveVisualiser.ID)

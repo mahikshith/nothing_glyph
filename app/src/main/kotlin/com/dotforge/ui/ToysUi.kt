@@ -59,12 +59,15 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String, val cls
     HUB(R.string.toy_hub_name, R.string.toy_hub_summary, "Always-on faces", "HubToy"),
     GALLERY(R.string.toy_gallery_name, R.string.toy_gallery_summary, "Designs in turn", "GalleryToy"),
     NOW_PLAYING(R.string.toy_nowplaying_name, R.string.toy_nowplaying_summary, "Play, pause, skip", "NowPlayingToy"),
-    TIMER(R.string.toy_timer_name, R.string.toy_timer_summary, "Stopwatch, countdown", "TimerToy"),
+    TIMER(R.string.toy_timer_name, R.string.toy_timer_summary, "Your DotForge timer", "TimerToy"),
     COMPASS(R.string.toy_compass_name, R.string.toy_compass_summary, "Compass and level", "CompassToy"),
     SNAKE(R.string.toy_snake_name, R.string.toy_snake_summary, "The classic game", "SnakeToy"),
     BREATHE(R.string.toy_breathe_name, R.string.toy_breathe_summary, "Slow breathing", "BreatheToy"),
     MOON(R.string.toy_moon_name, R.string.toy_moon_summary, "Moon phase", "MoonToy"),
     SPEED(R.string.toy_speed_name, R.string.toy_speed_summary, "Download speed", "SpeedToy"),
+    WEATHER(R.string.toy_weather_name, R.string.toy_weather_summary, "Sky and temperature", "WeatherToy"),
+    DAY_DOTS(R.string.toy_daydots_name, R.string.toy_daydots_summary, "Screen time today", "DayDotsToy"),
+    MAZE(R.string.toy_maze_name, R.string.toy_maze_summary, "Tilt to roll the ball", "TiltMazeToy"),
     ;
 
     fun preview(profile: DeviceProfile): Frame = when (this) {
@@ -72,7 +75,7 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String, val cls
         HUB -> LocalTime.now().let { ToyFaces.clock(profile, AppGraph.toys.clockStyle, it.hour, it.minute, AppGraph.toys.clock24h) }
         GALLERY -> galleryAnimations().firstOrNull()?.frames?.first()?.frame ?: Effects.comet(profile, 30)
         NOW_PLAYING -> ToyFaces.nowPlaying(profile, true, 0.4f)
-        TIMER -> ToyFaces.timer(profile, 0.75f, 300)
+        TIMER -> com.dotforge.device.TimerFaces.countdown(profile, com.dotforge.timer.GlyphTimers.style.value, 252_000, 300_000)
         COMPASS -> ToyFaces.compass(profile, 30.0)
         SNAKE -> SnakeGame(profile, 3).frame()
         BREATHE -> ToyFaces.breath(profile, 3.0)
@@ -81,6 +84,10 @@ enum class Toy(val nameRes: Int, val summaryRes: Int, val short: String, val cls
         BATTERY -> Effects.ring(profile, 0.7f)
         DICE -> Effects.dice(profile, 5)
         PLAYER -> AppGraph.playerAnimation()?.frames?.first()?.frame ?: Effects.comet(profile, 10)
+        WEATHER -> com.dotforge.toys.Weather.cached()?.let { com.dotforge.device.WeatherFace.frame(profile, it, AppGraph.toys.weatherFahrenheit) }
+            ?: com.dotforge.device.WeatherFace.frame(profile, com.dotforge.device.WeatherNow(21.0, com.dotforge.device.Sky.PARTLY, 20), AppGraph.toys.weatherFahrenheit)
+        DAY_DOTS -> com.dotforge.device.DayDots.frame(profile, 130, AppGraph.toys.dayGoalMinutes)
+        MAZE -> com.dotforge.device.TiltMaze(AppGraph.toys.mazeLevel).frame(profile, blink = true)
         MUSIC -> Frame.of(profile, VisualiserRenderer.frame(floatArrayOf(0.9f, 0.8f, 0.7f, 0.75f, 0.6f, 0.5f, 0.55f, 0.4f, 0.35f, 0.3f, 0.2f, 0.15f), AppGraph.toys.visualStyle, profile))
     }
 }
@@ -166,14 +173,19 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
                 }
             }
             Toy.TIMER -> {
-                var minutes by remember { mutableStateOf(prefs.timerMinutes) }
-                GroupTitle("MODE")
-                listOf(0, 1, 3, 5, 10, 25).chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                        row.forEach { m ->
-                            ChoiceCard(if (m == 0) "Stopwatch" else "$m min", if (m == 0) "Counts up" else "Counts down", m == minutes, Modifier.weight(1f)) {
-                                minutes = m; prefs.timerMinutes = m
-                            }
+                GroupTitle("TIMER")
+                Text("It shows the timer from Features > Timer & stopwatch, in the style you picked there. With nothing running, a press starts your first preset.", color = Muted, fontSize = 13.sp)
+                SecondaryButton("Open Timer & stopwatch", Modifier.fillMaxWidth().padding(top = 8.dp)) { nav.push(Page.Feature("timer")) }
+            }
+            Toy.WEATHER -> WeatherOptions { version++ }
+            Toy.DAY_DOTS -> DayDotsOptions { version++ }
+            Toy.MAZE -> {
+                var level by remember { mutableStateOf(prefs.mazeLevel) }
+                GroupTitle("DIFFICULTY")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    com.dotforge.device.TiltMaze.Level.entries.forEach { l ->
+                        ChoiceCard(l.label, if (l == com.dotforge.device.TiltMaze.Level.EASY) "Wide paths" else "Twists and dead ends", l == level, Modifier.weight(1f)) {
+                            level = l; prefs.mazeLevel = l; version++
                         }
                     }
                 }
@@ -220,6 +232,80 @@ fun ToySettingsPage(toy: Toy, nav: Nav) {
         }
         GroupTitle("HOW TO USE")
         Text(howToSteps(toy))
+    }
+}
+
+/** DF Weather: where (here, or a typed place), °C or °F, and the chance of rain on a press. */
+@Composable
+private fun WeatherOptions(changed: () -> Unit) {
+    val ctx = LocalContext.current
+    val prefs = AppGraph.toys
+    var place by remember { mutableStateOf(prefs.weatherPlace.orEmpty()) }
+    var typed by remember { mutableStateOf(prefs.weatherPlace != null) }
+    var f by remember { mutableStateOf(prefs.weatherFahrenheit) }
+    var rain by remember { mutableStateOf(prefs.weatherRain) }
+    var located by remember { mutableStateOf(ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { located = it }
+    GroupTitle("PLACE")
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ChoiceCard("Where I am", "Rough location, once an hour", !typed, Modifier.weight(1f)) {
+            typed = false; prefs.weatherPlace = null; changed()
+            if (!located) ask.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        ChoiceCard("A place", "Type a town", typed, Modifier.weight(1f)) { typed = true }
+    }
+    if (typed) androidx.compose.material3.OutlinedTextField(
+        place, { place = it.take(60) }, Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true,
+        placeholder = { Text("Town or city", color = Muted) },
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { prefs.weatherPlace = place; changed() }),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+    )
+    if (typed && place.trim() != prefs.weatherPlace.orEmpty()) SecondaryButton("Use this place", Modifier.fillMaxWidth().padding(top = 8.dp)) { prefs.weatherPlace = place; changed() }
+    if (!typed && !located) Text("Allow rough location, or type a place, so the toy knows where to look.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+    GroupTitle("UNITS")
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ChoiceCard("°C", "Celsius", !f, Modifier.weight(1f)) { f = false; prefs.weatherFahrenheit = false; changed() }
+        ChoiceCard("°F", "Fahrenheit", f, Modifier.weight(1f)) { f = true; prefs.weatherFahrenheit = true; changed() }
+    }
+    SwitchRow("Show rain chance", "Press the Glyph Button to see today's chance of rain", rain) { rain = it; prefs.weatherRain = it }
+    Text("Weather from Open-Meteo. Only the place goes to it; nothing else leaves your phone.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+}
+
+/** DF Day dots: the daily goal, the hour a new day starts, and Usage access (asked here, when first opened). */
+@Composable
+private fun DayDotsOptions(changed: () -> Unit) {
+    val ctx = LocalContext.current
+    val prefs = AppGraph.toys
+    var goal by remember { mutableStateOf(prefs.dayGoalMinutes) }
+    var reset by remember { mutableStateOf(prefs.dayResetHour) }
+    var allowed by remember { mutableStateOf(com.dotforge.toys.DayUsage.allowed(ctx)) }
+    LaunchedEffect(Unit) { while (!allowed) { delay(1_500); allowed = com.dotforge.toys.DayUsage.allowed(ctx) } }
+    if (!allowed) {
+        Surface(color = Surface1, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Allow Usage access", fontWeight = FontWeight.Medium)
+                Text("Day dots counts how long the screen was on today. Android keeps that under Usage access. It stays on your phone.", color = Muted, fontSize = 13.sp)
+                TextButton(onClick = {
+                    runCatching { ctx.startActivity(android.content.Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }) { Text("Open Usage access", color = NothingRed) }
+            }
+        }
+    }
+    GroupTitle("DAILY GOAL")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.dotforge.toys.ToySettings.DAY_GOALS.forEach { h ->
+            ChoiceCard("$h h", "${h * 60 / com.dotforge.device.DayDots.MINUTES_PER_DOT} dots", goal == h * 60, Modifier.weight(1f)) {
+                goal = h * 60; prefs.dayGoalMinutes = h * 60; changed()
+            }
+        }
+    }
+    GroupTitle("NEW DAY STARTS")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(0, 4, 6).forEach { hr ->
+            ChoiceCard(if (hr == 0) "Midnight" else "$hr am", if (hr == 0) "12 am" else "For night owls", reset == hr, Modifier.weight(1f)) {
+                reset = hr; prefs.dayResetHour = hr; changed()
+            }
+        }
     }
 }
 

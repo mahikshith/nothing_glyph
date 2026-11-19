@@ -83,16 +83,23 @@ abstract class GlyphToyService : Service() {
     private fun log(kind: String, detail: String = "") =
         EventLog.record(this, kind, listOf(javaClass.simpleName, detail).filter { it.isNotEmpty() }.joinToString(" "))
 
-    protected fun show(frame: Frame) = device.show(frame)
+    /** Features > Toys > On the Glyph: every toy's brightness and animation speed. */
+    private fun timing() = runCatching { com.dotforge.AppGraph.features.timing(com.dotforge.system.FeatureTiming.TOYS).value }.getOrNull()
 
-    /** Plays [animation] once (or looping), replacing any running animation. */
+    protected fun show(frame: Frame) {
+        val b = timing()?.brightness ?: 100
+        device.show(if (b < 100) frame.scaled(b / 100f) else frame)
+    }
+
+    /** Plays [animation] once (or looping) at the Toys page's speed, replacing any running animation. */
     protected fun play(animation: Animation, loop: Boolean = false) {
         animJob?.cancel()
+        val speed = timing()?.speed ?: 1f
         animJob = toyScope.launch {
             do {
                 for (f in animation.frames) {
                     show(f.frame)
-                    delay(f.durationMs.coerceAtLeast(Animation.MIN_FRAME_MS).toLong())
+                    delay((f.durationMs / speed).toLong().coerceAtLeast(Animation.MIN_FRAME_MS.toLong()))
                 }
             } while (loop && isActive)
         }

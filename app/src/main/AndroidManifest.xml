@@ -45,6 +45,13 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Live progress > Next calendar event: asked when that ring is switched on; read on the phone only. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- DF Weather: where the phone roughly is, once an hour at most; asked on the toy's page, never needed with a
+         typed place. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- DF Day dots: today's screen time ("Usage access", special access asked on the toy's page). -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- Automation API: apps that hold this (normal) permission may send commands; DotForge obeys only the ones
          the user allows on the Integrations page. -->
@@ -180,6 +187,20 @@
             android:name=".automation.AutomationReceiver"
             android:exported="true"
             android:permission="com.dotforge.permission.AUTOMATE">
+            <intent-filter>
+                <action android:name="com.dotforge.action.PLAY_COMPOSITION" />
+                <action android:name="com.dotforge.action.SHOW_GLYPH" />
+                <action android:name="com.dotforge.action.VISUALISER" />
+                <action android:name="com.dotforge.action.SET_RULE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- The same API for apps that can't hold the permission (Tasker's Send intent): obeyed only with the
+             Integrations page's secret key in the "key" extra; "Let other apps show designs" switches it off. -->
+        <receiver
+            android:name=".automation.KeyReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="com.dotforge.action.PLAY_COMPOSITION" />
                 <action android:name="com.dotforge.action.SHOW_GLYPH" />
@@ -427,6 +448,46 @@
             <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_breathe" />
             <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_breathe_summary" />
             <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+        </service>
+        <service
+            android:name=".toys.WeatherToy"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_weather_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_weather" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_weather_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.DayDotsToy"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_daydots_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_daydots" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_daydots_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.aod_support" android:value="1" />
+        </service>
+        <service
+            android:name=".toys.TiltMazeToy"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data android:name="com.nothing.glyph.toy.name" android:resource="@string/toy_maze_name" />
+            <meta-data android:name="com.nothing.glyph.toy.image" android:resource="@drawable/toy_maze" />
+            <meta-data android:name="com.nothing.glyph.toy.summary" android:resource="@string/toy_maze_summary" />
+            <meta-data android:name="com.nothing.glyph.toy.introduction" android:value="com.dotforge.ui.MainActivity" />
+            <meta-data android:name="com.nothing.glyph.toy.longpress" android:value="1" />
         </service>
         <service
             android:name=".toys.MoonToy"

@@ -45,4 +45,47 @@ class BatteryEventsTest {
         assertTrue(BatteryEvents.isDoubleShake(t))
         assertFalse(BatteryEvents.isDoubleShake(BatteryEvents.shakeTimes(listOf(1_000), 2_500))) // too slow
     }
+
+    @Test fun fastChargersAreFifteenWattsOrMore() {
+        assertTrue(BatteryEvents.isFast(3_000_000, 9_000_000)) // 27 W
+        assertTrue(BatteryEvents.isFast(3_000_000, 5_000_000)) // 15 W
+        assertFalse(BatteryEvents.isFast(2_000_000, 5_000_000)) // 10 W
+        assertTrue(BatteryEvents.isFast(3_000_000, 0)) // no voltage: 5 V
+        assertFalse(BatteryEvents.isFast(0, 9_000_000))
+        assertFalse(BatteryEvents.isFast(500_000, 0))
+    }
+
+    @Test fun fillGrowsToTheLevelAndLevelShowsTheNumber() {
+        val ring = p.ring.toSet()
+        fun litRing(f: com.dotforge.device.Frame) = p.ring.count { f.pixels[it] == 255 }
+        val fill = BatteryEvents.charging(p, ChargingStyle.FILL, 50, fast = false)
+        assertEquals(BatteryEvents.FILL_STEPS, fill.frames.size)
+        val counts = fill.frames.map { litRing(it.frame) }
+        assertEquals(counts.sorted(), counts)
+        assertEquals((p.ring.size * 0.5f).toInt(), counts.last(), 1f)
+        // Fill draws only the ring
+        assertTrue(fill.frames.last().frame.let { f -> p.ledCells.none { it !in ring && f.pixels[it] > 0 } })
+        assertEquals(BatteryEvents.HOLD_MS, fill.frames.last().durationMs)
+        val level = BatteryEvents.charging(p, ChargingStyle.LEVEL, 50, fast = false)
+        assertEquals(1, level.frames.size)
+        assertTrue(level.frames[0].frame.let { f -> p.ledCells.any { it !in ring && f.pixels[it] > 0 } })
+        // a fast charger adds two pulses: dim, bright, dim, bright
+        val fast = BatteryEvents.charging(p, ChargingStyle.LEVEL, 50, fast = true)
+        assertEquals(5, fast.frames.size)
+        assertTrue(fast.frames[1].frame.pixels.max() < fast.frames[2].frame.pixels.max())
+    }
+
+    private fun assertEquals(expected: Int, actual: Int, tolerance: Float) = assertTrue("$expected ~ $actual", kotlin.math.abs(expected - actual) <= tolerance)
+
+    @Test fun theVolumeRingSlidesToTheNewLevel() {
+        val up = BatteryEvents.volumeSlide(p, 2, 10, 15)
+        val lit = up.frames.map { f -> p.ring.count { f.frame.pixels[it] == 255 } }
+        assertEquals(lit.sorted(), lit)
+        assertEquals(p.ring.count { BatteryEvents.volume(p, 10, 15).pixels[it] == 255 }, lit.last())
+        assertEquals(com.dotforge.device.Animation.MAX_FRAME_MS, up.frames.last().durationMs)
+        // no change: just the level
+        assertEquals(1, BatteryEvents.volumeSlide(p, 7, 7, 15).frames.size)
+        val down = BatteryEvents.volumeSlide(p, 10, 2, 15).frames.map { f -> p.ring.count { f.frame.pixels[it] == 255 } }
+        assertEquals(down.sortedDescending(), down)
+    }
 }
