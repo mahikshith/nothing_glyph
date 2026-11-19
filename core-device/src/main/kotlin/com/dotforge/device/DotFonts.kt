@@ -40,7 +40,8 @@ object DotFonts {
         'G' to g(".##", "#..", "#.#", "#.#", ".##"), 'H' to g("#.#", "#.#", "###", "#.#", "#.#"),
         'I' to g("###", ".#.", ".#.", ".#.", "###"), 'J' to g("..#", "..#", "..#", "#.#", ".#."),
         'K' to g("#.#", "#.#", "##.", "#.#", "#.#"), 'L' to g("#..", "#..", "#..", "#..", "###"),
-        'M' to g("#.#", "###", "###", "#.#", "#.#"), 'N' to g("##.", "#.#", "#.#", "#.#", "#.#"),
+        // M and N need room for their diagonals: 3 dots wide they read as H and as a Π
+        'M' to g("#...#", "##.##", "#.#.#", "#...#", "#...#"), 'N' to g("#..#", "##.#", "#.##", "#..#", "#..#"),
         'O' to g(".#.", "#.#", "#.#", "#.#", ".#."), 'P' to g("##.", "#.#", "##.", "#..", "#.."),
         'Q' to g(".#.", "#.#", "#.#", "##.", ".##"), 'R' to g("##.", "#.#", "##.", "#.#", "#.#"),
         'S' to g(".##", "#..", ".#.", "..#", "##."), 'T' to g("###", ".#.", ".#.", ".#.", ".#."),
@@ -56,6 +57,13 @@ object DotFonts {
         '?' to g("##.", "..#", ".#.", "...", ".#."), '-' to g("...", "...", "###", "...", "..."),
         ':' to g(".", "#", ".", "#", "."), '\'' to g("#", "#", ".", ".", "."), ' ' to g("..", "..", "..", "..", ".."),
         '+' to g("...", ".#.", "###", ".#.", "..."), '/' to g("..#", "..#", ".#.", "#..", "#.."),
+    )
+
+    /** Bold letters whose diagonals would fill in when thickened (N would read as H): stems doubled, diagonal kept thin. */
+    private val BOLD: Map<Char, List<String>> = mapOf(
+        'M' to g("##...##", "###.###", "##.#.##", "##...##", "##...##"),
+        'N' to g("##...##", "###..##", "##.#.##", "##..###", "##...##"),
+        'W' to g("##...##", "##...##", "##.#.##", "###.###", "##...##"),
     )
 
     /** The symbols, in picker order. Each is original 5x5 artwork. */
@@ -114,7 +122,7 @@ object DotFonts {
     private fun make(font: DotFont, ch: Char): Strip = when (font) {
         DotFont.REGULAR -> regular(ch)
         DotFont.SMALL -> SMALL[ch]?.let { Strip.of(it) } ?: regular(ch)
-        DotFont.BOLD -> regular(ch).let { r ->
+        DotFont.BOLD -> BOLD[ch]?.let { Strip.of(it) } ?: regular(ch).let { r ->
             if (ch == ' ') r else Strip(r.w + 1, r.h).also { s -> for (y in 0 until r.h) for (x in 0..r.w) s[x, y] = r.lit(x, y) || r.lit(x - 1, y) }
         }
         DotFont.TALL -> tall(regular(ch))
