@@ -7,7 +7,7 @@ import com.dotforge.device.DeviceProfile
 internal object Originals {
     private val C = Categories
     private fun o(id: String, name: String, cat: Category, tags: String, make: (DeviceProfile) -> Animation) =
-        LibraryItem("orig-$id", name, cat, tags.split(' '), null, ItemKind.ORIGINAL, make)
+        LibraryItem("orig-$id", name, cat, tags.split(' '), null, ItemKind.ORIGINAL, maker = make)
 
     val items: List<LibraryItem> = listOf(
         // alerts
@@ -41,20 +41,20 @@ internal object Originals {
         o("flower", "Blooming flower", C.NatureWeather, "flower bloom spring plant", OrigAlerts::bloomingFlower),
         o("rain-splash", "Rain and splash", C.NatureWeather, "rain splash drops puddle", OrigAlerts::rainSplash),
         o("water-slosh", "Water slosh", C.NatureWeather, "water slosh level tilt", OrigAlerts::waterSlosh),
-        // love and emoji
-        o("heart-fill", "Heart fill", C.LoveEmoji, "heart fill love liquid", OrigLove::heartFill),
-        o("heart-rain", "Heart rain", C.LoveEmoji, "heart rain love falling", OrigLove::heartRain),
-        o("broken-heart", "Broken heart", C.LoveEmoji, "heart broken sad split", OrigLove::brokenHeart),
-        o("heart-arrow", "Heart and arrow", C.LoveEmoji, "heart arrow cupid love", OrigLove::heartArrow),
-        o("kiss", "Blown kiss", C.LoveEmoji, "kiss heart love face", OrigLove::kiss),
-        o("wink", "Wink", C.LoveEmoji, "wink smile emoji face", OrigLove::wink),
-        o("cry-laugh", "Crying laugh", C.LoveEmoji, "laugh cry tears emoji face", OrigLove::cryLaugh),
-        o("sleepy", "Sleepy Zzz", C.LoveEmoji, "sleep zzz tired emoji face", OrigLove::sleepyZzz),
-        o("surprise", "Surprise", C.LoveEmoji, "surprise shock wow emoji face", OrigLove::surprise),
-        o("eye", "Looking eye", C.LoveEmoji, "eye look watch pupil", OrigLove::eyeTracker),
-        o("thumbs-up", "Thumbs up", C.LoveEmoji, "thumbs up like ok", OrigLove::thumbsUp),
-        o("sparkle-cheer", "Sparkle cheer", C.LoveEmoji, "sparkle cheer stars happy", OrigLove::sparkleCheer),
-        o("rose-spin", "Spinning rose", C.LoveEmoji, "rose flower love spin", OrigLove::roseSpin),
+        // love, heartbreak and moods
+        o("heart-fill", "Heart fill", C.Love, "heart fill love liquid", OrigLove::heartFill),
+        o("heart-rain", "Heart rain", C.Love, "heart rain love falling", OrigLove::heartRain),
+        o("broken-heart", "Broken heart", C.Heartbreak, "heart broken sad split", OrigLove::brokenHeart),
+        o("heart-arrow", "Heart and arrow", C.Love, "heart arrow cupid love", OrigLove::heartArrow),
+        o("kiss", "Blown kiss", C.Love, "kiss heart love face", OrigLove::kiss),
+        o("wink", "Wink", C.Moods, "wink smile emoji face", OrigLove::wink),
+        o("cry-laugh", "Crying laugh", C.Moods, "laugh cry tears emoji face", OrigLove::cryLaugh),
+        o("sleepy", "Sleepy Zzz", C.Moods, "sleep zzz tired emoji face", OrigLove::sleepyZzz),
+        o("surprise", "Surprise", C.Moods, "surprise shock wow emoji face", OrigLove::surprise),
+        o("eye", "Looking eye", C.Moods, "eye look watch pupil", OrigLove::eyeTracker),
+        o("thumbs-up", "Thumbs up", C.Moods, "thumbs up like ok", OrigLove::thumbsUp),
+        o("sparkle-cheer", "Sparkle cheer", C.Moods, "sparkle cheer stars happy", OrigLove::sparkleCheer),
+        o("rose-spin", "Spinning rose", C.Love, "rose flower love spin", OrigLove::roseSpin),
         // loaders
         o("radial-fill", "Radial fill", C.Loaders, "radial pie fill loader", OrigMore::radialFill),
         o("ring-progress", "Ring progress", C.Loaders, "ring progress percent loader", OrigMore::ringProgress),

@@ -8,39 +8,79 @@ object Categories {
     /** A curated first page: bold shapes and smooth motion that read well on 25x25. Its items also live in a real category. */
     val Featured = Category("featured", "Featured")
     val Alerts = Category("alerts", "Alerts")
-    val LoveEmoji = Category("love_emoji", "Love & emoji")
-    val NatureWeather = Category("nature_weather", "Nature & weather")
+    val Love = Category("love", "Love")
+    val Heartbreak = Category("heartbreak", "Heartbreak")
+    val Moods = Category("moods", "Moods")
+    val Anime = Category("anime", "Anime style")
+    val Seasonal = Category("seasonal", "Celebrations")
+    val NatureWeather = Category("nature_weather", "Weather & nature")
+    val Time = Category("time", "Reminders & time")
+    val Utility = Category("utility", "Utility")
+    val Food = Category("food", "Food & delivery")
+    val Travel = Category("travel", "Travel & rides")
+    val Work = Category("work", "Work & study")
+    val Sports = Category("sports", "Sports")
+    val Text = Category("text", "Text")
+    val GlyphText = Category("glyph_text", "Glyph + text")
     val Loaders = Category("loaders", "Loaders")
     val Music = Category("music", "Music")
     val Games = Category("games", "Games")
-    val Time = Category("time", "Time")
     val Abstract = Category("abstract", "Abstract")
-    val Text = Category("text", "Text")
-    val Seasonal = Category("seasonal", "Seasonal")
-    val AnimalsFood = Category("animals_food", "Animals & food")
+    val AnimalsFood = Category("animals_food", "Animals")
     val Symbols = Category("symbols", "Symbols")
     val StoriesArt = Category("stories_art", "Stories & art")
 
-    val all = listOf(Featured, Alerts, LoveEmoji, NatureWeather, Loaders, Music, Games, Time, Abstract, Text, Seasonal, AnimalsFood, Symbols, StoriesArt)
-    fun byId(id: String): Category = all.first { it.id == id }
+    val all = listOf(
+        Featured, Alerts, Love, Heartbreak, Moods, Anime, Seasonal, NatureWeather, Time, Utility, Food, Travel, Work, Sports,
+        Text, GlyphText, Loaders, Music, Games, Abstract, AnimalsFood, Symbols, StoriesArt,
+    )
+
+    /** Old ids of merged categories: "love_emoji" was split into Love, Heartbreak and Moods. */
+    fun byId(id: String): Category = all.firstOrNull { it.id == id } ?: if (id == "love_emoji") Moods else error("unknown category $id")
 }
 
 /**
- * DotForge's ready-made animations: converted sprite packs (MIT / CC0 / public-domain redrawings, see NOTICE),
- * ported effect generators and DotForge originals. Everything is loaded lazily.
- *
- * Not to be confused with `com.dotforge.device.AnimationLibrary`, the small older list of twelve presets, which
- * this library re-exports as generator items.
+ * DotForge's library: DotForge glyph art (stills and animations), ready text designs, glyph + text designs,
+ * converted sprite packs (MIT / CC0 / public-domain redrawings, see NOTICE), ported effect generators and DotForge
+ * originals. Everything is loaded lazily.
  */
 object AnimationLibrary {
     val categories: List<Category> get() = Categories.all
 
-    /** Every item, sprites first. Building the list only reads the small sprite index. */
+    /** Every item: DotForge glyph art first, then text, glyph + text, sprites, generators, originals and the alert icons. */
     val all: List<LibraryItem> by lazy {
-        val sprites = SpriteStore.entries.map { e ->
-            LibraryItem(e.id, e.name, Categories.byId(e.category), e.tags, e.credit, ItemKind.SPRITE) { p -> SpriteStore.load(e, p) }
+        val art = GlyphArt.entries.map { e ->
+            LibraryItem(e.id, e.name, Categories.byId(artCategory(e.category)), e.tags, null, ItemKind.GLYPH,
+                if (e.still) ItemForm.STILL else ItemForm.ANIMATION) { p -> GlyphArt.load(e, p) }
         }
-        sprites + Generators.items + Originals.items
+        val sprites = SpriteStore.entries.map { e ->
+            LibraryItem(e.id, e.name, spriteCategory(e), e.tags, e.credit, ItemKind.SPRITE,
+                if (e.sourceFrames == 1) ItemForm.STILL else ItemForm.ANIMATION) { p -> SpriteStore.load(e, p) }
+        }
+        val drawn = (art + TextItems.texts + TextItems.layered).map { it.name.lowercase() }.toSet()
+        val icons = com.dotforge.device.GlyphLibrary.all.filter { it.name.lowercase() !in drawn }.map { g ->
+            LibraryItem(g.id, g.name, if (g.id in ALERT_ICONS) Categories.Alerts else Categories.Symbols, listOf("icon", "alert", g.name.lowercase()),
+                null, ItemKind.ORIGINAL, if (g.animated) ItemForm.ANIMATION else ItemForm.STILL) { p -> g.animation(p) }
+        }
+        art + TextItems.texts + TextItems.layered + sprites + Generators.items + Originals.items + icons
+    }
+
+    private val ALERT_ICONS = setOf("chat", "mail", "bell", "phone", "spam", "alarm", "warning", "chat-dots", "at", "info", "question", "pulse", "ripple", "spinner", "blink", "wave")
+
+    private fun artCategory(id: String) = when (id) { "celebrations" -> "seasonal"; "weather" -> "nature_weather"; else -> id }
+
+    private val FOOD_SPRITES = setOf(
+        "pizza", "coffee", "tea", "ice-cream", "birthday-cake", "cupcake", "donut", "burger", "fries", "watermelon", "apple", "cherries",
+        "popcorn", "soda", "boba", "taco", "sushi", "lollipop", "cookie", "fried-egg", "ramen",
+    )
+
+    /** Sprite packs were sorted before Love, Heartbreak, Moods and Food & delivery existed. */
+    private fun spriteCategory(e: SpriteStore.Entry): Category = when {
+        e.category == "animals_food" && e.id.removePrefix("sprite-") in FOOD_SPRITES -> Categories.Food
+        e.category != "love_emoji" -> Categories.byId(e.category)
+        e.id == "sprite-heart-broken" -> Categories.Heartbreak
+        e.id.contains("heart") || e.id.contains("love") || e.id.contains("ring") || e.id.contains("rose") || e.id == "sprite-kiss" -> Categories.Love
+        else -> Categories.Moods
     }
 
     private val byCategory by lazy { all.groupBy { it.category } }
@@ -48,6 +88,7 @@ object AnimationLibrary {
 
     /** Ids of the Featured items, in display order. */
     private val featuredIds = listOf(
+        "a-heart-sparkle", "gt-i-h-u", "a-mood-laugh", "a-cupid", "gt-happy-bday", "a-food-bag", "text-hello", "a-scooter",
         "sprite-mini-heart", "gen-heartbeat", "orig-heart-fill", "orig-wink", "orig-thumbs-up", "orig-bell", "orig-call-rings",
         "orig-ripple-ping", "orig-charging", "orig-rim-breathing", "gen-ripple", "gen-radar", "gen-loading", "gen-spinner",
         "orig-pulse-dots", "orig-radial-fill", "orig-hourglass", "gen-fireworks", "gen-spiral", "gen-swirl", "gen-rings",
@@ -63,6 +104,9 @@ object AnimationLibrary {
 
     fun item(id: String): LibraryItem? = byId[id]
 
+    /** The Text category's groups (Greetings, Love, Status...), in display order. */
+    val textGroups: List<String> get() = TextItems.groups
+
     /**
      * Items whose name, tags, category or id contain every word of [query] (case-insensitive), best matches first:
      * name starts with the word, then name contains it, then tags, then anything else.
@@ -73,7 +117,7 @@ object AnimationLibrary {
         return all.mapNotNull { item ->
             val name = item.name.lowercase()
             val tags = item.tags.map { it.lowercase() }
-            val other = (item.id + " " + item.category.title).lowercase()
+            val other = (item.id + " " + item.category.title + " " + (item.group ?: "") + " " + item.form.label).lowercase()
             var score = 0
             for (w in words) {
                 score += when {

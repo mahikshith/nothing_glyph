@@ -44,17 +44,4 @@ class DesignEffectsTest {
         val breath = DesignEffect.BREATHE.apply(Animation.single(bar())).frames
         assertTrue(breath.first().frame.pixels.max() < breath[breath.size / 2].frame.pixels.max())
     }
-
-    @Test fun everyLibraryAnimationIsValid() {
-        assertEquals(12, AnimationLibrary.entries.size)
-        for (e in AnimationLibrary.entries) {
-            val a = e.make(p)
-            assertTrue(e.name, a.frames.size > 1)
-            assertTrue(e.name, a.frames.all { it.durationMs in Animation.MIN_FRAME_MS..Animation.MAX_FRAME_MS })
-            assertTrue(e.name, a.frames.count { f -> f.frame.pixels.any { it > 0 } } > a.frames.size / 2)
-            assertTrue(e.name, a.frames.all { f -> p.ledCells.size == p.ledCount && f.frame.pixels.indices.all { p.mask[it] || f.frame.pixels[it] == 0 } })
-            // round-trips through the shared JSON format
-            assertEquals(a.frames.size, Animation.fromMuseumJson(p, a.toMuseumJson()).frames.size)
-        }
-    }
 }

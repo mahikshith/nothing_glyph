@@ -1,7 +1,7 @@
 package com.dotforge.device.library
 
 import com.dotforge.device.DeviceProfile
-import com.dotforge.device.AnimationLibrary as Presets
+
 
 /** Effect generators: classic algorithms (plasma, fire, life, ...) written for the round 25x25 mask. */
 internal object Generators {
@@ -10,11 +10,11 @@ internal object Generators {
     private val C = Categories
 
     private fun g(id: String, name: String, cat: Category, tags: String, credit: String? = null, make: (DeviceProfile) -> com.dotforge.device.Animation) =
-        LibraryItem("gen-$id", name, cat, tags.split(' '), credit, ItemKind.GENERATOR, make)
+        LibraryItem("gen-$id", name, cat, tags.split(' '), credit, ItemKind.GENERATOR, maker = make)
 
     val items: List<LibraryItem> = listOf(
         // the twelve DotForge presets
-        g("heartbeat", "Heartbeat", C.LoveEmoji, "heart love pulse beat", null, Presets::heartbeat),
+        g("heartbeat", "Heartbeat", C.Love, "heart love pulse beat", null, Presets::heartbeat),
         g("ripple", "Ripple", C.Abstract, "ripple rings water", null, Presets::ripple),
         g("rain", "Rain", C.NatureWeather, "rain weather drops storm", null, Presets::rain),
         g("spiral", "Spiral", C.Abstract, "spiral arm spin", null, Presets::spiral),

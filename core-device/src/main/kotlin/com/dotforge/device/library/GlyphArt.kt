@@ -1,0 +1,204 @@
+package com.dotforge.device.library
+
+import com.dotforge.device.AnimFrame
+import com.dotforge.device.Animation
+import com.dotforge.device.DeviceProfile
+import com.dotforge.device.Frame
+import com.dotforge.device.Posters
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+
+/**
+ * DotForge's glyph art: original pictures drawn dot by dot for the 25x25 matrix, kept as text in
+ * `library/glyphs.txt` (see the notes at the top of that file). Some are animated frame by frame; others
+ * get a [Motion] (a bell swings, a car drives in, a heart beats).
+ */
+internal object GlyphArt {
+    class Entry(
+        val id: String, val name: String, val category: String, val tags: List<String>,
+        /** Frames of rows for a drawn picture, or empty for a motion. */
+        val frames: List<List<String>>,
+        val durations: List<Int>,
+        /** The motion and its arguments for a "!" entry. */
+        val motion: List<String>,
+    ) {
+        val still: Boolean get() = motion.isEmpty() && frames.size == 1
+    }
+
+    val entries: List<Entry> by lazy {
+        val text = GlyphArt::class.java.getResourceAsStream("/library/glyphs.txt")?.bufferedReader()?.use { it.readText() }
+            ?: error("missing library asset glyphs.txt")
+        parse(text)
+    }
+
+    private val byId by lazy { entries.associateBy { it.id } }
+
+    fun entry(id: String): Entry? = byId[id]
+
+    fun parse(text: String): List<Entry> {
+        val out = ArrayList<Entry>()
+        var head: List<String>? = null
+        var motionLine = false
+        val frames = ArrayList<List<String>>()
+        var rows = ArrayList<String>()
+        fun close() {
+            val h = head ?: return
+            if (rows.isNotEmpty()) frames += rows
+            val extra = h.getOrNull(4).orEmpty()
+            val ms = if (!motionLine && extra.startsWith("ms=")) extra.removePrefix("ms=").split(',').map { it.trim().toInt() } else emptyList()
+            out += Entry(
+                h[0], h[1], h[2], h[3].split(' ').filter { it.isNotBlank() },
+                if (motionLine) emptyList() else frames.toList(), ms,
+                if (motionLine) extra.split(' ').filter { it.isNotBlank() } else emptyList(),
+            )
+            head = null; frames.clear(); rows = ArrayList()
+        }
+        for (raw in text.lines()) {
+            val line = raw.trimEnd()
+            if (line.startsWith("#!")) continue
+            if (line.startsWith("@ ") || line.startsWith("! ")) {
+                close()
+                motionLine = line[0] == '!'
+                head = line.substring(2).split('|').map { it.trim() }
+                continue
+            }
+            if (head == null) continue
+            when {
+                line.trim() == "~" -> { frames += rows; rows = ArrayList() }
+                line.isBlank() -> if (rows.isNotEmpty()) { frames += rows; rows = ArrayList() }
+                !motionLine -> rows += line
+            }
+        }
+        close()
+        return out
+    }
+
+    private fun value(c: Char) = when (c) { '#' -> 255; 'o' -> 150; '+' -> 70; else -> 0 }
+
+    /** [rows] centred on the matrix of [p] and clipped to its round mask. */
+    fun picture(p: DeviceProfile, rows: List<String>): Frame {
+        val w = rows.maxOf { it.length }
+        val x0 = (p.size - w) / 2
+        val y0 = (p.size - rows.size) / 2
+        val out = IntArray(p.cellCount)
+        for ((ry, row) in rows.withIndex()) for ((rx, c) in row.withIndex()) {
+            val v = value(c)
+            val x = x0 + rx
+            val y = y0 + ry
+            if (v > 0 && p.isActive(x, y)) out[p.index(x, y)] = v
+        }
+        return Frame(p, out)
+    }
+
+    /** Lit dots of [rows] that fall outside the Phone (3) mask (a drawing check). */
+    fun outside(rows: List<String>, p: DeviceProfile = DeviceProfile.Phone3): Int {
+        val w = rows.maxOf { it.length }
+        val x0 = (p.size - w) / 2
+        val y0 = (p.size - rows.size) / 2
+        var n = 0
+        for ((ry, row) in rows.withIndex()) for ((rx, c) in row.withIndex()) if (value(c) > 0 && !p.isActive(x0 + rx, y0 + ry)) n++
+        return n
+    }
+
+    fun still(id: String, p: DeviceProfile): Frame {
+        val e = requireNotNull(byId[id]) { "unknown glyph $id" }
+        return if (e.frames.isNotEmpty()) picture(p, e.frames[0]) else Posters.of(load(e, p))
+    }
+
+    fun load(e: Entry, p: DeviceProfile): Animation {
+        if (e.motion.isNotEmpty()) return Motion.make(p, e.motion)
+        val ms = e.durations
+        return Animation(p, e.frames.mapIndexed { i, rows -> AnimFrame(picture(p, rows), ms.getOrElse(i) { ms.lastOrNull() ?: 1000 }) })
+    }
+
+    /** Motions for still pictures. Arguments name pictures by id, then optional frame times. */
+    object Motion {
+        val names = listOf("beat", "bounce", "swing", "rock", "shake", "wiggle", "float", "drive", "rise", "drop", "glow", "flash", "sparkle", "zoom", "circle", "swap", "seq")
+
+        fun make(p: DeviceProfile, args: List<String>): Animation {
+            val name = args[0]
+            val ids = args.drop(1).filter { !it.first().isDigit() }
+            val times = args.drop(1).filter { it.first().isDigit() }.map { it.toInt() }
+            val f = still(ids[0], p)
+            fun of(vararg steps: Pair<Frame, Int>) = Animation(p, steps.map { AnimFrame(it.first, it.second) })
+            fun moves(list: List<Pair<Int, Int>>, ms: Int, hold: Int) =
+                Animation(p, list.mapIndexed { i, (dx, dy) -> AnimFrame(shift(f, dx, dy), if (i == list.size - 1) hold else ms) })
+            return when (name) {
+                "beat" -> of(f to 520, scale(f, 1.14) to 110, f to 110, scale(f, 1.09) to 110, f to 700)
+                "bounce" -> moves(listOf(0 to 0, 0 to -1, 0 to -3, 0 to -4, 0 to -3, 0 to -1, 0 to 0, 0 to 1, 0 to 0), 70, 600)
+                "swing" -> moves(List(3) { listOf(1 to 0, 0 to 0, -1 to 0, 0 to 0) }.flatten() + listOf(0 to 0), 70, 900)
+                "rock" -> moves(listOf(0 to 0, 1 to 0, 1 to 1, 0 to 1, -1 to 1, -1 to 0), 180, 180)
+                "shake" -> moves(List(4) { listOf(1 to 0, -1 to 0) }.flatten() + listOf(0 to 0), 50, 700)
+                "wiggle" -> moves(listOf(1 to 0, -1 to 0, 1 to 0, 0 to -1, 0 to 0, -1 to 0, 1 to 0, 0 to 0), 70, 900)
+                "float" -> Animation(p, List(16) { i -> AnimFrame(shift(f, 0, (-1.5 + 1.5 * cos(2 * PI * i / 16)).roundToInt()), 110) })
+                "drive", "rise" -> {
+                    val path = listOf(-24, -18, -13, -9, -6, -3, -1, 0) + List(8) { 1 + it * it / 2 + it }
+                    val list = path.map { if (name == "drive") it to 0 else 0 to -it }
+                    Animation(p, list.mapIndexed { i, (dx, dy) -> AnimFrame(shift(f, dx, dy), if (i == 7) 1100 else 60) } + AnimFrame(Frame.blank(p), 300))
+                }
+                "drop" -> moves(listOf(0 to -24, 0 to -20, 0 to -15, 0 to -10, 0 to -5, 0 to 0, 0 to -2, 0 to -1, 0 to 0), 55, 1400)
+                "glow" -> Animation(p, List(20) { i -> AnimFrame(f.scaled((0.55 - 0.45 * cos(2 * PI * i / 20)).toFloat()), 90) })
+                "flash" -> of(f to 110, Frame.blank(p) to 70, f to 110, Frame.blank(p) to 70, f to 1200, f.scaled(0.4f) to 300)
+                "sparkle" -> sparkle(f)
+                "zoom" -> of(scale(f, 0.25) to 70, scale(f, 0.5) to 70, scale(f, 0.8) to 70, scale(f, 1.12) to 90, f to 1500)
+                "circle" -> Animation(p, List(12) { i -> AnimFrame(shift(f, (2 * cos(2 * PI * i / 12)).roundToInt(), (2 * sin(2 * PI * i / 12)).roundToInt()), 90) })
+                "swap" -> of(f to times.getOrElse(0) { 600 }, still(ids[1], p) to times.getOrElse(1) { 600 })
+                "seq" -> Animation(p, ids.mapIndexed { i, id -> AnimFrame(still(id, p), times.getOrElse(i) { 500 }) })
+                else -> error("unknown motion $name")
+            }
+        }
+
+        private fun shift(f: Frame, dx: Int, dy: Int): Frame {
+            val p = f.profile
+            val out = IntArray(p.cellCount)
+            for (cell in p.ledCells) {
+                val v = f.pixels[cell]
+                if (v == 0) continue
+                val x = cell % p.size + dx
+                val y = cell / p.size + dy
+                if (p.isActive(x, y)) out[p.index(x, y)] = v
+            }
+            return Frame(p, out)
+        }
+
+        /** [f] grown or shrunk about the middle (nearest dot). */
+        private fun scale(f: Frame, k: Double): Frame {
+            val p = f.profile
+            val c = (p.size - 1) / 2.0
+            val out = IntArray(p.cellCount)
+            for (cell in p.ledCells) {
+                val sx = (c + (cell % p.size - c) / k).roundToInt()
+                val sy = (c + (cell / p.size - c) / k).roundToInt()
+                if (sx in 0 until p.size && sy in 0 until p.size) out[cell] = f.pixels[sy * p.size + sx]
+            }
+            return Frame(p, out)
+        }
+
+        /** The picture with small four-point twinkles coming and going in the dark around it. */
+        private fun sparkle(f: Frame): Animation {
+            val p = f.profile
+            val spots = p.ledCells.filter { cell ->
+                val x = cell % p.size
+                val y = cell / p.size
+                (-2..2).all { d -> listOf(x + d to y, x to y + d).all { (xx, yy) -> !p.isActive(xx, yy) || f.pixels[p.index(xx, yy)] == 0 } } &&
+                    listOf(x - 2 to y, x + 2 to y, x to y - 2, x to y + 2).all { (xx, yy) -> p.isActive(xx, yy) }
+            }
+            val picks = (0 until 5).mapNotNull { k -> spots.getOrNull((hash(k, 7, 3) * spots.size).toInt()) }
+            return Animation(p, List(12) { i ->
+                val out = f.pixels.copyOf()
+                for ((k, cell) in picks.withIndex()) {
+                    val phase = (i + k * 5) % 12
+                    val v = when (phase) { 0 -> 150; 1 -> 255; 2 -> 150; else -> 0 }
+                    if (v == 0) continue
+                    val x = cell % p.size
+                    val y = cell / p.size
+                    out[cell] = v
+                    if (phase == 1) for ((dx, dy) in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) if (p.isActive(x + dx, y + dy)) out[p.index(x + dx, y + dy)] = 110
+                }
+                AnimFrame(Frame(p, out), 110)
+            })
+        }
+    }
+}

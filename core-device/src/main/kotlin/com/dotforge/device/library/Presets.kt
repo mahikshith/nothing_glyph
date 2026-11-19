@@ -1,4 +1,9 @@
-package com.dotforge.device
+package com.dotforge.device.library
+
+import com.dotforge.device.AnimFrame
+import com.dotforge.device.Animation
+import com.dotforge.device.DeviceProfile
+import com.dotforge.device.Frame
 
 import kotlin.math.PI
 import kotlin.math.abs
@@ -9,28 +14,8 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
-/**
- * DotForge's own animation library: every animation is drawn by code here (no artwork from other apps).
- * Create > New design > From the library copies one into the user's designs to play, edit or use in rules.
- */
-object AnimationLibrary {
-    class Entry(val name: String, val hint: String, val make: (DeviceProfile) -> Animation)
-
-    val entries: List<Entry> = listOf(
-        Entry("Heartbeat", "A heart that beats twice", ::heartbeat),
-        Entry("Ripple", "Rings spread from the middle", ::ripple),
-        Entry("Rain", "Drops fall down the matrix", ::rain),
-        Entry("Spiral", "A spinning spiral arm", ::spiral),
-        Entry("Radar", "A sweep with a fading trail", ::radar),
-        Entry("Loading", "A spinner arc", ::loading),
-        Entry("Starfield", "Stars twinkle", ::starfield),
-        Entry("Fireworks", "A burst of sparks", ::fireworks),
-        Entry("Bounce", "A ball bounces", ::bounce),
-        Entry("Wave", "A rolling wave", ::wave),
-        Entry("Orbit", "Two moons circle", ::orbit),
-        Entry("Fill up", "Fills like a glass, then empties", ::fillUp),
-    )
-
+/** The first twelve code-drawn presets; the library lists them as generator items (see [Generators]). */
+internal object Presets {
     private fun c(p: DeviceProfile) = (p.size - 1) / 2.0
 
     private fun frame(p: DeviceProfile, value: (x: Int, y: Int) -> Int): Frame {

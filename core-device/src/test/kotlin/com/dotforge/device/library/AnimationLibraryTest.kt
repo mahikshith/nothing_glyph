@@ -34,7 +34,7 @@ class AnimationLibraryTest {
     }
 
     @Test fun generatedItemsHave24To120Frames() {
-        for (item in all.filter { it.kind != ItemKind.SPRITE }) {
+        for (item in all.filter { it.kind == ItemKind.GENERATOR || it.kind == ItemKind.ORIGINAL && it.form == ItemForm.ANIMATION }) {
             val n = item.load(p).frames.size
             assertTrue("${item.id} has $n frames", n in 24..120)
         }

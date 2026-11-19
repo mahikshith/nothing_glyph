@@ -60,7 +60,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
 import com.dotforge.device.AnimFrame
-import com.dotforge.device.AnimationLibrary
 import com.dotforge.device.DesignEffect
 import com.dotforge.device.Draw
 import com.dotforge.device.Animation
@@ -82,7 +81,6 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
     val repo = AppGraph.designs
     val designs by repo.designs.collectAsStateWithLifecycle()
     var choose by rememberSaveable { mutableStateOf(false) }
-    var library by rememberSaveable { mutableStateOf(false) }
     val import = rememberDesignImport(nav)
     var deleting by remember { mutableStateOf<Design?>(null) }
 
@@ -140,9 +138,9 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
                         choose = false
                         nav.push(Page.DesignEditor(null, animated = true))
                     }
-                    ChoiceCard("From the library", "${AnimationLibrary.entries.size} ready-made animations", false, Modifier.fillMaxWidth()) {
+                    ChoiceCard("From the library", "${com.dotforge.device.library.AnimationLibrary.all.size} glyphs, texts and animations", false, Modifier.fillMaxWidth()) {
                         choose = false
-                        library = true
+                        nav.push(Page.Library)
                     }
                     ChoiceCard("Import", "A picture, or a Dot Hub or Glyph Museum file", false, Modifier.fillMaxWidth()) {
                         choose = false
@@ -161,46 +159,12 @@ fun CreateScreen(nav: Nav, scroll: ScrollState) {
             confirmButton = { TextButton(onClick = { choose = false }) { Text("Cancel", color = Color.White) } },
         )
     }
-    if (library) LibraryDialog(onDismiss = { library = false }) { e ->
-        library = false
-        val d = Design(name = e.name, animated = true, frames = e.make(AppGraph.profile).toMuseumJson(), updatedAt = System.currentTimeMillis())
-        repo.save(d)
-        nav.push(Page.DesignEditor(d.id, animated = true))
-    }
     deleting?.let { d ->
         ConfirmDialog("Delete \"${d.name}\"?", "It can't be brought back.", "Delete", onConfirm = {
             delete(d)
             deleting = null
         }, onDismiss = { deleting = null })
     }
-}
-
-/** The animation library: each plays in its card; a tap copies it into the user's designs. */
-@Composable
-private fun LibraryDialog(onDismiss: () -> Unit, onPick: (AnimationLibrary.Entry) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Surface2,
-        title = { Text("Library") },
-        text = {
-            Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
-                AnimationLibrary.entries.chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                        row.forEach { e ->
-                            val anim = remember(e) { e.make(AppGraph.profile) }
-                            val frame = rememberLoopingFrame(anim)
-                            Column(Modifier.weight(1f).clickable { onPick(e) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                                MatrixView(frame?.pixels, AppGraph.profile, Modifier.fillMaxWidth())
-                                Text(e.name, fontSize = 12.sp, maxLines = 1)
-                            }
-                        }
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Color.White) } },
-    )
 }
 
 private fun delete(d: Design) {

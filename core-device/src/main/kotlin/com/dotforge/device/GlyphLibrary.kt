@@ -330,7 +330,14 @@ object GlyphLibrary {
 
     private val byId = all.associateBy { it.id }
 
-    fun get(id: String?): Glyph? = id?.let(byId::get)
+    /** A built-in glyph, or any library item by its id (so alerts can show library glyphs too). */
+    fun get(id: String?): Glyph? = id?.let { byId[it] ?: fromLibrary(it) }
+
+    private val fromLibraryCache = java.util.concurrent.ConcurrentHashMap<String, Glyph>()
+
+    private fun fromLibrary(id: String): Glyph? = fromLibraryCache[id] ?: com.dotforge.device.library.AnimationLibrary.item(id)?.let { item ->
+        Glyph(item.id, item.name, item.animated) { p -> item.load(p) }.also { fromLibraryCache[id] = it }
+    }
 
     /**
      * How a glyph shows as an alert: a still picture fades in, holds and dims a little (it loops while an alert
