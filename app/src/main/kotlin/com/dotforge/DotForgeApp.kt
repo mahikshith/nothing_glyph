@@ -86,6 +86,9 @@ object AppGraph {
         private set
     lateinit var moments: com.dotforge.system.PhoneMoments
         private set
+    /** Features > Live progress: known apps, minutes in the middle, the event and alarm rings. */
+    lateinit var liveProgress: com.dotforge.notify.LiveProgressSettings
+        private set
 
     /** Stop on Home: the Glyph goes dark and everything waiting counts as checked; notifications stay. */
     fun stopAll() {
@@ -113,6 +116,8 @@ object AppGraph {
         prefs.edit().putBoolean(KEY_PROGRESS, on).apply()
         _progressRings.value = on
         if (!on) arbiter.removeIf { it.priority == Priority.PROGRESS }
+        com.dotforge.notify.LiveProgressRuntime.refresh()
+        moments.refreshApproach()
     }
 
     /** Brightness of DotForge's own lights (not toys), 0-255. */
@@ -179,6 +184,9 @@ object AppGraph {
         if (filters.catches.value.isNotEmpty()) filters.clearCatches()
         // "Stop waiting after"
         MainScope().launch { filters.filters.map { it.capMs }.distinctUntilChanged().collect(alerts::setCap) }
+        liveProgress = com.dotforge.notify.LiveProgressSettings(app.getSharedPreferences("live_progress", Context.MODE_PRIVATE))
+        liveProgress.migrate(rules.rules.value.firstOrNull { it.id == com.dotforge.rules.SimpleRules.REMINDERS }?.approachMinutes ?: 0)
+        com.dotforge.timer.GlyphTimers.init(app)
         moments = com.dotforge.system.PhoneMoments(app).also { it.start() }
         faceDown = FaceDownSensor(app)
         media = MediaRingSettings(app.getSharedPreferences("media", Context.MODE_PRIVATE))

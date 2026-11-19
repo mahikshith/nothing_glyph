@@ -47,9 +47,17 @@ class PhoneMoments(private val ctx: Context) {
             AppGraph.rules.rules.collect { rules ->
                 val now = rules.mapNotNull { r -> r.moment?.takeIf { r.enabled } }.toSet()
                 if (now != on) update(now)
-                approach(rules.firstOrNull { it.id == SimpleRules.REMINDERS })
             }
         }
+        MainScope().launch {
+            kotlinx.coroutines.flow.combine(AppGraph.liveProgress.calendarLead, AppGraph.liveProgress.alarmLead, AppGraph.progressRings) { a, b, c -> Triple(a, b, c) }
+                .collect { approach() }
+        }
+    }
+
+    /** Live progress was switched on or off: the event and alarm ring follows. */
+    fun refreshApproach() {
+        main.post { approach() }
     }
 
     private fun rule(m: Moment): Rule? = AppGraph.rules.rules.value.firstOrNull { it.moment == m && it.enabled }
@@ -138,22 +146,36 @@ class PhoneMoments(private val ctx: Context) {
 
     private var approachTick: Runnable? = null
 
-    private fun approach(r: Rule?) {
+    /**
+     * Features > Live progress > Next calendar event and Next alarm: the ring fills over the lead time before
+     * whichever comes first, minutes in the middle, and breathes in the last minute (the clock icon then).
+     */
+    private fun approach() {
         approachTick?.let(main::removeCallbacks)
         approachTick = null
-        val lead = (r?.approachMinutes ?: 0).takeIf { r?.enabled == true && it > 0 }?.let { it * 60_000L }
-        if (lead == null) {
+        val calendar = AppGraph.liveProgress.calendarLead.value.coerceAtLeast(0) * 60_000L
+        val alarm = AppGraph.liveProgress.alarmLead.value.coerceAtLeast(0) * 60_000L
+        if (!AppGraph.progressRings.value || (calendar == 0L && alarm == 0L)) {
             AppGraph.arbiter.remove(APPROACH_ID)
             return
         }
         val tick = object : Runnable {
             override fun run() {
                 val now = System.currentTimeMillis()
-                val next = listOfNotNull(nextAlarm(), nextEvent(now)).filter { it > now }.minOrNull()
-                val a = next?.let { AlertEffects.approach(it - now, lead) }
-                if (a == null) AppGraph.arbiter.remove(APPROACH_ID)
-                else AppGraph.arbiter.post(DisplayRequest(APPROACH_ID, Priority.PROGRESS, AlertEffects.approaching(AppGraph.profile, a), loop = true, label = "Coming up"))
-                main.postDelayed(this, if (a?.pulse == true) 5_000 else 30_000)
+                val next = listOfNotNull(
+                    nextAlarm()?.takeIf { alarm > 0 }?.let { Triple(it, alarm, "alarm") },
+                    nextEvent(now)?.takeIf { calendar > 0 }?.let { Triple(it, calendar, "event") },
+                ).filter { it.first > now }.mapNotNull { (at, lead, what) -> AlertEffects.approach(at - now, lead)?.let { Triple(at, it, what) } }
+                    .minByOrNull { it.first }
+                if (next == null) AppGraph.arbiter.remove(APPROACH_ID)
+                else {
+                    val (at, a, what) = next
+                    val minutes = kotlin.math.ceil((at - now) / 60_000.0).toInt()
+                    val icon = com.dotforge.live.LiveRing.icon(AppGraph.profile, if (what == "alarm") "g-alarm" else "g-calendar")
+                    val label = (if (what == "alarm") "Alarm" else "Next event") + " in $minutes min"
+                    AppGraph.arbiter.post(DisplayRequest(APPROACH_ID, Priority.PROGRESS, com.dotforge.live.LiveRing.approaching(AppGraph.profile, a.fraction, minutes, icon), loop = true, label = label))
+                }
+                main.postDelayed(this, if (next?.second?.pulse == true) 5_000 else 30_000)
             }
         }
         approachTick = tick

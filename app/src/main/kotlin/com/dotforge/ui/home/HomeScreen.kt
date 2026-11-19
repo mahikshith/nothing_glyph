@@ -343,6 +343,8 @@ internal fun stop(n: HomeNow, ctx: Context) {
 
 private fun stopOne(r: DisplayRequest, ctx: Context) = when (r.id) {
     LiveVisualiser.ID -> LiveVisualiser.stop(ctx)
+    // a timer ends (ours) or stops showing (the Clock app's); a timer that has ended is dismissed
+    com.dotforge.timer.GlyphTimers.ID, com.dotforge.timer.GlyphTimers.DONE_ID -> com.dotforge.timer.GlyphTimers.stopShown()
     else -> AppGraph.arbiter.remove(r.id)
 }
 

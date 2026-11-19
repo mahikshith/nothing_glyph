@@ -164,10 +164,18 @@ fun RuleSheet(
                 "From", subtitle = apps.take(3).joinToString(", ") { label(it) } + if (apps.size > 3) " +${apps.size - 3}" else "",
                 inset = 0.dp, trailing = { Chevron() },
             ) { nav.push(Page.AlertApps("reminders")) }
-            Text("Before the next event or alarm, fill the ring", style = MaterialTheme.typography.titleSmall, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Small))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
-                listOf(0, 5, 10, 15, 30).forEach { m -> Chip(if (m == 0) "Off" else "$m min", r.approachMinutes == m) { save(r.copy(approachMinutes = m)) } }
-            }
+            // the ring before the next event or alarm lives with the other rings, in Features > Live progress
+            val cal = AppGraph.liveProgress.calendarLead.collectAsStateWithLifecycle().value
+            val alarm = AppGraph.liveProgress.alarmLead.collectAsStateWithLifecycle().value
+            ListRow(
+                "Ring before events and alarms",
+                subtitle = when {
+                    cal <= 0 && alarm <= 0 -> "Off · Set in Live progress"
+                    cal == alarm -> "$cal min before · Live progress"
+                    else -> listOfNotNull(cal.takeIf { it > 0 }?.let { "Events $it min" }, alarm.takeIf { it > 0 }?.let { "alarms $it min" }).joinToString(", ") + " · Live progress"
+                },
+                inset = 0.dp, trailing = { Chevron() },
+            ) { nav.push(Page.Feature("progress")) }
         }
 
         SecondaryButton("Try it on the Glyph", Modifier.fillMaxWidth().padding(top = Tokens.Gap)) { tryIt = true }

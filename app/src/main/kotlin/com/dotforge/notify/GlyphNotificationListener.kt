@@ -65,7 +65,8 @@ class GlyphNotificationListener : NotificationListenerService() {
         if (!ringing && n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
 
         val info = infoOf(sbn, ringing)
-        if (!ringing) showProgress(sbn, info)
+        // the Clock app's timers and stopwatch show like ours (Timer & stopwatch); everything else may be progress
+        if (!ringing && !mirrorClock(sbn, info)) showProgress(sbn, info)
         // Ongoing notifications (music, calls in progress, foreground services) are not alerts; only progress is shown.
         if (sbn.isOngoing && !ringing) {
             AppGraph.alerts.removed(sbn.key) // e.g. an incoming call that was answered
@@ -166,33 +167,51 @@ class GlyphNotificationListener : NotificationListenerService() {
         )
 
     /**
-     * A progress bar (classic or Android 16 ProgressStyle) on the outer ring, when progress rings are on and a
-     * "Show progress" rule matches; taken off when it finishes, turns indeterminate or no rule wants it.
+     * Live progress: a progress bar (classic or Android 16 ProgressStyle), a countdown, the arrival time or the
+     * order's stage, read by [LiveProgressRuntime]. Known delivery and ride apps follow their own switch; other
+     * apps need a "Show progress" rule.
      */
     private fun showProgress(sbn: StatusBarNotification, info: NotificationInfo) {
-        val fraction = progressOf(sbn.notification)?.takeIf { AppGraph.progressRings.value }
-        val waiting = fraction == null && AppGraph.progressRings.value && Progress.waiting(progressValues(sbn.notification))
-        val match = (fraction ?: if (waiting) 0f else null)?.let {
-            val s = Delivery.subject(
-                info, AppGraph.filters.filters.value, { FilterActions.conditions(this) }, { contacts.lookup(info) },
-                region, AppGraph.spamList::contains,
-            )
-            RuleEngine.progress(s, AppGraph.rules.rules.value, AppGraph.rules.lists.value)
-        }
-        if (match == null) {
-            AppGraph.arbiter.remove(progressId(sbn.key))
-            return
-        }
-        AppGraph.arbiter.post(
-            DisplayRequest(
-                id = progressId(sbn.key),
-                priority = Priority.PROGRESS,
-                // no value yet: the ring breathes until there is one
-                animation = fraction?.let { Effects.progress(AppGraph.profile, it) } ?: Progress.breathing(AppGraph.profile),
-                loop = true,
-                label = "Progress: ${info.appLabel}",
-            ),
+        val n = sbn.notification
+        val e = n.extras
+        LiveProgressRuntime.update(
+            sbn.key, sbn.packageName, info.appLabel,
+            signals = { app ->
+                com.dotforge.live.ProgressSignals(
+                    bar = progressOf(n),
+                    barWaiting = Progress.waiting(progressValues(n)),
+                    chronometer = e.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false),
+                    countDown = e.getBoolean(Notification.EXTRA_CHRONOMETER_COUNT_DOWN, false),
+                    whenMs = n.`when`,
+                    texts = listOf(info.title, info.text, info.bigText, info.subText, e.getCharSequence(EXTRA_SHORT_CRITICAL)?.toString().orEmpty()),
+                    kind = app?.kind ?: com.dotforge.live.TripKind.DELIVERY,
+                    known = app != null,
+                    ongoing = sbn.isOngoing,
+                )
+            },
+            allowedByRule = {
+                val s = Delivery.subject(
+                    info, AppGraph.filters.filters.value, { FilterActions.conditions(this) }, { contacts.lookup(info) },
+                    region, AppGraph.spamList::contains,
+                )
+                RuleEngine.progress(s, AppGraph.rules.rules.value, AppGraph.rules.lists.value) != null
+            },
         )
+    }
+
+    /** A Clock app timer or stopwatch: mirrored to the Glyph (when that switch is on). True when it was one. */
+    private fun mirrorClock(sbn: StatusBarNotification, info: NotificationInfo): Boolean {
+        val n = sbn.notification
+        val e = n.extras
+        val m = com.dotforge.live.ClockMirror.read(
+            com.dotforge.live.ClockMirror.Notice(
+                sbn.packageName, n.category, e.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false),
+                e.getBoolean(Notification.EXTRA_CHRONOMETER_COUNT_DOWN, false), n.`when`, info.title, info.text, sbn.isOngoing,
+            ),
+            System.currentTimeMillis(),
+        ) ?: return false
+        com.dotforge.timer.GlyphTimers.mirror(sbn.key, m)
+        return true
     }
 
     /** A spam-filter rule: silence (quiet copy), hide, or mark as spam (quiet copy and the spam alert); then log it. */
@@ -225,7 +244,8 @@ class GlyphNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        AppGraph.arbiter.remove(progressId(sbn.key))
+        LiveProgressRuntime.removed(sbn.key)
+        com.dotforge.timer.GlyphTimers.unmirror(sbn.key)
         val n = sbn.notification
         if (n.category == Notification.CATEGORY_CALL && n.fullScreenIntent != null) AlertRuntime.call.ended()
         // our own removal (to silence it) is not "checked"; our quiet copy carries the original's key as its tag
@@ -329,6 +349,7 @@ class GlyphNotificationListener : NotificationListenerService() {
     }.getOrDefault(pkg)
 
     private companion object {
-        fun progressId(key: String) = "p:$key"
+        /** Android 16's Live Update chip text. */
+        const val EXTRA_SHORT_CRITICAL = "android.shortCriticalText"
     }
 }

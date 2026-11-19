@@ -30,6 +30,15 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- "Keep DotForge running": asks Android to leave the app out of battery optimisation. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Timer & stopwatch: a foreground service keeps a running timer on the Glyph; an exact alarm wakes the
+         phone when it ends; a wake lock keeps the burst going until it is dismissed; the Live Update is a
+         promoted ongoing notification (Android 16). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- Live progress > Next calendar event: asked when that ring is switched on; read on the phone only. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <!-- Automation API: apps that hold this (normal) permission may send commands; DotForge obeys only the ones
          the user allows on the Integrations page. -->
@@ -194,6 +203,19 @@
                 android:name="android.service.quicksettings.TOGGLEABLE_TILE"
                 android:value="true" />
         </service>
+
+        <!-- Timer & stopwatch: runs while one of DotForge's timers or the stopwatch is going. -->
+        <service
+            android:name=".timer.TimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="A countdown timer and stopwatch the user started, shown on the Glyph Matrix until it ends" />
+        </service>
+        <receiver
+            android:name=".timer.TimerReceiver"
+            android:exported="false" />
 
         <!-- Live music visualiser: runs while switched on, drives the matrix only while music plays. -->
         <service

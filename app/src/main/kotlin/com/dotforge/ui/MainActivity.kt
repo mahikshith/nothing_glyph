@@ -73,6 +73,8 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     /** Files opened with or shared to DotForge, waiting to be routed by type (row 8). */
     private var incoming by mutableStateOf<List<Uri>>(emptyList())
+    /** A Features page to open (a timer's notification opens Timer & stopwatch). */
+    private var feature by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
         val setup = Setup(this)
         this.setup = setup
         if (savedInstanceState == null && intent?.getBooleanExtra(EXTRA_LIVE, false) == true) pendingLive = true
+        if (savedInstanceState == null) feature = intent?.getStringExtra(EXTRA_FEATURE)
         setContent {
             DotForgeTheme {
                 val nav = rememberSaveable(saver = Nav.saver) { Nav() }
@@ -91,6 +94,12 @@ class MainActivity : ComponentActivity() {
                     incoming = emptyList()
                     nav.popTo(Tab.STUDIO)
                     com.dotforge.ui.studio.Picked.route(ctx, nav, uris)?.let { msg -> nav.studioRequest = "message:$msg" }
+                }
+                LaunchedEffect(feature) {
+                    val key = feature ?: return@LaunchedEffect
+                    feature = null
+                    nav.popTo(Tab.FEATURES)
+                    nav.push(Page.Feature(key))
                 }
                 var firstRunDone by rememberSaveable { mutableStateOf(false) }
                 AppRoot(nav, setup)
@@ -103,6 +112,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         importUris(intent).takeIf { it.isNotEmpty() }?.let { incoming = it }
         if (intent.getBooleanExtra(EXTRA_LIVE, false)) pendingLive = true
+        intent.getStringExtra(EXTRA_FEATURE)?.let { feature = it }
     }
 
     override fun onResume() {
@@ -120,6 +130,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Sent by the Live Quick Settings tile when it needs the app (to ask for the microphone). */
         const val EXTRA_LIVE = "com.dotforge.extra.LIVE"
+        /** A Features page key to open (Timer & stopwatch, from its notification). */
+        const val EXTRA_FEATURE = "com.dotforge.extra.FEATURE"
     }
 
     /** The files of an "Open with" (VIEW) or Share (SEND, SEND_MULTIPLE) intent. */

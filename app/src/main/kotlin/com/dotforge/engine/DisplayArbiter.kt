@@ -19,7 +19,11 @@ object Priority {
     /** The Live music visualiser: under alerts and progress (it is switched on by hand, and comes back after them). */
     const val LIVE = 25
     const val PROGRESS = 30
+    /** A running timer or the stopwatch: over Live progress, under alerts (an alert shows, then the timer is back). */
+    const val TIMER = 40
     const val NOTIFICATION = 50
+    /** A timer that has ended: its burst beats alerts until it is dismissed. */
+    const val TIMER_DONE = 55
     const val STUDIO_PREVIEW = 60
     const val TORCH = 70
     /** A ringing call: the caller's name and glyph. */
