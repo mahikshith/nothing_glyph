@@ -275,11 +275,12 @@ class HomeUiTest {
     @Test fun theChecklistShowsOnlyWhatIsLeftAndHides() {
         home(status = HomeStatus(access = false, doubleLights = false, keepRunning = false))
         rule.onNodeWithText("Finish setting up").assertExists()
-        rule.onNodeWithText("2 of 5 done").assertExists()
+        rule.onNodeWithText("1 of 2 done").assertExists()
         rule.onNodeWithText("Stop double lights").assertExists()
-        rule.onNodeWithText("Keep DotForge running").assertExists()
-        // done lines collapse into the count
-        rule.onNodeWithText("Call screening").assertDoesNotExist()
+        // done lines collapse into the count; permissions are the banner's one line, not the checklist's
+        rule.onNodeWithText("Pick your apps").assertDoesNotExist()
+        rule.onNodeWithText("Keep DotForge running").assertDoesNotExist()
+        rule.onNodeWithText("2 things need permission").assertExists()
         rule.onNodeWithText("Hide").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Finish setting up").assertDoesNotExist()

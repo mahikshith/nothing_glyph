@@ -45,6 +45,8 @@ object Tokens {
     val DotOff = Color(0xFF333333)
     /** Only for the main button, switches that are on, and destructive actions. */
     val Accent = Color(0xFFD71921)
+    /** A permission's status dot: allowed (green), needed (the accent red), optional (grey). Always beside a word. */
+    val Allowed = Color(0xFF3DBE6E)
     /** The accent where it is small text on black (#D71921 is too dark for 14 sp). */
     val AccentText = Color(0xFFFF4B55)
 

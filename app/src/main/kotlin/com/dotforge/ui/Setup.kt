@@ -104,6 +104,38 @@ class Setup(private val activity: ComponentActivity) {
             activity.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${activity.packageName}")))
         }.onFailure { openAppDetails() }
     }
+    /** Nothing's ringtone lights are set to Sound only, so caller names show (null when the firmware doesn't say). */
+    var callerName by mutableStateOf(readCallerName())
+        private set
+
+    private fun readCallerName(): Boolean? =
+        com.dotforge.system.NothingSettings.soundOnly(activity.contentResolver, com.dotforge.system.NothingSettings.RINGTONE_MODE)
+
+    /** Everything First run and the Home banner need, as of the last resume. */
+    val perms: com.dotforge.setup.Perms
+        get() = com.dotforge.setup.Perms(notificationAccess, screening, contacts, keepRunning, callerName)
+
+    /**
+     * First run's Calls card: Android's own dialog for the call screening role, without the explaining sheet (the
+     * card explains). Returns false when this phone has no such role, so the caller opens Default apps instead.
+     */
+    fun requestScreeningRole(launch: (Intent) -> Unit): Boolean {
+        val rm = activity.getSystemService(RoleManager::class.java) ?: return false
+        if (!rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) return false
+        return runCatching { launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)) }.isSuccess
+    }
+
+    /** Android's Default apps page, where the caller ID and spam app is picked once its dialog stops showing. */
+    fun openDefaultApps() {
+        runCatching { activity.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }.onFailure { openAppDetails() }
+    }
+
+    /** Nothing's Glyph settings, where ringtone lights can be set to Sound only; system Settings when missing. */
+    fun openCallerNameSettings() {
+        val link = com.dotforge.system.NothingSettings.glyphSettings(activity.packageManager)
+        runCatching { activity.startActivity(link.intent) }.onFailure { activity.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+    }
+
     /** Bumped on every resume, so screens can re-read system state. */
     var resumes by mutableIntStateOf(0)
         private set
@@ -201,6 +233,7 @@ class Setup(private val activity: ComponentActivity) {
         notifications = canPost()
         systemSettings = Settings.System.canWrite(activity)
         keepRunning = hasKeepRunning()
+        callerName = readCallerName()
         flow.resumed(notificationAccess)
         sync()
         resumes++

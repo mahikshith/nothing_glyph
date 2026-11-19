@@ -101,9 +101,7 @@ class MainActivity : ComponentActivity() {
                     nav.popTo(Tab.FEATURES)
                     nav.push(Page.Feature(key))
                 }
-                var firstRunDone by rememberSaveable { mutableStateOf(false) }
-                AppRoot(nav, setup)
-                if (!firstRunDone) FirstRun(setup) { firstRunDone = true }
+                FirstRunHost(nav, setup) { AppRoot(nav, setup) }
             }
         }
     }
@@ -141,6 +139,26 @@ class MainActivity : ComponentActivity() {
         Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
         else -> emptyList()
     }
+}
+
+/**
+ * First run until it is finished or skipped, then never again (FirstRunPrefs); [app] after that. "Restore from a
+ * backup" shows the Backup page over the app and comes back to First run if the user returns without restoring.
+ */
+@Composable
+fun FirstRunHost(nav: Nav, setup: Setup, app: @Composable () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var firstRun by rememberSaveable { mutableStateOf(!com.dotforge.setup.FirstRunPrefs.done(ctx)) }
+    var restoring by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(nav.page) { if (nav.page == null) restoring = false }
+    if (firstRun && !restoring) {
+        FirstRun(setup, onRestore = { restoring = true; nav.popTo(Tab.HOME); nav.push(Page.Backup) }, onDone = {
+            com.dotforge.setup.FirstRunPrefs.markDone(ctx)
+            firstRun = false
+            nav.popTo(Tab.HOME)
+        })
+        SetupSheets(setup)
+    } else app()
 }
 
 /** The whole app under the theme: the tabs or the open page, the snackbar host, and the setup sheets. */
@@ -228,6 +246,7 @@ fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
 fun PageContent(page: Page, nav: Nav, setup: Setup) {
     when (page) {
         Page.Profile -> ProfilePage(nav, rememberPermissions(setup))
+        Page.Permissions -> com.dotforge.ui.settings.PermissionsPage(nav, rememberPermissions(setup))
         Page.Backup -> BackupPage(nav)
         Page.Licences -> LicencesPage(nav)
         Page.OldScreens -> OldScreensPage(nav)

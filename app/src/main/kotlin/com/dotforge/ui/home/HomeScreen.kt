@@ -109,8 +109,8 @@ import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 
 /**
- * What Home knows about the phone: the device (row 67), the setup checklist's five lines (row 51, parity row
- * 66) and whether DF Always-on is the always-on toy. Screenshots and tests pass their own.
+ * What Home knows about the phone: the device (row 67), the core permissions (the banner), the setup checklist's
+ * two lines (row 51, parity row 66) and whether DF Always-on is the always-on toy. Screenshots and tests pass their own.
  */
 data class HomeStatus(
     val device: DeviceState = DeviceState.PHONE3,
@@ -120,11 +120,15 @@ data class HomeStatus(
     val doubleLights: Boolean = true,
     val keepRunning: Boolean = true,
     val microphone: Boolean = true,
+    val contacts: Boolean = true,
     /** DF Always-on is the always-on toy (true), another is (false), or the phone can't say (null). */
     val alwaysOn: Boolean? = null,
 ) {
-    /** The checklist's lines that are still to do. */
-    val todo: Int get() = listOf(access, screening, appsPicked, doubleLights, keepRunning).count { !it }
+    /** The checklist's lines that are still to do (permissions are the banner's, not the checklist's). */
+    val todo: Int get() = listOf(appsPicked, doubleLights).count { !it }
+
+    /** Core permissions missing: Notification access, Call screening, Contacts, Keep running. */
+    val missing: Int get() = com.dotforge.setup.Perms(access, screening, contacts, keepRunning).missingCore
 }
 
 /** What the Glyph is doing: the frame, what shows it, the alerts waiting until checked, and Nothing's own light. */
@@ -169,7 +173,7 @@ fun HomeScreen(nav: Nav, setup: Setup, state: LazyListState, status: HomeStatus?
             device = device, access = setup.notificationAccess, screening = setup.screening,
             appsPicked = rules.any { it.enabled && SimpleRules.isAppRule(it) && it.packages.isNotEmpty() },
             doubleLights = device != DeviceState.PHONE3 || remember(resumes) { DoubleLights.done(ctx) },
-            keepRunning = setup.keepRunning, microphone = setup.microphone,
+            keepRunning = setup.keepRunning, microphone = setup.microphone, contacts = setup.contacts,
             alwaysOn = remember(resumes) { AlwaysOn.ours(ctx) },
         )
     }
@@ -201,6 +205,9 @@ fun HomeScreen(nav: Nav, setup: Setup, state: LazyListState, status: HomeStatus?
                     }
                 }
             }
+        }
+        permissionBanner(s.missing)?.let { text ->
+            item(key = "permissions") { PermissionBanner(text) { nav.push(Page.Permissions) } }
         }
         item(key = "now") { NowCard(n, s, setup, onChoose = { picking = true }) }
         if (s.todo > 0 && !prefs.checklistHidden) item(key = "setup") {
@@ -425,19 +432,39 @@ private fun NoticeRow(n: Notice, text: String, setup: Setup, modifier: Modifier 
     }
 }
 
+/** "2 things need permission", or null when every core permission is allowed (row 51: one slim line, not a card). */
+internal fun permissionBanner(missing: Int): String? = when {
+    missing <= 0 -> null
+    missing == 1 -> "1 thing needs permission"
+    else -> "$missing things need permission"
+}
+
+/** Home's one slim line while a core permission is missing: a warning, the count and Fix, opening Permissions. */
+@Composable
+private fun PermissionBanner(text: String, onFix: () -> Unit) =
+    Surface(color = Tokens.Raised, shape = Tokens.CardShape, modifier = Modifier.fillMaxWidth().padding(bottom = Tokens.Gap)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = Tokens.Target)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "Fix", onClick = onFix)
+                .padding(start = Tokens.Gutter, end = Tokens.Gutter, top = Tokens.Small, bottom = Tokens.Small),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Gap),
+        ) {
+            Icon(Icons.Filled.Warning, contentDescription = "Warning", tint = Color.White, modifier = Modifier.size(20.dp))
+            Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text("Fix", style = MaterialTheme.typography.labelLarge.capped(), color = Color.White)
+        }
+    }
+
 /**
  * The setup checklist (first run's skipped steps; row 51, parity row 66): only the lines still to do, one
- * button each, "N of 5 done", and Hide. It goes once all five are done.
+ * button each, "N of 2 done", and Hide. It goes once both are done. Permissions are the banner's.
  */
 @Composable
 private fun SetupChecklist(s: HomeStatus, setup: Setup, nav: Nav, onDoubleLights: () -> Unit, onHide: () -> Unit) {
     data class Line(val title: String, val why: String, val done: Boolean, val button: String, val go: () -> Unit)
     val lines = listOf(
-        Line("Notification access", "So your apps can light the Glyph", s.access, "Allow") { setup.needNotificationAccess() },
-        Line("Call screening", "So spam calls are blocked and callers' names show", s.screening, "Allow") { setup.needCallScreening() },
         Line("Pick your apps", "Which apps light up, each with its own glyph", s.appsPicked, "Pick") { nav.push(Page.AlertApps("app")) },
         Line("Stop double lights", "So Nothing's own light doesn't show on top of yours", s.doubleLights, "Fix", onDoubleLights),
-        Line("Keep DotForge running", "So alerts, the torch timer and the visualiser keep working", s.keepRunning, "Allow") { setup.needKeepRunning() },
     )
     RowGroup(Modifier.padding(bottom = Tokens.Gap)) {
         Row(Modifier.padding(start = Tokens.Gutter, end = Tokens.Tiny, top = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {

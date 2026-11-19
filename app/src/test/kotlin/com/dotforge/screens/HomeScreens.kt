@@ -198,9 +198,9 @@ abstract class HomeScreens : ScreenshotTest() {
         home(HomeStatus(access = false, screening = false, appsPicked = false, doubleLights = false, keepRunning = false, microphone = false))
         settle()
         capture(f, "13-home-alerts-are-off-checklist")
-        down("Keep DotForge running")
+        down("Stop double lights")
         settle()
-        capture(f, "14-home-checklist-five-to-do")
+        capture(f, "14-home-checklist-two-to-do")
         down("Live progress")
         settle()
         capture(f, "15-home-missing-permissions-tiles")
@@ -210,7 +210,7 @@ abstract class HomeScreens : ScreenshotTest() {
         pageLength("checklist")
         home(HomeStatus(appsPicked = false, doubleLights = false))
         settle()
-        capture(f, "16-home-checklist-three-done")
+        capture(f, "16-home-checklist-permissions-allowed")
     }
 
     @Test fun alertsPausedAndQuiet() {

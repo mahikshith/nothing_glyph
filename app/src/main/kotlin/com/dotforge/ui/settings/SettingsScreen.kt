@@ -1,7 +1,9 @@
 package com.dotforge.ui.settings
 
 import android.text.format.DateUtils
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,10 +33,6 @@ import com.dotforge.ui.Page
 import com.dotforge.ui.Setup
 import com.dotforge.ui.design.PersonAvatar
 import com.dotforge.ui.design.RowDivider
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.mutableIntStateOf
 import com.dotforge.ui.design.Chevron
 import com.dotforge.ui.design.FullSheet
@@ -45,43 +43,79 @@ import com.dotforge.ui.design.RowGroup
 import com.dotforge.ui.design.SectionLabel
 import com.dotforge.ui.design.SwitchRow
 import com.dotforge.ui.design.Tokens
-import com.dotforge.ui.rememberNeedsContacts
-import com.dotforge.ui.rememberNeedsScreening
 import com.dotforge.ui.design.Page as PageLayout
 
 /**
- * One permission's state, said in words with an icon: On (allowed), Needed (not allowed, and something that is on
- * needs it), Optional (not allowed, and nothing needs it yet).
+ * One permission's state, said in words beside a dot: Allowed (green), Needed (red: a core permission, or one
+ * that something switched on needs), Optional (grey: nothing needs it yet).
  */
 enum class PermissionState(val label: String, val spoken: String) {
-    ALLOWED("On", "Allowed"),
+    ALLOWED("Allowed", "Allowed"),
     NEEDED("Needed", "Not allowed, needed"),
     OPTIONAL("Optional", "Not allowed, optional"),
 }
 
-/** A permission row's content, so the list can be tested and rendered without a phone. */
-data class PermissionItem(val title: String, val why: String, val state: PermissionState, val onClick: () -> Unit)
+/** A permission row's content, so the list can be tested and rendered without a phone. [core]: alerts need it. */
+data class PermissionItem(
+    val title: String,
+    val why: String,
+    val state: PermissionState,
+    val glyph: String = "dot",
+    val core: Boolean = false,
+    val onClick: () -> Unit,
+)
 
 fun permissionState(granted: Boolean, needed: Boolean) =
     if (granted) PermissionState.ALLOWED else if (needed) PermissionState.NEEDED else PermissionState.OPTIONAL
 
-/** Every permission DotForge uses, with what it is for. */
+/** "All allowed", "2 need permission" or "1 needs permission": Profile's Permissions row. */
+fun permissionsSummary(items: List<PermissionItem>): String {
+    val n = items.count { it.state == PermissionState.NEEDED }
+    return when (n) {
+        0 -> "All set"
+        1 -> "1 needs permission"
+        else -> "$n need permission"
+    }
+}
+
+/**
+ * Every permission DotForge uses, with what it is for. The core four (as First run asks them) are Needed until
+ * allowed; the rest are Needed only while something switched on uses them. Tapping opens the same Android screen
+ * First run opens.
+ */
 @Composable
 fun rememberPermissions(setup: Setup): List<PermissionItem> {
-    val needsContacts by rememberNeedsContacts()
-    val needsScreening by rememberNeedsScreening()
+    val ctx = LocalContext.current
+    val resumes = setup.resumes
+    val location = remember(resumes) {
+        ctx.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    val usage = remember(resumes) { com.dotforge.toys.DayUsage.allowed(ctx) }
+    fun open(intent: android.content.Intent) {
+        runCatching { ctx.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+    // the same Android screens First run opens: the role dialog and the Contacts dialog, no sheet first
+    val role = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { setup.onScreeningResult() }
+    val contacts = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { setup.onContactsResult() }
+    val appInfo = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", ctx.packageName, null))
     return listOf(
-        PermissionItem("Notification access", "Lights the Glyph for your apps", permissionState(setup.notificationAccess, true)) {
-            if (setup.notificationAccess) setup.manageAccess() else setup.needNotificationAccess()
+        PermissionItem("Notification access", "Lights the Glyph for your apps, caller names and live progress", permissionState(setup.notificationAccess, true), "bell", core = true) {
+            if (setup.notificationAccess) setup.manageAccess() else setup.openAccessSettings()
         },
-        PermissionItem("Call screening", "Blocks spam calls, shows callers", permissionState(setup.screening, needsScreening)) { setup.needCallScreening() },
-        PermissionItem("Contacts", "Names for people and callers", permissionState(setup.contacts, needsContacts)) {
-            if (setup.contacts) setup.openAppInfo() else setup.needContacts()
+        PermissionItem("Call screening", "Blocks spam calls and shows who's calling", permissionState(setup.screening, true), "phone", core = true) {
+            if (setup.screening || !setup.requestScreeningRole { role.launch(it) }) setup.openDefaultApps()
         },
-        PermissionItem("Keep DotForge running", "Keeps alerts working in the background", permissionState(setup.keepRunning, true)) { setup.needKeepRunning() },
-        PermissionItem("Microphone", "Only for the Music visualiser", permissionState(setup.microphone, false)) { setup.needMicrophone() },
-        PermissionItem("Modify system settings", "Only to set Glyph ringtones", permissionState(setup.systemSettings, false)) { setup.openWriteSettings() },
-        PermissionItem("Notifications", "Quiet copies of silenced ones", permissionState(setup.notifications, false)) { setup.needNotifications() },
+        PermissionItem("Contacts", "Names for people and callers", permissionState(setup.contacts, true), "people", core = true) {
+            if (setup.contacts) setup.openAppInfo() else setup.allowContacts { contacts.launch(android.Manifest.permission.READ_CONTACTS) }
+        },
+        PermissionItem("Keep running", "So the Glyph still lights when the screen is off", permissionState(setup.keepRunning, true), "battery", core = true) { setup.needKeepRunning() },
+        PermissionItem("Microphone", "Only for the Music visualiser", permissionState(setup.microphone, false), "music") { setup.needMicrophone() },
+        PermissionItem("Notifications", "The timer on the lock screen, and quiet copies of silenced ones", permissionState(setup.notifications, false), "chat") { setup.needNotifications() },
+        PermissionItem("Modify system settings", "Only to set Glyph ringtones", permissionState(setup.systemSettings, false), "ring") { setup.openWriteSettings() },
+        PermissionItem("Location", "Only for DF Weather's \"Where I am\"", permissionState(location, false), "pin") { open(appInfo) },
+        PermissionItem("Usage access", "Only for DF Day dots' screen time", permissionState(usage, false), "clock") {
+            open(android.content.Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        },
     )
 }
 
@@ -106,12 +140,14 @@ fun ProfilePage(nav: Nav, permissions: List<PermissionItem>, helpOpen: Boolean =
         item(key = "profile") { ProfileCard() }
 
         item(key = "permissions") {
-            SectionLabel("Permissions")
+            SectionLabel("Settings")
             RowGroup {
-                permissions.forEachIndexed { i, p ->
-                    if (i > 0) RowDivider()
-                    PermissionRow(p)
-                }
+                // one row with the worst state's dot; the list is its own page (Settings > Permissions)
+                val worst = if (permissions.any { it.state == PermissionState.NEEDED }) PermissionState.NEEDED else PermissionState.ALLOWED
+                ListRow(
+                    "Permissions", subtitle = permissionsSummary(permissions),
+                    trailing = { Row(verticalAlignment = Alignment.CenterVertically) { StatusDot(worst); Chevron() } },
+                ) { nav.push(Page.Permissions) }
             }
         }
 
@@ -202,29 +238,71 @@ fun ProfileCard() =
         }
     }
 
-/** A permission: what it is for in one line, and its state on the right as a word with an icon (never colour alone). */
+/**
+ * A permission: its dot icon, the name, what it is for, and its state under them as a dot and a word (never
+ * colour alone), then a chevron. The state sits under the words, not at the end, so the name keeps the whole
+ * width and never breaks inside a word at 2x text.
+ */
 @Composable
 fun PermissionRow(p: PermissionItem) =
-    ListRow(
-        p.title,
-        Modifier.semantics(mergeDescendants = true) { contentDescription = "${p.title}, ${p.state.spoken}. ${p.why}" },
-        subtitle = p.why,
-        subtitleLines = 1,
-        trailing = { StateLabel(p.state) },
-        onClick = p.onClick,
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = Tokens.RowTall)
+            .clickable(onClick = p.onClick)
+            .semantics(mergeDescendants = true) { contentDescription = "${p.title}, ${p.state.spoken}. ${p.why}" }
+            .padding(horizontal = Tokens.Gutter, vertical = Tokens.Small),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Gutter),
+    ) {
+        Box(Modifier.size(Tokens.Avatar), contentAlignment = Alignment.Center) { com.dotforge.ui.design.LibraryGlyph(p.glyph, still = true) }
+        Column(Modifier.weight(1f)) {
+            Text(p.title, style = MaterialTheme.typography.bodyLarge)
+            Text(p.why, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
+            StateLabel(p.state, Modifier.padding(top = Tokens.Tiny))
+        }
+        Chevron()
+    }
+
+/** A 10 dp status dot: green Allowed, red Needed, grey Optional. */
+@Composable
+fun StatusDot(state: PermissionState, modifier: Modifier = Modifier) =
+    Box(
+        modifier.size(10.dp).background(
+            when (state) {
+                PermissionState.ALLOWED -> Tokens.Allowed
+                PermissionState.NEEDED -> Tokens.Accent
+                PermissionState.OPTIONAL -> Tokens.Secondary
+            },
+            CircleShape,
+        ),
     )
 
-/** "On" with a check, "Needed" with a red warning, "Optional" with a grey ring. */
+/** The dot and its word: "Allowed", "Needed", "Optional". */
 @Composable
-fun StateLabel(state: PermissionState) =
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Tiny)) {
-        val m = Modifier.size(18.dp)
-        when (state) {
-            PermissionState.ALLOWED -> Icon(Icons.Filled.CheckCircle, null, m, tint = Color.White)
-            PermissionState.NEEDED -> Icon(Icons.Filled.Warning, null, m, tint = Tokens.Accent)
-            PermissionState.OPTIONAL -> Box(m.padding(2.dp).border(1.5.dp, Tokens.Secondary, CircleShape))
+fun StateLabel(state: PermissionState, modifier: Modifier = Modifier) =
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        StatusDot(state)
+        Text(state.label, style = MaterialTheme.typography.labelLarge, color = if (state == PermissionState.OPTIONAL) Tokens.Secondary else Color.White, maxLines = 1)
+    }
+
+/**
+ * Settings > Permissions: every permission as a row (dot icon, name, plain reason, a status dot and word).
+ * Needed for alerts first, then the ones only some features use. Home's banner opens this page.
+ */
+@Composable
+fun PermissionsPage(nav: Nav, permissions: List<PermissionItem>) =
+    PageLayout("Permissions", onBack = nav::pop) {
+        item(key = "what") { Hint("Tap one to open Android's page for it. Nothing leaves this phone.") }
+        listOf("Needed for alerts" to permissions.filter { it.core }, "Only for some features" to permissions.filterNot { it.core }).forEach { (label, items) ->
+            if (items.isNotEmpty()) item(key = label) {
+                SectionLabel(label)
+                RowGroup {
+                    items.forEachIndexed { i, p ->
+                        if (i > 0) RowDivider(leading = true)
+                        PermissionRow(p)
+                    }
+                }
+            }
         }
-        Text(state.label, style = MaterialTheme.typography.labelLarge, color = if (state == PermissionState.OPTIONAL) Tokens.Secondary else Color.White)
     }
 
 /** Profile > Help > How DotForge works: the few rules a user needs, in plain words. */

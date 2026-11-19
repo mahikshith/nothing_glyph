@@ -70,6 +70,14 @@ fun BackupPage(nav: Nav, preview: RestoreChoice? = null, error: String? = null, 
                 .onFailure { problem = if (it is Backup.NewerBackupException) "Update DotForge to restore this backup." else "DotForge can't read this file. It isn't a .dotforge backup." }
         }
     }
+    // First run's "Restore from a backup" found one in Downloads: show it straight away
+    LaunchedEffect(Unit) {
+        val found = BackupStore.offered ?: return@LaunchedEffect
+        BackupStore.offered = null
+        val r = withContext(Dispatchers.IO) { runCatching { BackupStore.read(ctx.contentResolver.openInputStream(found.uri)!!) } }
+        r.onSuccess { restore = RestoreChoice(it); problem = null }
+            .onFailure { problem = if (it is Backup.NewerBackupException) "Update DotForge to restore this backup." else "DotForge can't read this file. It isn't a .dotforge backup." }
+    }
     val folder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) runCatching { BackupStore.setAutoFolder(ctx, uri) }.onFailure { problem = "Couldn't use that folder. Pick another one." }
     }

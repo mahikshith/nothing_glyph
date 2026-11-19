@@ -50,6 +50,8 @@ sealed interface Page {
     // ---- the redesign's pages
     /** Profile: the placeholder account card and every Settings row (the only way to Settings). */
     data object Profile : Page
+    /** Settings > Permissions: every permission with its status dot (Profile, and Home's banner). */
+    data object Permissions : Page
     /** The editor; a new design starts from [draft] (a key into [com.dotforge.ui.editor.Drafts]) when given. */
     data class Editor(val designId: String?, val animated: Boolean, val draft: String? = null) : Page
     /** The Text screen for a saved text design, or a new one (optionally with [text] to start from). */
@@ -101,6 +103,7 @@ sealed interface Page {
 
 private fun Page.encode(): String = when (this) {
     Page.Profile -> "profile"
+    Page.Permissions -> "permissions"
     Page.Library -> "library"
     Page.Backup -> "backup"
     Page.OldScreens -> "old"
@@ -137,6 +140,7 @@ private fun decode(s: String): Page? {
     val parts = s.split(':', limit = 3)
     return when (parts[0]) {
         "profile" -> Page.Profile
+        "permissions" -> Page.Permissions
         "library" -> Page.Library
         "backup" -> Page.Backup
         "old" -> Page.OldScreens

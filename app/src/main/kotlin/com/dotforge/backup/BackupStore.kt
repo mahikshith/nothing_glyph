@@ -54,6 +54,28 @@ object BackupStore {
         autoFolder = p.getString(KEY_FOLDER, null)?.let(Uri::parse)
     }
 
+    /** A backup file DotForge can see in Downloads: its name and where to read it. */
+    data class Found(val name: String, val uri: Uri)
+
+    /** A backup First run offered, for the Backup page to open at once. */
+    @Volatile var offered: Found? = null
+
+    /**
+     * The newest .dotforge file in Downloads that Android lets DotForge see (its own saves, before a reinstall),
+     * or null. Never asks for a permission; reads nothing but the file list.
+     */
+    fun findInDownloads(ctx: Context): Found? = runCatching {
+        val uri = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val cols = arrayOf(android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME)
+        ctx.contentResolver.query(
+            uri, cols, "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?", arrayOf("%.${Backup.EXTENSION}"),
+            "${android.provider.MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+        )?.use { c ->
+            if (!c.moveToFirst()) null
+            else Found(c.getString(1), android.content.ContentUris.withAppendedId(uri, c.getLong(0)))
+        }
+    }.getOrNull()
+
     fun fileName(): String = "DotForge backup ${LocalDate.now()}.${Backup.EXTENSION}"
 
     fun settings(ctx: Context): JsonObject = buildJsonObject {
@@ -114,6 +136,8 @@ object BackupStore {
     fun restoreAndRestart(ctx: Context, c: Backup.Contents, replace: Boolean) {
         Backup.restore(c, ctx.filesDir, replace)
         c.settings?.let { restoreSettings(ctx, it, replace) }
+        // restored during First run: it comes back at the permission cards (they can't be backed up)
+        com.dotforge.setup.FirstRunPrefs.markRestored(ctx)
         val launch = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName) ?: return
         ctx.startActivity(Intent.makeRestartActivityTask(launch.component))
         Runtime.getRuntime().exit(0)
