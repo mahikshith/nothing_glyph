@@ -15,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import com.dotforge.AppGraph
@@ -115,6 +116,13 @@ abstract class LibraryScreens : ScreenshotTest() {
         rule.waitForIdle()
         settle()
         capture(f, "03-categories-sheet")
+        // opened from a category: that card is marked
+        library(Categories.Food.id)
+        rule.onNodeWithContentDescription("Category: Food & delivery. Choose another").tap()
+        rule.waitForIdle()
+        rule.onNode(androidx.compose.ui.test.hasContentDescription("Food & delivery, ", substring = true)).performScrollTo()
+        settle()
+        capture(f, "03b-categories-sheet-current")
     }
 
     @Test fun search() {
@@ -130,7 +138,7 @@ abstract class LibraryScreens : ScreenshotTest() {
     @Test fun favourites() {
         library(LibraryBrowserState.FAVOURITES)
         capture(f, "20-favourites-empty")
-        for (id in listOf("gt-i-h-u", "a-cupid", "g-food-bag", "g-car")) if (AnimationLibrary.item(id) != null) LibraryPrefs.toggleFavourite(id)
+        for (id in listOf("gt-i-h-u", "g-heart-arrow", "g-food-bag", "g-car")) if (AnimationLibrary.item(id) != null) LibraryPrefs.toggleFavourite(id)
         library(LibraryBrowserState.FAVOURITES)
         settle()
         capture(f, "21-favourites")
@@ -138,7 +146,7 @@ abstract class LibraryScreens : ScreenshotTest() {
 
     @Test fun longPressAddsAFavourite() {
         library(query = "food bag")
-        tile("Food bag, still").performSemanticsAction(SemanticsActions.OnLongClick)
+        tile("Food bag, animated").performSemanticsAction(SemanticsActions.OnLongClick)
         rule.waitForIdle()
         capture(f, "22-long-press-favourite")
     }
@@ -146,7 +154,7 @@ abstract class LibraryScreens : ScreenshotTest() {
     @Test fun recent() {
         library(LibraryBrowserState.RECENT)
         capture(f, "25-recent-empty")
-        for (id in listOf("g-bell", "gt-sixer", "a-cupid", "g-parcel")) if (AnimationLibrary.item(id) != null) LibraryPrefs.used(id)
+        for (id in listOf("g-bell", "gt-sixer", "g-heart-arrow", "g-parcel")) if (AnimationLibrary.item(id) != null) LibraryPrefs.used(id)
         library(LibraryBrowserState.RECENT)
         settle()
         capture(f, "26-recent")
@@ -157,9 +165,9 @@ abstract class LibraryScreens : ScreenshotTest() {
     @Test fun itemSheets() {
         sheet(item("g-food-bag"))
         capture(f, "30-item-still")
-        sheet(AnimationLibrary.all.first { it.id.startsWith("a-") && it.id.contains("cupid") })
+        sheet(item("g-heart-arrow"))
         capture(f, "31-item-animated")
-        sheet(AnimationLibrary.search("namaste").first { it.form == ItemForm.TEXT })
+        sheet(AnimationLibrary.search("come in").first { it.form == ItemForm.TEXT })
         capture(f, "32-item-text")
         sheet(AnimationLibrary.search("sixer").first { it.form == ItemForm.LAYERED })
         capture(f, "33-item-glyph-text")
@@ -179,8 +187,8 @@ abstract class LibraryScreens : ScreenshotTest() {
     }
 
     @Test fun itemSheetUseFor() {
-        library(query = "cupid strikes")
-        tile("Cupid strikes").tap()
+        library(query = "cupid arrow")
+        tile("Cupid arrow").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Use for…").tap()
         rule.waitForIdle()
@@ -257,7 +265,7 @@ abstract class LibraryScreens : ScreenshotTest() {
         // one that isn't among Home's own tiles, so the tap lands in the picker
         rule.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextReplacement("on my way")
         rule.waitForIdle()
-        tile("ON MY WAY, glyph and text").tap()
+        tile("OMW, glyph and text").tap()
         rule.waitForIdle()
         capture(f, "47-host-home-item-sheet")
     }

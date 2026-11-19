@@ -525,8 +525,10 @@ private fun TopBar(s: EditorSession, phone: PhoneState, onClose: () -> Unit, onD
     val saved = if (s.saving) "Saving…" else if (s.everSaved && !s.dirty) "Saved" else if (s.isNew && !s.hasDots) "Not saved yet" else "Saving…"
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // with large text or a narrow screen the name would be squeezed by the pill and buttons: it moves to its
-        // own line under the bar, so it is never cut to a letter
-        val stacked = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f) < NAME_ROOM
+        // own line under the bar at full width, so it is never cut to a letter. It also moves whenever the name
+        // doesn't fit whole beside the pill; an ellipsis shows only on that full-width line
+        val fs = LocalDensity.current.fontScale
+        var stacked by remember(s.doc.name, maxWidth, fs) { mutableStateOf(maxWidth / fs.coerceAtLeast(1f) < NAME_ROOM) }
         Column {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Tokens.Tiny), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
@@ -534,7 +536,11 @@ private fun TopBar(s: EditorSession, phone: PhoneState, onClose: () -> Unit, onD
                 else Column(Modifier.weight(1f).clickable(onClickLabel = "Rename", onClick = onRename).padding(horizontal = Tokens.Tiny)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // the name gets the room up to the Glyph pill, on one line: an ellipsis, never a word split
-                        Text(s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Text(
+                            s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                            onTextLayout = { if (it.hasVisualOverflow || it.isLineEllipsized(0)) stacked = true },
+                        )
                         Icon(DfIcons.Pencil, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
                     }
                     Text(saved, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })

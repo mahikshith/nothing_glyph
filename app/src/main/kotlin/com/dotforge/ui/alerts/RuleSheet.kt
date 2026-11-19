@@ -275,7 +275,7 @@ fun GlyphPicker(r: Rule, title: String, isApp: Boolean, onDismiss: () -> Unit, o
                 }
                 com.dotforge.ui.library.LibraryBrowser(
                     Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small),
-                    selectedId = r.designId.takeIf { r.glyph == GlyphStyle.ICON }, actionLabel = "Use",
+                    selectedId = r.designId.takeIf { r.glyph == GlyphStyle.ICON }, actionLabel = "Use", picker = true,
                 ) { item ->
                     com.dotforge.ui.library.LibraryPrefs.used(item.id)
                     onPick(GlyphChoice.icon(item.id))

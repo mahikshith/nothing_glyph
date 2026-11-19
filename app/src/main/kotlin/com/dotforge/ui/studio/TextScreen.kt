@@ -569,8 +569,8 @@ internal fun TextBackgroundSheet(onDismiss: () -> Unit, onNone: (() -> Unit)? = 
         )
     }
     PickDesignSheet("Background", onDismiss, top = {
-        if (onNone != null) com.dotforge.ui.design.OptionRow("None", "Just the words", preview = { Icon(androidx.compose.material.icons.Icons.Filled.Close, null, tint = Color.White) }) { onNone() }
-        com.dotforge.ui.design.OptionRow(if (busy) "Reading the photo…" else "From a photo", "Turned into dots, 25×25", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) {
+        if (onNone != null) com.dotforge.ui.library.PickerAction("None", androidx.compose.material.icons.Icons.Filled.Close) { onNone() }
+        com.dotforge.ui.library.PickerAction(if (busy) "Reading the photo…" else "From a photo", com.dotforge.ui.design.DfIcons.Photo) {
             if (!busy) photo.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
         }
     }, libraryFilter = com.dotforge.ui.editor.backgroundFilter, onPick = onPick)

@@ -187,8 +187,8 @@ fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, unsaved: Boolean = false, o
         onDismiss, "Use ${d.name} for…",
         subtitle = when {
             // a library design is saved to your designs only once it is used somewhere
-            unsaved -> "Tick where it shows. Done saves a copy to your designs."
-            fresh -> "Saved. Pick where it shows, or Not now."
+            unsaved -> "Tick where it should show. Done saves a copy to your designs."
+            fresh -> "Saved. Pick where it should show, or Not now."
             else -> null
         },
         confirm = "Done",

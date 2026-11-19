@@ -382,13 +382,12 @@ fun PickDesignSheet(
 ) {
     var tab by remember { mutableIntStateOf(0) }
     val designs by AppGraph.designs.designs.collectAsState()
-    val height = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
-    FullSheet(onDismiss, title, confirm = null, scrolls = false) {
-        top?.invoke()
-        Segmented(listOf("Library", "Yours"), tab) { tab = it }
+    // full height, the switch on the title line and the actions as the grid's first line: three rows of tiles at 360 dp
+    FullSheet(onDismiss, title, confirm = null, scrolls = false, fill = true, titleEnd = { com.dotforge.ui.library.LibraryYoursSwitch(tab) { tab = it } }) {
         if (tab == 0) {
             com.dotforge.ui.library.LibraryBrowser(
-                Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small), filter = libraryFilter, actionLabel = "Use",
+                Modifier.fillMaxWidth().weight(1f), filter = libraryFilter, actionLabel = "Use", picker = true,
+                header = top?.let { t -> { com.dotforge.ui.library.PickerActions(t) } },
             ) { item ->
                 com.dotforge.ui.library.LibraryPrefs.used(item.id)
                 onPick(item.name, item.load(AppGraph.profile))
@@ -396,9 +395,10 @@ fun PickDesignSheet(
             return@FullSheet
         }
         val items = designs.filter { it.id != exclude }
+        top?.let { com.dotforge.ui.library.PickerActions(it) }
         if (items.isEmpty()) Hint("Nothing saved yet. Designs you make show here.", Modifier.padding(top = Tokens.Gutter))
         LazyVerticalGrid(
-            GridCells.Adaptive(84.dp), Modifier.fillMaxWidth().height(height).padding(top = Tokens.Small),
+            GridCells.Adaptive(com.dotforge.ui.library.PICKER_TILE_MIN), Modifier.fillMaxWidth().weight(1f).padding(top = Tokens.Small),
             horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
         ) {
             items(items, key = { it.id }) { d ->
@@ -407,8 +407,11 @@ fun PickDesignSheet(
                     Modifier.clickable(onClickLabel = "Use ${d.name}") { AppGraph.designs.animation(d)?.let { onPick(d.name, it) } }.padding(Tokens.Tiny),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    DotMatrix(thumb?.pixels, AppGraph.profile, Modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = d.name })
-                    Text(d.name, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                    Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                        DotMatrix(thumb?.pixels, AppGraph.profile, Modifier.fillMaxSize().semantics { contentDescription = d.name })
+                        if (d.animated) com.dotforge.ui.library.PlayBadge(Modifier.align(Alignment.BottomStart))
+                    }
+                    com.dotforge.ui.library.TileName(d.name, Tokens.Secondary)
                 }
             }
         }
@@ -427,7 +430,7 @@ fun InsertSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?, onPhot
     PickDesignSheet(
         "Insert", onDismiss, exclude = s.designId,
         top = {
-            OptionRow("A photo, GIF or video", "Turned into dots, added after frame ${s.doc.cur + 1}", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) { onPhoto() }
+            com.dotforge.ui.library.PickerAction("Photo, GIF or video", com.dotforge.ui.design.DfIcons.Photo, Modifier.semantics { contentDescription = "A photo, GIF or video, turned into dots and added after frame ${s.doc.cur + 1}" }) { onPhoto() }
         },
     ) { name, a ->
         onDismiss()
@@ -528,12 +531,12 @@ fun BackgroundPickSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?
         "Background", onDismiss, exclude = s.designId, libraryFilter = backgroundFilter,
         top = {
             val current = s.doc.layers?.background
-            if (current != null) OptionRow("None", "No picture behind", preview = { Icon(Icons.Filled.Close, null, tint = Color.White) }) {
+            if (current != null) com.dotforge.ui.library.PickerAction("None", Icons.Filled.Close, Modifier.semantics { contentDescription = "No background" }) {
                 s.edit { setLayers(s.doc.layers!!.copy(background = null)) }
                 onDismiss()
                 snacks?.show("Removed the background") { s.edit { setLayers((s.doc.layers ?: Layers()).copy(background = current)) } }
             }
-            OptionRow(if (busy) "Reading the photo…" else "From a photo", "Turned into dots, 25×25", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) {
+            com.dotforge.ui.library.PickerAction(if (busy) "Reading the photo…" else "From a photo", com.dotforge.ui.design.DfIcons.Photo) {
                 if (!busy) photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
         },

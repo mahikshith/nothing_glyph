@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
@@ -122,5 +123,17 @@ class EditorUndoUiTest {
         rule.waitForIdle()
         assertEquals(5, s.doc.size)
         rule.onNodeWithText("Deleted frame 3").assertExists()
+    }
+
+    /** A name that doesn't fit beside the Glyph pill moves to its own line under the bar, whole: never "De…". */
+    @Test fun theNameIsNeverCutBesideTheGlyphPill() {
+        val d = Design(name = "Design 12", animated = false, frames = Animation.single(Frame.blank(p), 1000).toMuseumJson()).also { AppGraph.designs.save(it) }
+        rule.setContent {
+            DotForgeTheme { EditorScreen(d.id, false, null, Nav(Tab.STUDIO), EditorStart(phone = PhoneState.ON)) }
+        }
+        rule.waitForIdle()
+        val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        rule.onNodeWithText("Design 12").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(results) }
+        assertTrue("the name shows whole", results.isNotEmpty() && !results[0].isLineEllipsized(0) && !results[0].hasVisualOverflow)
     }
 }

@@ -527,7 +527,9 @@ fun DotMatrix(pixels: IntArray?, profile: DeviceProfile, modifier: Modifier = Mo
  * The one sheet: full width, 28 dp top corners, a drag handle and a header with [title] and Done (or [confirm]).
  * Everything inside keeps one 16 dp margin; the header's button text ends on the same line as the content. The
  * content scrolls inside; [pinned] (a live preview, say) stays under the header with a divider. [half] opens it
- * at half height (it can be dragged up). Swipe down, the scrim and back all dismiss.
+ * at half height (it can be dragged up). Swipe down, the scrim and back all dismiss. [fill] opens it at full
+ * height with a slim handle, and the content gets all the room left (a picker's grid takes it with a weight);
+ * [titleEnd] sits at the end of the header line (a Library / Yours switch).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -541,6 +543,8 @@ fun FullSheet(
     scrolls: Boolean = true,
     half: Boolean = false,
     pinned: (@Composable ColumnScope.() -> Unit)? = null,
+    fill: Boolean = false,
+    titleEnd: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     ModalBottomSheet(
@@ -550,12 +554,31 @@ fun FullSheet(
         tonalElevation = 0.dp,
         shape = Tokens.SheetShape,
         contentWindowInsets = { WindowInsets(0) },
+        dragHandle = if (fill) {
+            { Box(Modifier.padding(vertical = 10.dp).size(32.dp, 4.dp).background(Tokens.Secondary, RoundedCornerShape(2.dp))) }
+        } else {
+            { androidx.compose.material3.BottomSheetDefaults.DragHandle() }
+        },
     ) {
         // snackbars from inside a sheet ("Blocked AX-LOANS · Undo") show on the sheet, not under it
         UndoSnackbarHost(fill = false) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+        Column(Modifier.fillMaxWidth().then(if (fill) Modifier.fillMaxHeight() else Modifier).navigationBarsPadding()) {
             val scroll = rememberScrollState()
-            if (title != null) {
+            if (title != null && titleEnd != null) {
+                // the title and a switch share the line when the title fits whole beside it; otherwise the switch
+                // goes under it, so a one-word title never breaks mid-word
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(
+                    Modifier.fillMaxWidth().padding(horizontal = Tokens.Gutter).padding(bottom = Tokens.Tiny),
+                    horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(Tokens.Tiny),
+                ) {
+                    Column(Modifier.align(Alignment.CenterVertically).heightIn(min = Tokens.Target).padding(end = Tokens.Small), verticalArrangement = Arrangement.Center) {
+                        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                        subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary) }
+                    }
+                    Box(Modifier.align(Alignment.CenterVertically)) { titleEnd() }
+                }
+            } else if (title != null) {
                 // the text button has 12 dp of its own padding: 4 + 12 puts its text 16 dp from the edge
                 Row(
                     Modifier.fillMaxWidth().heightIn(min = Tokens.Target + Tokens.Small)
@@ -579,23 +602,22 @@ fun FullSheet(
                 // the header stays put: a hairline once content has scrolled under it
                 androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
             }
-            Box(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+            Box(Modifier.fillMaxWidth().weight(1f, fill = fill)) {
                 Column(
                     (if (scrolls) Modifier.verticalScroll(scroll) else Modifier)
-                        .fillMaxWidth().padding(horizontal = Tokens.Gutter).padding(top = Tokens.Small, bottom = Tokens.Gutter),
+                        .fillMaxWidth().then(if (fill) Modifier.fillMaxHeight() else Modifier)
+                        .padding(horizontal = Tokens.Gutter).padding(top = Tokens.Small, bottom = if (fill) 0.dp else Tokens.Gutter),
                     content = content,
                 )
-                // a scroll cue: the last lines fade and an arrow shows while more is below
-                if (scrolls && scroll.canScrollForward) {
-                    Box(
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp)
-                            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Tokens.Sheet))),
-                    )
-                    Icon(
-                        Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Tokens.Secondary,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).size(24.dp),
-                    )
-                }
+                // a scroll cue: the last lines fade while more is below
+                if (scrolls && scroll.canScrollForward) Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp)
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Tokens.Sheet))),
+                )
+            }
+            // the arrow has its own line under the content, so it never sits on a button or a title
+            if (scrolls && scroll.canScrollForward) Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(24.dp))
             }
         }
         }

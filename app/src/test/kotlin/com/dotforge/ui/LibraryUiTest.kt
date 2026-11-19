@@ -5,6 +5,10 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -86,19 +90,50 @@ class LibraryUiTest {
         // a category shows only that category, and its chip leads the row
         rule.onNode(hasContentDescription("Glyph + text, ", substring = true)).performScrollTo().tap()
         rule.waitForIdle()
-        tile("I ♥ U, glyph and text").assertExists()
+        tile("I♥U, glyph and text").assertExists()
         rule.onNodeWithText("Glyph + text ▾").assertIsSelected()
     }
 
     @Test fun searchFindsAndShowsAnEmptyState() {
         rule.setContent { DotForgeTheme { LibraryBrowser { } } }
         search("food bag")
-        tile("Food bag, still").assertExists()
+        tile("Food bag, animated").assertExists()
         search("qqqzzz")
         rule.onNodeWithText("Nothing matches “qqqzzz”.").assertExists()
         rule.onNodeWithText("Clear search").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Featured").assertIsSelected()
+    }
+
+    @Test fun searchFromFeaturedMovesToAllAndClearingGoesBack() {
+        rule.setContent { DotForgeTheme { LibraryBrowser { } } }
+        search("heart")
+        rule.onNodeWithText("All").assertIsSelected()
+        rule.onNodeWithText("Featured").assertIsNotSelected()
+        search("")
+        rule.onNodeWithText("Featured").assertIsSelected()
+    }
+
+    @Test fun searchInACategoryStaysThereAndOffersEverything() {
+        val state = com.dotforge.ui.library.LibraryBrowserState(com.dotforge.device.library.Categories.Love.id, "")
+        rule.setContent { DotForgeTheme { LibraryBrowser(state = state) { } } }
+        search("car")
+        rule.onNodeWithText("Love ▾").assertIsSelected()
+        rule.onNodeWithText("Nothing in Love matches “car”.").assertExists()
+        rule.onNodeWithText("Search everything").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("All").assertIsSelected()
+        tile("Car").assertExists()
+    }
+
+    @Test fun theSelectedChipScrollsIntoView() {
+        val state = com.dotforge.ui.library.LibraryBrowserState(com.dotforge.ui.library.LibraryBrowserState.RECENT, "")
+        rule.setContent { DotForgeTheme { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.width(300.dp)) { LibraryBrowser(state = state) { } } } }
+        rule.waitForIdle()
+        rule.onNodeWithText("Recently used").assertIsDisplayed()
+        state.chip = com.dotforge.ui.library.LibraryBrowserState.FEATURED
+        rule.waitForIdle()
+        rule.onNodeWithText("Featured").assertIsDisplayed()
     }
 
     @Test fun favouritesComeFromALongPressAndPersist() {
@@ -108,19 +143,19 @@ class LibraryUiTest {
         rule.onNodeWithText("Long-press any design to keep it here.").assertExists()
         rule.onNodeWithText("All").tap()
         search("food bag")
-        tile("Food bag, still").performSemanticsAction(SemanticsActions.OnLongClick)
+        tile("Food bag, animated").performSemanticsAction(SemanticsActions.OnLongClick)
         rule.waitForIdle()
         assertTrue(LibraryPrefs.isFavourite("g-food-bag"))
-        tile("Food bag, still").assertExists()
+        tile("Food bag, animated").assertExists()
         // stored: a fresh start reads it back
         LibraryPrefs.init(rule.activity.getSharedPreferences("library-test", Context.MODE_PRIVATE))
         assertEquals(listOf("g-food-bag"), LibraryPrefs.favourites.toList())
         search("")
         rule.onNodeWithText("Favourites").tap()
         rule.waitForIdle()
-        tile("Food bag, still").assertExists()
+        tile("Food bag, animated").assertExists()
         // long-press again removes it
-        tile("Food bag, still").performSemanticsAction(SemanticsActions.OnLongClick)
+        tile("Food bag, animated").performSemanticsAction(SemanticsActions.OnLongClick)
         rule.waitForIdle()
         assertFalse(LibraryPrefs.isFavourite("g-food-bag"))
         rule.onNodeWithText("Long-press any design to keep it here.").assertExists()
@@ -149,7 +184,7 @@ class LibraryUiTest {
         var choice: GlyphChoice? = null
         rule.setContent { DotForgeTheme { GlyphPicker(rule0, "Calls", isApp = false, onDismiss = {}) { choice = it } } }
         search("food bag")
-        tile("Food bag, still").tap()
+        tile("Food bag, animated").tap()
         rule.waitForIdle()
         assertEquals(GlyphChoice(GlyphStyle.ICON, "g-food-bag"), choice)
         // and an alert can play it
@@ -159,8 +194,8 @@ class LibraryUiTest {
     @Test fun backgroundPickersLeaveOutReadyText() {
         var picked: String? = null
         rule.setContent { DotForgeTheme { TextBackgroundSheet(onDismiss = {}) { name, _ -> picked = name } } }
-        search("namaste")
-        rule.onNodeWithText("Nothing matches “namaste”.").assertExists()
+        search("kya scene")
+        rule.onNodeWithText("Nothing matches “kya scene”.").assertExists()
         search("diya")
         tile("Diya, still").tap()
         rule.waitForIdle()
@@ -217,7 +252,7 @@ class LibraryUiTest {
         val before = AppGraph.designs.designs.value.size
         rule.onNodeWithText("Use for…").tap()
         rule.waitForIdle()
-        rule.onNodeWithText("Tick where it shows. Done saves a copy to your designs.").assertExists()
+        rule.onNodeWithText("Tick where it should show. Done saves a copy to your designs.").assertExists()
         rule.onNodeWithText("Done").tap()
         rule.waitForIdle()
         assertEquals("nothing ticked, nothing saved", before, AppGraph.designs.designs.value.size)
@@ -233,16 +268,16 @@ class LibraryUiTest {
 
     @Test fun textItemsOpenInTheTextScreenAndUseForSavesACopy() {
         val nav = Nav(Tab.STUDIO)
-        val item = AnimationLibrary.search("namaste").first { it.form == ItemForm.TEXT }
+        val item = AnimationLibrary.search("come in").first { it.form == ItemForm.TEXT }
         LibraryActions.editCopy(item, nav)
         val page = nav.page as Page.TextDesign
         val start = TextStarts.take(page.start)!!
-        assertEquals("NAMASTE", start.spec.text)
+        assertEquals("COME IN", start.spec.text)
         val before = AppGraph.designs.designs.value.size
         val d = LibraryActions.saveCopy(item)
         assertEquals(before + 1, AppGraph.designs.designs.value.size)
         assertEquals(com.dotforge.studio.DesignKind.TEXT, d.kind)
-        assertEquals("NAMASTE", d.text?.text)
+        assertEquals("COME IN", d.text?.text)
         val layered = LibraryActions.saveCopy(AnimationLibrary.item("gt-happy-diwali")!!)
         assertNotNull(layered.layers?.text)
     }
