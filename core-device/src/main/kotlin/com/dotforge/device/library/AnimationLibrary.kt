@@ -62,7 +62,35 @@ object AnimationLibrary {
             LibraryItem(g.id, g.name, if (g.id in ALERT_ICONS) Categories.Alerts else Categories.Symbols, listOf("icon", "alert", g.name.lowercase()),
                 null, ItemKind.ORIGINAL, if (g.animated) ItemForm.ANIMATION else ItemForm.STILL) { p -> g.animation(p) }
         }
-        art + TextItems.texts + TextItems.layered + sprites + Generators.items + Originals.items + icons
+        dedupe(art + TextItems.texts + TextItems.layered + sprites + Generators.items + Originals.items + icons)
+    }
+
+    /**
+     * Retired pictures (the first anime set, redrawn designs that didn't read) and the closest current item, so an
+     * alert or a saved design that names one still finds a picture.
+     */
+    private val RETIRED = mapOf(
+        "g-anime-sweat" to "g-anime-sweat-drop", "g-anime-heart" to "g-anime-sparkle", "g-anime-star" to "g-anime-sparkle",
+        "g-anime-cat" to "g-anime-chibi-cat", "g-anime-sleep" to "g-anime-shy", "g-anime-smug" to "g-anime-joy",
+        "g-anime-uwu" to "g-anime-joy", "g-anime-dizzy" to "g-anime-shock", "g-anime-dash" to "g-anime-speed-dash",
+        "g-anime-teary" to "g-anime-cry", "a-anime-blink" to "a-anime-sparkle", "a-anime-cry" to "g-anime-cry",
+        "a-anime-sweat" to "g-anime-sweat-drop", "a-anime-heart" to "a-anime-sparkle",
+        "g-heart-rain" to "a-hearts-float", "a-heart-rain" to "a-hearts-float", "g-confetti" to "g-party-popper",
+        "g-road" to "a-car",
+    )
+
+    /** Ids of items merged into an earlier one with the same name: old id to the one kept. */
+    private val aliases = HashMap<String, String>(RETIRED)
+
+    /** One item per shown name (pictures only; text designs are their words): the first, by source order, stays. */
+    private fun dedupe(items: List<LibraryItem>): List<LibraryItem> {
+        val kept = HashMap<String, LibraryItem>()
+        return items.filter { item ->
+            if (item.form == ItemForm.TEXT || item.form == ItemForm.LAYERED) return@filter true
+            val key = item.name.lowercase()
+            val first = kept[key]
+            if (first == null) { kept[key] = item; true } else { aliases[item.id] = first.id; false }
+        }
     }
 
     private val ALERT_ICONS = setOf("chat", "mail", "bell", "phone", "spam", "alarm", "warning", "chat-dots", "at", "info", "question", "pulse", "ripple", "spinner", "blink", "wave")
@@ -86,6 +114,8 @@ object AnimationLibrary {
     private val byCategory by lazy { all.groupBy { it.category } }
     private val byId by lazy { all.associateBy { it.id } }
 
+    private fun resolve(id: String): LibraryItem? = byId[id] ?: all.let { aliases[id] }?.let { byId[it] }
+
     /** Ids of the Featured items, in display order. */
     private val featuredIds = listOf(
         "a-heart-sparkle", "gt-i-h-u", "a-mood-laugh", "a-cupid", "gt-happy-bday", "a-food-bag", "text-hello", "a-scooter",
@@ -94,15 +124,16 @@ object AnimationLibrary {
         "orig-pulse-dots", "orig-radial-fill", "orig-hourglass", "gen-fireworks", "gen-spiral", "gen-swirl", "gen-rings",
         "gen-metaballs", "gen-galaxy", "orig-breathing-circle", "gen-bounce", "orig-dice", "orig-sun-pulse", "orig-moon-phases",
         "gen-snow", "gen-lightning", "gen-aurora", "gen-ocean-waves", "gen-fire", "gen-candle", "orig-beat-pulse", "orig-vinyl",
-        "gen-equalizer", "orig-clock-analog", "orig-tree", "orig-pumpkin",
+        "gen-equalizer", "orig-clock-analog", "a-xmas-tree", "orig-pumpkin",
     )
 
-    private val featured by lazy { featuredIds.map { requireNotNull(byId[it]) { "unknown featured id $it" } } }
+    private val featured by lazy { featuredIds.map { requireNotNull(resolve(it)) { "unknown featured id $it" } }.distinct() }
 
     /** Items of [category]; [Categories.Featured] lists the curated picks, which keep their own real category too. */
     fun items(category: Category): List<LibraryItem> = if (category == Categories.Featured) featured else byCategory[category].orEmpty()
 
-    fun item(id: String): LibraryItem? = byId[id]
+    /** The item with [id], or the one it was merged into. */
+    fun item(id: String): LibraryItem? = resolve(id)
 
     /** The Text category's groups (Greetings, Love, Status...), in display order. */
     val textGroups: List<String> get() = TextItems.groups

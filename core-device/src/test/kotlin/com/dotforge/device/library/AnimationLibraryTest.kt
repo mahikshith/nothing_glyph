@@ -45,6 +45,8 @@ class AnimationLibraryTest {
         assertTrue(sprites.size > 300)
         for (e in sprites.filter { it.sourceFrames > 0 }) {
             val item = AnimationLibrary.item(e.id)!!
+            // a sprite merged into a same-named item resolves to that one
+            if (item.id != e.id) continue
             assertEquals(e.id, e.sourceFrames, item.load(p).frames.size)
         }
         for (e in sprites.filter { it.sourceFrames == 0 }) assertTrue(e.id, AnimationLibrary.item(e.id)!!.load(p).frames.size > 1)
@@ -93,5 +95,12 @@ class AnimationLibraryTest {
 
     @Test fun nothingIsBlank() {
         for (item in all) assertTrue(item.id, AnimationLibrary.thumbnail(item).pixels.any { it > 0 })
+    }
+
+    @Test fun retiredIdsStillFindAPicture() {
+        for (id in listOf("g-anime-uwu", "a-anime-blink", "g-anime-cat", "g-confetti", "g-road", "g-heart-rain")) {
+            assertTrue(id, AnimationLibrary.item(id) != null)
+        }
+        assertEquals("g-anime-sweat-drop", AnimationLibrary.item("g-anime-sweat")?.id)
     }
 }
