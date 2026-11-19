@@ -8,7 +8,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -101,7 +104,20 @@ abstract class FeaturesScreens : ScreenshotTest() {
     }
 
     private fun scrollTo(text: String) {
-        rule.onNode(hasScrollAction()).performScrollToNode(hasText(text, substring = true))
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText(text, substring = true))
+        settle()
+    }
+
+    /** Scrolls the open sheet to [text]. */
+    private fun sheetTo(text: String) {
+        rule.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText(text, substring = true))
+        settle()
+    }
+
+    /** Opens the page's On the Glyph sheet. */
+    private fun openOnTheGlyph() {
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(androidx.compose.ui.test.hasTestTag(com.dotforge.ui.features.ON_THE_GLYPH_TAG))
+        rule.onNode(androidx.compose.ui.test.hasTestTag(com.dotforge.ui.features.ON_THE_GLYPH_TAG)).tap()
         settle()
     }
 
@@ -147,12 +163,16 @@ abstract class FeaturesScreens : ScreenshotTest() {
         page("timer")
         settle()
         capture(f, "10-timer-idle")
-        scrollTo("Finish speed")
-        capture(f, "11-timer-on-the-glyph")
-        scrollTo("Try it")
-        capture(f, "11b-timer-on-the-glyph-lower")
         scrollTo("How it works")
         capture(f, "11c-timer-also")
+        openOnTheGlyph()
+        // the finish mid-firework in the pinned preview
+        rule.mainClock.advanceTimeBy(700)
+        capture(f, "11-timer-on-the-glyph-sheet")
+        sheetTo("Exact brightness")
+        rule.onNodeWithText("Exact brightness").tap()
+        sheetTo("Try it")
+        capture(f, "11b-timer-on-the-glyph-sheet-lower")
     }
 
     @Test fun timerNeedsAccessAndBanners() {
@@ -160,7 +180,16 @@ abstract class FeaturesScreens : ScreenshotTest() {
         org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(false)
         page("timer", access = false)
         settle()
-        capture(f, "18-timer-banners")
+        capture(f, "18-timer-allow-line")
+        rule.onNodeWithText("Review").tap()
+        settle()
+        capture(f, "18c-timer-allow-sheet")
+    }
+
+    @Test fun timerClockNeedsAccess() {
+        page("timer", access = false)
+        settle()
+        capture(f, "18d-timer-one-thing-to-allow")
         scrollTo("How it works")
         capture(f, "18b-timer-clock-needs-access")
     }
@@ -177,11 +206,20 @@ abstract class FeaturesScreens : ScreenshotTest() {
         capture(f, "16-timer-actions-sheet")
     }
 
+    @Test fun timerActionsNotOnTheGlyph() {
+        timers()
+        page("timer")
+        scrollTo("Focus")
+        rule.onNodeWithText("Paused · Focus").tap()
+        settle()
+        capture(f, "16c-timer-actions-not-on-the-glyph")
+    }
+
     @Test fun timerStopUndo() {
         GlyphTimers.start(5 * 60_000, "Tea")
         page("timer")
         settle()
-        rule.onNode(hasScrollAction()).performScrollToNode(androidx.compose.ui.test.hasContentDescription("Stop"))
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(androidx.compose.ui.test.hasContentDescription("Stop"))
         settle()
         rule.onNodeWithContentDescription("Stop").tap()
         rule.mainClock.advanceTimeBy(400)
@@ -244,8 +282,10 @@ abstract class FeaturesScreens : ScreenshotTest() {
         capture(f, "17-stopwatch-running-laps")
         scrollTo("Lap 1")
         capture(f, "17b-stopwatch-laps")
+        scrollTo("How it works")
+        capture(f, "17d-stopwatch-lower")
         GlyphTimers.stopwatchPause()
-        rule.onNode(hasScrollAction()).performScrollToIndex(0)
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToIndex(0)
         settle()
         capture(f, "17c-stopwatch-paused")
         scrollTo("Stopwatch style")
@@ -265,19 +305,36 @@ abstract class FeaturesScreens : ScreenshotTest() {
 
     @Test fun progressOnTheWay() {
         onTheWay()
+        com.dotforge.timer.awaitArbiter { AppGraph.arbiter.active.value.isNotEmpty() }
         page("progress")
         settle()
         capture(f, "21-live-progress-on-the-way")
-        scrollTo("Swiggy")
-        capture(f, "21b-live-progress-arriving-and-done")
-        scrollTo("Rapido")
+        scrollTo("not on this phone")
         capture(f, "22-live-progress-apps")
+        rule.onNodeWithText("not on this phone", substring = true).tap()
+        settle()
+        scrollTo("Ola")
+        capture(f, "22b-live-progress-not-on-this-phone")
         scrollTo("Next alarm")
         capture(f, "23-live-progress-coming-up")
-        scrollTo("Middle shows")
-        capture(f, "23b-live-progress-on-the-glyph")
-        scrollTo("Try it")
-        capture(f, "23c-live-progress-done-animation")
+    }
+
+    @Test fun progressOnTheGlyphSheet() {
+        page("progress")
+        settle()
+        openOnTheGlyph()
+        capture(f, "23b-live-progress-on-the-glyph-sheet")
+        // the pinned preview mid-way through the done animation: the preview holds its poster, then plays each
+        // frame for at least PREVIEW_MIN_FRAME_MS; the sheet opened one settle (1.5 s) ago
+        val story = com.dotforge.device.Timings.plan(LiveProgressRuntime.story(), AppGraph.liveProgress.timing.value).animation
+        val done = com.dotforge.live.LiveRing.done(AppGraph.profile, com.dotforge.live.LiveRing.icon(AppGraph.profile, "g-parcel-done"))
+        val eff = story.frames.map { maxOf(it.durationMs, com.dotforge.ui.design.PREVIEW_MIN_FRAME_MS).toLong() }
+        val doneAt = eff.take(story.frames.size - done.frames.size).sum()
+        val halfDone = eff.takeLast(done.frames.size).sum() / 2
+        rule.mainClock.advanceTimeBy((com.dotforge.ui.design.POSTER_HOLD_MS + doneAt + halfDone - 1_500).coerceAtLeast(0))
+        capture(f, "23c-live-progress-done-animation-on-screen")
+        sheetTo("Try it")
+        capture(f, "23d-live-progress-on-the-glyph-sheet-lower")
     }
 
     @Test fun progressOff() {

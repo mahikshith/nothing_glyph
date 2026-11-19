@@ -29,6 +29,7 @@ import com.dotforge.ui.features.FeaturePage
 import com.dotforge.ui.features.FeaturesScreen
 import com.dotforge.ui.features.progressStatus
 import com.dotforge.ui.features.timerStatus
+import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -36,6 +37,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
+import androidx.compose.ui.unit.dp
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -50,6 +56,9 @@ class FeaturesUiTest {
     private fun SemanticsNodeInteraction.tap() = performSemanticsAction(SemanticsActions.OnClick)
 
     @Before fun fresh() {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>())
+            .grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
         GlyphTimers.reset()
         GlyphTimers.now = { clock }
         LiveProgressRuntime.reset()
@@ -78,7 +87,20 @@ class FeaturesUiTest {
     }
 
     private fun scrollTo(text: String) {
-        rule.onNode(hasScrollAction()).performScrollToNode(hasText(text, substring = true))
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText(text, substring = true))
+        rule.waitForIdle()
+    }
+
+    /** Scrolls the open sheet (the last scrollable) to [text]. */
+    private fun sheetTo(text: String) {
+        rule.onAllNodes(hasScrollAction()).onLast().performScrollToNode(hasText(text, substring = true))
+        rule.waitForIdle()
+    }
+
+    /** Opens a page's On the Glyph sheet. */
+    private fun openOnTheGlyph() {
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(androidx.compose.ui.test.hasTestTag(com.dotforge.ui.features.ON_THE_GLYPH_TAG))
+        rule.onNode(androidx.compose.ui.test.hasTestTag(com.dotforge.ui.features.ON_THE_GLYPH_TAG)).tap()
         rule.waitForIdle()
     }
 
@@ -123,8 +145,10 @@ class FeaturesUiTest {
         GlyphTimers.start(10 * 60_000, "Eggs")
         page("timer")
         scrollTo("Eggs")
-        assertEquals(1, rule.onAllNodesWithText("On the Glyph").fetchSemanticsNodes().size)
-        rule.onNodeWithText("Show on Glyph").tap()
+        // the badge is on Tea's row (it ends first), not on Eggs'
+        rule.onNode(hasText("Tea") and hasText("On the Glyph")).assertExists()
+        assertEquals(0, rule.onAllNodes(hasText("Eggs") and hasText("On the Glyph")).fetchSemanticsNodes().size)
+        rule.onNodeWithText("Show on Glyph").assertHeightIsAtLeast(48.dp).tap()
         rule.waitForIdle()
         assertEquals("Tea".let { GlyphTimers.state.value.timers.first { t -> t.label == "Eggs" }.id }, GlyphTimers.state.value.focus)
         rule.onAllNodesWithText("Eggs · 10:00 left").fetchSemanticsNodes().isNotEmpty().let(::assertTrue)
@@ -133,24 +157,65 @@ class FeaturesUiTest {
     @Test fun idlePreviewIsTheStyleDemo() {
         page("timer")
         rule.onNodeWithText("Style preview · Ring drain").assertExists()
+        // the face-down line only matters while something shows
+        rule.onNodeWithText("Face down hides the Glyph. Stand the phone up.").assertDoesNotExist()
+        rule.onNodeWithText("unless you pick one", substring = true).assertExists()
+        rule.onNodeWithText("Start a timer").assertExists()
+        rule.onNodeWithContentDescription("Start a 1 minute timer").assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test fun faceDownLineWhileRunning() {
+        GlyphTimers.start(5 * 60_000)
+        page("timer")
         rule.onNodeWithText("Face down hides the Glyph. Stand the phone up.").assertExists()
+    }
+
+    @Test fun pageOrderPresetsThenTimersThenOnTheGlyphThenStyleThenAlso() {
+        GlyphTimers.start(5 * 60_000, "Tea")
+        page("timer")
+        // each is below the last, measured after scrolling the earlier one into view
+        rule.onNodeWithText("Start a timer").assertExists()
+        val order = listOf("Start a timer", "Your timer", "On the Glyph", "Style", "Also")
+        order.zipWithNext().forEach { (a, b) ->
+            scrollTo(a)
+            val ya = rule.onAllNodes(hasText(a), useUnmergedTree = true).onFirst().fetchSemanticsNode().positionInRoot.y
+            val yb = rule.onAllNodes(hasText(b), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()?.positionInRoot?.y
+            if (yb != null) assertTrue("$a above $b", ya < yb)
+        }
     }
 
     @Test fun onTheGlyphSettings() {
         page("timer")
-        scrollTo("Until dismissed")
-        rule.onNodeWithText("30 s").tap()
+        // one summary row; the default finish runs 30 s and comes back every minute
+        rule.onNodeWithText("100% · finish 30 s, repeats every 1 min").assertExists()
+        openOnTheGlyph()
+        // all four controls: how long, speed, repeat, brightness
+        rule.onNodeWithText("When it ends").assertExists()
+        rule.onNodeWithText("Until dismissed").tap()
+        rule.waitForIdle()
+        assertEquals(com.dotforge.device.ShowFor.UNTIL_CHECKED, GlyphTimers.timing.value.showFor)
+        sheetTo("Finish speed")
+        rule.onNodeWithText("Fast 2x").tap()
+        rule.waitForIdle()
+        assertEquals(2f, GlyphTimers.timing.value.speed)
+        sheetTo("Every 5 min")
+        rule.onNodeWithText("Repeat").assertExists()
+        rule.onNodeWithText("Every 5 min").tap()
         rule.waitForIdle()
         assertEquals(com.dotforge.device.ShowFor.SECONDS, GlyphTimers.timing.value.showFor)
-        assertEquals(30, GlyphTimers.timing.value.seconds)
-        scrollTo("Every 1 min")
-        rule.onNodeWithText("Every 1 min").tap()
+        assertEquals(5, GlyphTimers.timing.value.remindMinutes)
+        sheetTo("Exact brightness")
+        rule.onNodeWithText("Brightness").assertExists()
+        rule.onNodeWithText("50%").tap()
         rule.waitForIdle()
-        assertEquals(1, GlyphTimers.timing.value.remindMinutes)
-        scrollTo("Last 10 seconds")
+        assertEquals(50, GlyphTimers.timing.value.brightness)
+        sheetTo("Last 10 seconds")
         rule.onNodeWithText("Last 10 seconds").tap()
         rule.waitForIdle()
         assertFalse(GlyphTimers.lastTen.value)
+        rule.onNodeWithText("Done").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("50% · 2x · finish 30 s, repeats every 5 min · last 10 s off").assertExists()
         scrollTo("Vibrate")
         rule.onNode(hasText("Sound") and isToggleable()).assertIsOn()
         rule.onNode(hasText("Vibrate") and isToggleable()).assertIsOn().tap()
@@ -271,8 +336,23 @@ class FeaturesUiTest {
         page("timer", access = false)
         scrollTo("Show Clock app timers")
         rule.onNode(hasText("Show Clock app timers") and isToggleable()).assertIsOff().assertIsNotEnabled()
-        rule.onNodeWithText("Needs access").assertExists()
-        rule.onNodeWithText("Let DotForge read notifications", substring = true).assertExists()
+        rule.onNodeWithText("Needs notification access").assertExists()
+        // the one line to allow things, under the presets
+        rule.onNodeWithText("Allow notification access").assertExists()
+    }
+
+    @Test fun allowLineReviewsEverything() {
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(false)
+        try {
+            page("timer", access = false)
+            rule.onNodeWithText("2 things to allow").assertExists()
+            rule.onNodeWithText("Review").tap()
+            rule.waitForIdle()
+            rule.onNodeWithText("Exact alarms").assertExists()
+            rule.onNodeWithText("Notification access").assertExists()
+        } finally {
+            org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        }
     }
 
     @Test fun cardStatus() {
@@ -304,13 +384,19 @@ class FeaturesUiTest {
         rule.onNodeWithText("Nothing on the way", substring = true).assertExists()
     }
 
+    private fun install(pkg: String) {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .installPackage(android.content.pm.PackageInfo().apply { packageName = pkg })
+    }
+
     @Test fun liveProgressMainSwitchAndApps() {
+        install("com.application.zomato")
         page("progress")
         rule.onNode(hasText("Live progress") and isToggleable()).assertIsOn().tap()
         rule.waitForIdle()
         assertFalse(AppGraph.progressRings.value)
         rule.onNode(hasText("Live progress") and isToggleable()).tap()
-        scrollTo("Rapido")
+        scrollTo("Other apps")
         rule.onNode(hasText("Zomato") and isToggleable()).assertIsOn().tap()
         rule.waitForIdle()
         assertFalse(AppGraph.liveProgress.appOn("zomato"))
@@ -337,7 +423,7 @@ class FeaturesUiTest {
             ProgressSignals(texts = listOf("Arriving in 12 mins"), known = app != null, kind = app!!.kind)
         }, allowedByRule = { false })
         page("progress")
-        rule.onNodeWithContentDescription("Stop showing this").tap()
+        rule.onNodeWithContentDescription("Hide Zomato from the Glyph").assertHeightIsAtLeast(48.dp).tap()
         rule.waitForIdle()
         assertTrue(LiveProgressRuntime.items.value.isEmpty())
         assertTrue(LiveProgressRuntime.isHidden("z"))
@@ -345,20 +431,62 @@ class FeaturesUiTest {
 
     @Test fun liveProgressOnTheGlyph() {
         page("progress")
-        scrollTo("10 s on each change")
+        rule.onNodeWithText("100% · whole time · done once").assertExists()
+        openOnTheGlyph()
         rule.onNodeWithText("10 s on each change").tap()
         rule.waitForIdle()
         assertEquals(com.dotforge.notify.ProgressShowFor.ON_CHANGE, AppGraph.liveProgress.showFor.value)
-        scrollTo("Stage")
-        rule.onNodeWithText("Stage").tap()
+        sheetTo("Fast 2x")
+        rule.onNodeWithText("Fast 2x").tap()
         rule.waitForIdle()
-        assertFalse(AppGraph.liveProgress.showMinutes.value)
-        scrollTo("3 times")
+        assertEquals(2f, AppGraph.liveProgress.timing.value.speed)
+        sheetTo("3 times")
+        rule.onNodeWithText("Repeat the done animation").assertExists()
         rule.onNodeWithText("3 times").tap()
         rule.waitForIdle()
         assertEquals(com.dotforge.device.Repeat.TIMES, AppGraph.liveProgress.timing.value.repeat)
         assertEquals(3, AppGraph.liveProgress.timing.value.times)
-        scrollTo("Not on this phone")
+        sheetTo("Exact brightness")
+        rule.onNodeWithText("Brightness").assertExists()
+        sheetTo("Stage")
+        rule.onNodeWithText("Stage").tap()
+        rule.waitForIdle()
+        assertFalse(AppGraph.liveProgress.showMinutes.value)
+        rule.onNodeWithText("Done").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("100% · 2x · 10 s on each change · done 3 times").assertExists()
+    }
+
+    @Test fun liveProgressOrderAndBadge() {
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", { app ->
+            ProgressSignals(texts = listOf("Arriving in 12 mins"), known = app != null, kind = app!!.kind)
+        }, allowedByRule = { false })
+        assertTrue(com.dotforge.timer.awaitArbiter { AppGraph.arbiter.active.value.firstOrNull()?.id == LiveProgressRuntime.id("z") })
+        page("progress")
+        // the On the Glyph row and Now come before the apps
+        rule.onNode(androidx.compose.ui.test.hasTestTag(com.dotforge.ui.features.ON_THE_GLYPH_TAG)).assertExists()
+        rule.onNode(hasText("Zomato") and hasText("On the Glyph")).assertExists()
+        val now = rule.onNodeWithText("Now").fetchSemanticsNode().positionInRoot.y
+        val row = rule.onNode(androidx.compose.ui.test.hasTestTag(com.dotforge.ui.features.ON_THE_GLYPH_TAG)).fetchSemanticsNode().positionInRoot.y
+        assertTrue(row < now)
+        assertEquals(0, rule.onAllNodesWithText("Apps").fetchSemanticsNodes().count { it.positionInRoot.y < now })
+    }
+
+    @Test fun appsNotOnThePhoneFoldAwayAndSwitchesGreyWhenOff() {
+        page("progress")
+        scrollTo("not on this phone")
+        // nothing is installed under Robolectric: every known app folds into one row, with no switches
+        rule.onNodeWithText("${com.dotforge.live.ProgressApps.ALL.size} not on this phone").assertExists()
+        assertEquals(0, rule.onAllNodes(hasText("Zomato") and isToggleable()).fetchSemanticsNodes().size)
+        rule.onNodeWithText("${com.dotforge.live.ProgressApps.ALL.size} not on this phone").tap()
+        rule.waitForIdle()
+        scrollTo("Zomato")
+        rule.onNodeWithText("Zomato").assertExists()
+        // main switch off: Other apps reads off and grey
+        AppGraph.setProgressRings(false)
+        rule.waitForIdle()
+        scrollTo("Other apps")
+        rule.onNode(hasText("Other apps") and isToggleable()).assertIsOff().assertIsNotEnabled()
     }
 
     @Test fun alarmLead() {

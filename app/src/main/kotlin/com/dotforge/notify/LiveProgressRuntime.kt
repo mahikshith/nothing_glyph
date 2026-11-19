@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** How long a ring shows: all the way, only the last 10 minutes, or 10 s each time it changes. */
 enum class ProgressShowFor(val label: String) { WHOLE("Whole time"), LAST_10("Last 10 min"), ON_CHANGE("10 s on each change") }
@@ -266,26 +267,46 @@ object LiveProgressRuntime {
         }
     }
 
-    /** [a] at the page's brightness. */
+    /** [a] at the page's brightness and speed (the arriving pulse and the ring's motion). */
     private fun lit(a: Animation): Animation {
-        val k = AppGraph.liveProgress.timing.value.brightness / 100f
-        return if (k >= 1f) a else Animation(a.profile, a.frames.map { AnimFrame(it.frame.scaled(k), it.durationMs) })
+        val t = AppGraph.liveProgress.timing.value
+        val k = t.brightness / 100f
+        val speed = t.speed.takeIf { it > 0f } ?: 1f
+        if (k >= 1f && speed == 1f) return a
+        return Animation(a.profile, a.frames.map { AnimFrame(if (k >= 1f) it.frame else it.frame.scaled(k), (it.durationMs / speed).roundToInt().coerceAtLeast(MIN_FRAME_MS)) })
+    }
+
+    private const val MIN_FRAME_MS = 16
+
+    /**
+     * A delivery 12 minutes away, then about to arrive (the pulse), then done, at 1x and full brightness: the On
+     * the Glyph sheet plays it with the page's speed and brightness, and Try it puts it on the Glyph.
+     */
+    fun story(): Animation {
+        val p = AppGraph.profile
+        val frames = ArrayList<AnimFrame>()
+        frames += AnimFrame(LiveRing.frame(p, Stage.ON_THE_WAY.fraction, centre(12, "g-scooter")), 1500)
+        repeat(2) { frames += LiveRing.animation(p, 0.92f, centre(1, "g-scooter"), arriving = true).frames }
+        frames += LiveRing.done(p, icon("g-parcel-done")).frames
+        return Animation(p, frames)
     }
 
     /**
-     * Try it: a delivery 12 minutes away, then about to arrive, then the done animation, with the page's
-     * brightness and done animation (once through), on the Glyph.
+     * Try it: [story] with the page's brightness, speed and done animation (once through, or 3 times), on the
+     * Glyph.
      */
     fun tryIt() {
         val p = AppGraph.profile
         val frames = ArrayList<AnimFrame>()
         frames += AnimFrame(LiveRing.frame(p, Stage.ON_THE_WAY.fraction, centre(12, "g-scooter")), 1500)
-        frames += LiveRing.animation(p, 0.92f, centre(1, "g-scooter"), arriving = true).frames
-        frames += LiveRing.animation(p, 0.92f, centre(1, "g-scooter"), arriving = true).frames
+        repeat(2) { frames += LiveRing.animation(p, 0.92f, centre(1, "g-scooter"), arriving = true).frames }
         val t = AppGraph.liveProgress.timing.value
-        frames += Timings.plan(LiveRing.done(p, icon("g-parcel-done")), t.copy(showFor = ShowFor.WHOLE, repeat = if (t.repeat == Repeat.TIMES && !t.untilChecked) Repeat.TIMES else Repeat.ONCE, brightness = 100)).animation.frames
+        frames += Timings.plan(LiveRing.done(p, icon("g-parcel-done")), t.copy(showFor = ShowFor.WHOLE, repeat = if (t.repeat == Repeat.TIMES && !t.untilChecked) Repeat.TIMES else Repeat.ONCE, brightness = 100, speed = 1f)).animation.frames
         AppGraph.arbiter.post(DisplayRequest(TRY_ID, Priority.STUDIO_PREVIEW, lit(Animation(p, frames)), label = "Live progress: try it"))
     }
+
+    /** True when the Glyph shows [key]'s ring or done animation now ([topId]: the arbiter's first request). */
+    fun showing(key: String, topId: String?): Boolean = topId != null && (topId == id(key) || topId == doneId(key))
 
     /** The middle for an example: the minutes, or the stage's icon when the page says Stage. */
     fun centre(minutes: Int, iconId: String): Centre =

@@ -79,6 +79,13 @@ data class TimingParts(
     val brightnessFirst: Boolean = false,
     /** The first part keeps a full gap above it (the panel follows other controls in its card). */
     val gapAbove: Boolean = false,
+    /** The place's own Show for chips, in place of the timing's (Live progress: whole time, last 10 min…). */
+    val showForSlot: (@Composable () -> Unit)? = null,
+    /** "Repeat" (the remind chips, or the [playsTimes] chips) always shows, in the Repeat place. */
+    val remindAlways: Boolean = false,
+    val repeatTitle: String = "Repeat",
+    /** Brightness as chips only; the slider and the phone's setting sit behind an "Exact brightness" row. */
+    val compactBrightness: Boolean = false,
 )
 
 /**
@@ -106,12 +113,14 @@ fun TimingPanel(
     animationMs: Int? = null,
     showLine: Boolean = true,
     parts: TimingParts = TimingParts(),
+    line: String? = null,
     onChange: (Timing) -> Unit,
 ) {
     val t = timing.clamped()
     val b = base?.clamped()
     val ctx = LocalContext.current
     var more by rememberSaveable { mutableStateOf(t.moreChanged) }
+    var exact by rememberSaveable { mutableStateOf(false) }
     val chips = Arrangement.spacedBy(Tokens.Small)
 
     Column(modifier.fillMaxWidth()) {
@@ -128,24 +137,29 @@ fun TimingPanel(
                 val own = b != null && b.brightness == t.brightness
                 Timing.BRIGHTNESS_CHIPS.filterNot { it == b?.brightness }.forEach { v -> Chip("$v%", !own && t.brightness == v) { onChange(t.copy(brightness = v)) } }
             }
-            SliderLine("Exact brightness", "${t.brightness}%")
-            DotSlider("Brightness", t.brightness.toFloat(), 10f..100f, readout = "${t.brightness}%") { onChange(t.copy(brightness = it.roundToInt())) }
-            Hint("100% is your Glyph brightness in Nothing settings.")
-            ListRow("Phone's Glyph brightness", inset = 0.dp, trailing = { Chevron() }) {
-                runCatching { ctx.startActivity(NothingSettings.glyphSettings(ctx.packageManager).intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            if (parts.compactBrightness) {
+                val turnExact by animateFloatAsState(if (exact) 180f else 0f, Tokens.standard(LocalReduceMotion.current), label = "exact")
+                ListRow(
+                    "Exact brightness", subtitle = "${t.brightness}% of your phone's Glyph brightness", inset = 0.dp,
+                    trailing = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = if (exact) "Hide" else "Show", tint = Tokens.Secondary, modifier = Modifier.rotate(turnExact)) },
+                ) { exact = !exact }
+            }
+            if (!parts.compactBrightness || exact) {
+                SliderLine("Exact brightness", "${t.brightness}%")
+                DotSlider("Brightness", t.brightness.toFloat(), 10f..100f, readout = "${t.brightness}%") { onChange(t.copy(brightness = it.roundToInt())) }
+                Hint("100% is your Glyph brightness in Nothing settings.")
+                ListRow("Phone's Glyph brightness", inset = 0.dp, trailing = { Chevron() }) {
+                    runCatching { ctx.startActivity(NothingSettings.glyphSettings(ctx.packageManager).intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }
             }
         }
-        if (showLine) Text(timingLine(t, kind, animated, animationMs), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = Tokens.Tiny))
+        if (showLine) Text(line ?: timingLine(t, kind, animated, animationMs), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = Tokens.Tiny))
         if (parts.brightnessFirst) brightness(!showLine && !parts.gapAbove)
 
         // ---- Show for
         Part(parts.showForTitle, first = !showLine && !parts.brightnessFirst && !parts.gapAbove)
-        if (parts.playsTimes != null) FlowRow(horizontalArrangement = chips) {
-            val n = parts.playsTimes
-            Chip("Once", t.showFor == ShowFor.WHOLE && t.repeat == Repeat.ONCE) { onChange(t.copy(showFor = ShowFor.WHOLE, repeat = Repeat.ONCE)) }
-            Chip("$n times", t.showFor == ShowFor.WHOLE && t.repeat == Repeat.TIMES) { onChange(t.copy(showFor = ShowFor.WHOLE, repeat = Repeat.TIMES, times = n)) }
-            Chip(parts.untilLabel, t.showFor == ShowFor.UNTIL_CHECKED) { onChange(t.copy(showFor = ShowFor.UNTIL_CHECKED)) }
-        } else FlowRow(horizontalArrangement = chips) {
+        if (parts.showForSlot != null) parts.showForSlot.invoke()
+        else FlowRow(horizontalArrangement = chips) {
             if (b != null) OwnChip(showForText(b, kind), sameShowFor(b, t)) { onChange(t.copy(showFor = b.showFor, seconds = b.seconds, remindMinutes = b.remindMinutes)) }
             val own = b != null && sameShowFor(b, t)
             if (kind != TimingKind.USE && parts.whole) {
@@ -157,14 +171,14 @@ fun TimingPanel(
             Chip(parts.untilLabel, !own && t.showFor == ShowFor.UNTIL_CHECKED) { onChange(t.copy(showFor = ShowFor.UNTIL_CHECKED)) }
         }
         val remindAt = if (parts.remindAfterSeconds) ShowFor.SECONDS else ShowFor.UNTIL_CHECKED
-        if (parts.playsTimes == null && t.showFor == remindAt) {
+        if (parts.playsTimes == null && !parts.remindAlways && parts.showForSlot == null && t.showFor == remindAt) {
             Label(parts.remindTitle)
             FlowRow(horizontalArrangement = chips) {
                 Chip("Off", t.remindMinutes == 0) { onChange(t.copy(remindMinutes = 0)) }
                 parts.remindChips.forEach { m -> Chip("Every $m min", t.remindMinutes == m) { onChange(t.copy(remindMinutes = m)) } }
             }
         }
-        if (parts.playsTimes == null && parts.exactTime && t.showFor != ShowFor.UNTIL_CHECKED) {
+        if (parts.showForSlot == null && parts.exactTime && t.showFor != ShowFor.UNTIL_CHECKED) {
             // the slider shows the time it shows for now (the whole design's length too) and follows the chips;
             // moving it picks an exact number of seconds
             val shownMs = if (t.showFor == ShowFor.SECONDS) t.seconds * 1000 else (animationMs ?: 1000).coerceAtLeast(100)
@@ -194,9 +208,32 @@ fun TimingPanel(
                 ) { onChange(t.copy(speed = Timing.SPEED_STOPS[it.roundToInt().coerceIn(Timing.SPEED_STOPS.indices)])) }
             }
         }
+        // ---- Repeat, for a place that names it: the done animation's plays, or the finish coming back
+        if (parts.playsTimes != null) {
+            val n = parts.playsTimes
+            Part(parts.repeatTitle)
+            FlowRow(horizontalArrangement = chips) {
+                Chip("Once", t.showFor == ShowFor.WHOLE && t.repeat == Repeat.ONCE) { onChange(t.copy(showFor = ShowFor.WHOLE, repeat = Repeat.ONCE)) }
+                Chip("$n times", t.showFor == ShowFor.WHOLE && t.repeat == Repeat.TIMES) { onChange(t.copy(showFor = ShowFor.WHOLE, repeat = Repeat.TIMES, times = n)) }
+                Chip(parts.untilLabel, t.showFor == ShowFor.UNTIL_CHECKED) { onChange(t.copy(showFor = ShowFor.UNTIL_CHECKED)) }
+            }
+        } else if (parts.remindAlways) {
+            Part(parts.repeatTitle)
+            val repeating = t.showFor == remindAt && t.remindMinutes > 0
+            FlowRow(horizontalArrangement = chips) {
+                Chip("Off", !repeating) { onChange(t.copy(remindMinutes = 0)) }
+                parts.remindChips.forEach { m ->
+                    Chip("Every $m min", repeating && t.remindMinutes == m) {
+                        // repeating needs a run to repeat: from "until dismissed" it takes the middle run chip
+                        val secs = if (t.showFor == ShowFor.SECONDS) t.seconds else parts.secondsChips.getOrElse(1) { parts.secondsChips.first() }
+                        onChange(t.copy(showFor = remindAt, seconds = secs, remindMinutes = m))
+                    }
+                }
+            }
+        }
         if (animated) {
             // ---- Repeat: only when the whole animation plays
-            if (t.showFor == ShowFor.WHOLE && parts.playsTimes == null) {
+            if (t.showFor == ShowFor.WHOLE && parts.playsTimes == null && !parts.remindAlways && parts.showForSlot == null) {
                 Part("Repeat")
                 FlowRow(horizontalArrangement = chips) {
                     if (b != null) OwnChip(repeatText(b), b.repeat == t.repeat && b.times == t.times) { onChange(t.copy(repeat = b.repeat, times = b.times)) }
@@ -251,16 +288,22 @@ fun TimingSheet(
     onDismiss: () -> Unit,
     base: Timing? = null,
     placeName: String? = null,
+    title: String = "Timing",
+    /** The plain line at the top, when the place says it its own way (a timer's finish). */
+    plainLine: String? = null,
+    parts: TimingParts = TimingParts(),
+    /** The place's own controls under the panel (Last 10 seconds, Try it). */
+    extra: (@Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit)? = null,
     onChange: (Timing) -> Unit,
 ) {
     val animated = kind != TimingKind.STILL && (animation?.frames?.size ?: 2) > 1
     val live = animation?.let { Timings.plan(it, timing).animation }
     // on a short screen the preview shrinks and sits beside the plain line, so the first controls show at half height
     val short = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < SHORT_SCREEN_DP
-    val line = timingLine(timing, kind, animated, animation?.totalMs)
+    val line = plainLine ?: timingLine(timing, kind, animated, animation?.totalMs)
     // no subtitle: the plain line already says it
     FullSheet(
-        onDismiss, "Timing", half = true,
+        onDismiss, title, half = true,
         pinned = live?.let { a ->
             {
                 if (short) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -272,8 +315,9 @@ fun TimingSheet(
     ) {
         TimingPanel(
             timing, kind, base = base, placeName = placeName, animated = animated, animationMs = animation?.totalMs,
-            showLine = !(short && live != null), onChange = onChange,
+            showLine = !(short && live != null), parts = parts, line = plainLine, onChange = onChange,
         )
+        extra?.invoke(this)
     }
 }
 

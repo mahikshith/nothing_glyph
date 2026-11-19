@@ -48,11 +48,12 @@ import kotlinx.coroutines.delay
  */
 enum class Feature(val key: String, val title: String, val what: String, val options: List<Pair<String, String>>, val how: String, val icon: String = "dot") {
     TIMER(
-        "timer", "Timer & stopwatch", "Count down or time something on the Glyph. Several timers can run; the Glyph shows the one that ends first.",
+        "timer", "Timer & stopwatch", "Count down or time something on the Glyph. It shows the timer that ends first, unless you pick one.",
         emptyList(),
         "Timers run in DotForge, not as a Glyph Toy, so they never stop after 30 seconds. The Glyph shows the timer that " +
             "ends first, or the one you pick with Show on Glyph. Its last 10 seconds count down big, and when it ends the " +
-            "Glyph bursts (for as long as you set) while the phone rings and buzzes, and \"Time's up\" fills the screen. Face " +
+            "Glyph bursts for as long as you set, then again every minute until you dismiss it (On the Glyph sets both), while " +
+            "the phone rings and buzzes, and \"Time's up\" fills the screen. Face " +
             "down, the Glyph is hidden, so stand the phone up to see it. Your phone shows the timer too, as a Live Update in " +
             "the status bar and on the lock screen. With \"Show Clock app timers\" on, " +
             "timers and the stopwatch you start in the Clock app show on the Glyph the same way.",

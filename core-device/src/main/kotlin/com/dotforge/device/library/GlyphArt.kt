@@ -79,6 +79,9 @@ internal object GlyphArt {
     private const val NEW_YEAR = "g-newyear"
     private const val YEAR_ROW = 14
 
+    /** The 4x7 digits of the calendar's year (tests check the 8). */
+    internal fun digit(ch: Char): List<String>? = DIGITS[ch]
+
     private val DIGITS = mapOf(
         '0' to listOf("####", "#..#", "#..#", "#..#", "#..#", "#..#", "####"),
         '1' to listOf("..#.", ".##.", "..#.", "..#.", "..#.", "..#.", ".###"),
@@ -88,7 +91,7 @@ internal object GlyphArt {
         '5' to listOf("####", "#...", "#...", "####", "...#", "...#", "####"),
         '6' to listOf("####", "#...", "#...", "####", "#..#", "#..#", "####"),
         '7' to listOf("####", "...#", "...#", "..#.", "..#.", ".#..", ".#.."),
-        '8' to listOf("####", "#..#", "#..#", "####", "#..#", "#..#", "####"),
+        '8' to listOf(".##.", "#..#", "#..#", ".##.", "#..#", "#..#", ".##."),
         '9' to listOf("####", "#..#", "#..#", "####", "...#", "...#", "####"),
     )
 

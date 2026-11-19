@@ -80,7 +80,8 @@ object LiveRing {
 
     /**
      * The icon for [id] at ring size: a drawing made for the ring where the library's picture is too big to sit
-     * inside it at 1:1 (the scooter, the bike taxi, the auto, the food bag, the apple, the download arrow); else
+     * inside it at 1:1 (the scooter, the bike taxi, the auto, the food bag, the apple, the download arrow), and the
+     * ride stages and done marks drawn for it (pickup, trip, the delivered box, the chequered flag); else
      * the library glyph's poster (an animated glyph's first frame may be blank), fitted. Null when unknown.
      */
     fun icon(p: DeviceProfile, id: String?): Frame? {
@@ -90,6 +91,13 @@ object LiveRing {
 
     /** Ids drawn for the ring (tests check each fits). */
     val drawn: Set<String> get() = RING_ICONS.keys
+
+    /** True when the ring drawing [id] shows every one of its dots (it fits at 1:1, not shrunk). */
+    fun fullSize(p: DeviceProfile, id: String): Boolean {
+        val rows = RING_ICONS[id] ?: return false
+        val dots = rows.sumOf { r -> r.count { it != '.' } }
+        return icon(p, id)?.pixels?.count { it > 0 } == dots
+    }
 
     private fun draw(p: DeviceProfile, rows: List<String>): Frame {
         val f = Frame.blank(p)
@@ -142,7 +150,7 @@ object LiveRing {
         return if (!lost && clearOfRing(p, moved)) moved else shrink(p, icon)
     }
 
-    /** Ring-size drawings: at most 17 dots wide and 13 high, so they sit inside the ring at 1:1. */
+    /** Ring-size drawings: at most 18 dots wide and 13 high, so they sit inside the ring at 1:1 (tests check). */
     private val RING_ICONS: Map<String, List<String>> = mapOf(
         "g-scooter" to listOf(
             ".######..........",
@@ -215,6 +223,60 @@ object LiveRing {
             "#ooooo#ooooooo#",
             ".#ooooooooooo#.",
             ".#############.",
+        ),
+        // a ride's driver coming to you: the car, a dotted route, the pin where you wait
+        "ride-pickup" to listOf(
+            "..............###.",
+            ".............#####",
+            ".............##.##",
+            ".............#####",
+            "..............###.",
+            "..#####........#..",
+            ".#..#..#.......#..",
+            "#...#...#......#..",
+            "#########......#..",
+            "#########.#.#..#..",
+            ".##...##..........",
+        ),
+        // on the trip: motion lines, the same car, and a chequered flag ahead
+        "ride-trip" to listOf(
+            ".............###++",
+            ".............###++",
+            ".............#++##",
+            ".............#++##",
+            ".............#....",
+            ".....#####...#....",
+            "....#..#..#..#....",
+            "##.#...#...#.#....",
+            "...#########.#....",
+            "##.#########.#....",
+            "....##...##..#....",
+        ),
+        // delivered: a box with a bold tick, no lid line (it must not read as an envelope)
+        "g-parcel-done" to listOf(
+            "#############",
+            "#...........#",
+            "#........##.#",
+            "#.......##..#",
+            "#..##..##...#",
+            "#...####....#",
+            "#....##.....#",
+            "#...........#",
+            "#############",
+        ),
+        // arrived: a chequered flag, 2x2 checks (the dark checks faint, so the flag keeps its shape)
+        "g-finish-flag" to listOf(
+            "###++##++##",
+            "###++##++##",
+            "#++##++##++",
+            "#++##++##++",
+            "###++##++##",
+            "###++##++##",
+            "#..........",
+            "#..........",
+            "#..........",
+            "#..........",
+            "#..........",
         ),
         "download" to listOf(
             ".....###.....",

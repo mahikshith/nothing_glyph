@@ -196,15 +196,14 @@ oooooooooooooo....
 
 @ g-delivery-van | Delivery van | food | delivery van truck parcel courier shipping amazon order
 ###########......
-#.........####...
-#.........#.o##..
-#.........#.oo##.
-#.........######.
-#################
-#################
-..###.......###..
-..#.#.......#.#..
-..###.......###..
+#ooooooooo####...
+#ooooooooo#..##..
+#ooooooooo#...##.
+#ooooooooo######.
+################.
+..###......###...
+.#.#.#....#.#.#..
+..###......###...
 
 @ g-fork-knife | Restaurant | food | restaurant fork knife dinner lunch eat meal
 .#.#.#....##..

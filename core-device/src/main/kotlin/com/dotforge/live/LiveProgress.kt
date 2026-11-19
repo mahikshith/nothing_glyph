@@ -20,9 +20,9 @@ enum class Stage(val label: String, val fraction: Float, val icon: String) {
     PACKED("Packed", 0.45f, "g-parcel"),
     ON_THE_WAY("On the way", 0.70f, "g-scooter"),
     ASSIGNED("Driver assigned", 0.15f, "g-steering"),
-    PICKUP("Driver on the way", 0.30f, "g-car"),
+    PICKUP("Driver on the way", 0.30f, "ride-pickup"),
     AT_PICKUP("Driver is here", 0.45f, "g-pin"),
-    ON_TRIP("On the trip", 0.60f, "g-car"),
+    ON_TRIP("On the trip", 0.60f, "ride-trip"),
     ARRIVING("Arriving", 0.92f, "g-home"),
     DONE("Done", 1f, "g-parcel-done"),
     CANCELLED("Cancelled", 0f, "g-receipt"),
@@ -320,19 +320,21 @@ object LiveProgress {
 
     /**
      * The glyph in the middle when no minutes show: the stage's, or for an early stage the app's own icon; a
-     * ride shows the vehicle its words name ([vehicle]); done is a delivered parcel, or the finish flag for a ride.
+     * ride shows its stage (the car heading for the pin, then for the flag) or, arriving, the vehicle its words name ([vehicle]); done is a delivered parcel, or the finish flag for a ride.
      */
     fun icon(stage: Stage?, app: ProgressApp?, vehicle: String? = null): String? = when (stage) {
         null -> vehicle ?: app?.icon
         Stage.DONE -> if (app?.kind == TripKind.RIDE) "g-finish-flag" else stage.icon
         Stage.PREPARING, Stage.PLACED -> if (app != null && app.kind == TripKind.DELIVERY) app.icon else stage.icon
-        Stage.PICKUP, Stage.ON_TRIP -> vehicle ?: app?.icon ?: stage.icon
+        // a car ride: the car heading for the pin, then for the flag; an auto or a bike taxi shows itself
+        Stage.PICKUP, Stage.ON_TRIP -> (vehicle ?: app?.icon)?.takeIf { it in TWO_THREE_WHEELERS } ?: stage.icon
         // a ride's driver arriving is the car (or the auto, the bike) coming; a delivery arriving is home
         Stage.ARRIVING -> if (app?.kind == TripKind.RIDE) vehicle ?: app.icon else stage.icon
         Stage.ON_THE_WAY -> if (app?.kind == TripKind.DELIVERY && app.icon in RIDERS) app.icon else stage.icon
         else -> stage.icon
     }
 
+    private val TWO_THREE_WHEELERS = setOf("g-auto", "g-bike-taxi")
     private val RIDERS = setOf("g-scooter", "g-car", "g-taxi", "g-bike-taxi", "g-auto")
 
     /** "12 min left · On the way" for the page. */

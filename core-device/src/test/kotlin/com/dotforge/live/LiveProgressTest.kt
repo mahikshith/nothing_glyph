@@ -312,7 +312,11 @@ class LiveProgressTrackTest {
         // each known app has its own picture, and none is the packed parcel or another app's
         assertEquals(ProgressApps.ALL.size, ProgressApps.ALL.map { it.icon }.toSet().size)
         assertTrue(ProgressApps.ALL.none { it.icon == Stage.PACKED.icon })
-        assertEquals("g-car", LiveProgress.icon(Stage.ON_TRIP, ProgressApps.byId("uber")))
+        // a car ride's stages and the Uber icon are three different pictures
+        val uber = ProgressApps.byId("uber")
+        assertEquals("ride-trip", LiveProgress.icon(Stage.ON_TRIP, uber))
+        assertEquals("ride-pickup", LiveProgress.icon(Stage.PICKUP, uber))
+        assertEquals(3, setOf(LiveProgress.icon(Stage.ON_TRIP, uber), LiveProgress.icon(Stage.PICKUP, uber), uber!!.icon).size)
         assertEquals("g-bike-taxi", LiveProgress.icon(Stage.PICKUP, ProgressApps.byId("rapido")))
         assertEquals("12 min left · On the way", LiveProgress.summary(eta(12, Stage.ON_THE_WAY)))
         assertEquals("Arriving now", LiveProgress.summary(eta(0)))

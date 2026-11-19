@@ -68,6 +68,7 @@ class GlyphTimersTest {
     }
 
     @Test fun anEndedTimerBurstsUntilDismissed() {
+        GlyphTimers.setTiming(GlyphTimers.timing.value.copy(showFor = com.dotforge.device.ShowFor.UNTIL_CHECKED, remindMinutes = 0))
         val t = GlyphTimers.start(60_000)
         clock += 61_000
         GlyphTimers.tick()
@@ -125,6 +126,16 @@ class GlyphTimersTest {
         GlyphTimers.tick()
         assertTrue(awaitArbiter { active(GlyphTimers.DONE_ID) != null })
         assertEquals(10_000L, GlyphTimers.ringMs())
+    }
+
+    @Test fun theDefaultFinishComesBackEveryMinute() {
+        val d = GlyphTimers.timing.value
+        assertEquals(com.dotforge.device.ShowFor.SECONDS, d.showFor)
+        assertEquals(30, d.seconds)
+        assertEquals(1, d.remindMinutes)
+        assertEquals(30_000L, GlyphTimers.finishLeft(0))
+        assertNull(GlyphTimers.finishLeft(45_000))
+        assertTrue((GlyphTimers.finishLeft(91_000) ?: 0) > 0)
     }
 
     @Test fun settingsAreKept() {

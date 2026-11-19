@@ -203,7 +203,7 @@ class TimerFacesTest {
             assertTrue(style.name, g.has(TimerFaces.digits(p, "42")))
         }
         assertEquals("4:12", TimerFaces.readout(252))
-        assertEquals("1:05", TimerFaces.readout(3_900))
+        assertEquals("1h05", TimerFaces.readout(3_900))
         assertEquals("42", TimerFaces.readout(42))
         assertEquals(13, TimerFaces.smallWidth("4:12"))
     }
@@ -219,7 +219,8 @@ class TimerFacesTest {
     @Test fun theStopwatchAlwaysShowsMinutesAndSeconds() {
         assertEquals("0:05", TimerFaces.watchReadout(5))
         assertEquals("5:00", TimerFaces.watchReadout(300))
-        assertEquals("1:02", TimerFaces.watchReadout(3_720))
+        assertEquals("1h02", TimerFaces.watchReadout(3_720))
+        assertEquals("1h02", TimerFaces.readout(3_720))
         assertTrue(TimerFaces.stopwatch(p, StopwatchStyle.RING_FILLS, 5_000).has(TimerFaces.small(p, "0:05")))
         assertTrue(TimerFaces.stopwatch(p, StopwatchStyle.COMET, 300_000).has(TimerFaces.small(p, "5:00")))
         assertEquals(Effects.centredDigits(p, listOf("00", "05")).pixels.toList(), TimerFaces.stopwatch(p, StopwatchStyle.BIG_DIGITS, 5_000).pixels.toList())
@@ -281,7 +282,7 @@ class TimerFacesTest {
 
     @Test fun bigDigitsReadMinutesOverSeconds() {
         assertEquals(Effects.centredDigits(p, listOf("04", "05")).pixels.toList(), TimerFaces.bigDigits(p, 245).pixels.toList())
-        assertEquals(Effects.centredDigits(p, listOf("1", "02")).pixels.toList(), TimerFaces.bigDigits(p, 3_720).pixels.toList())
+        assertEquals(Effects.centredDigits(p, listOf("1h", "02")).pixels.toList(), TimerFaces.bigDigits(p, 3_720).pixels.toList())
         assertEquals(Effects.centredDigits(p, listOf("42")).pixels.toList(), TimerFaces.bigDigits(p, 42).pixels.toList())
     }
 
@@ -354,6 +355,7 @@ class LiveRingTest {
         for (id in LiveRing.drawn) {
             val f = LiveRing.icon(p, id)!!
             assertEquals(id, f.pixels.toList(), LiveRing.fit(p, f).pixels.toList())
+            assertTrue("$id is drawn at full size", LiveRing.fullSize(p, id))
         }
         // fitting twice changes nothing
         val car = LiveRing.icon(p, "g-car")!!

@@ -61,8 +61,11 @@ object GlyphTimers {
     @Serializable
     private data class Saved(val timers: List<GlyphTimer> = emptyList(), val stopwatch: Stopwatch = Stopwatch(), val focus: String? = null)
 
-    /** The finish's default: plays until dismissed, at full speed and brightness, never resting. */
-    val DEFAULT_TIMING = Timing(showFor = ShowFor.UNTIL_CHECKED, rest = false)
+    /**
+     * The finish's default: runs for 30 s, then comes back every minute until dismissed (a missed finish is never
+     * lost), at full speed and brightness.
+     */
+    val DEFAULT_TIMING = Timing(showFor = ShowFor.SECONDS, seconds = 30, remindMinutes = 1, rest = false)
     /** "Runs for" on the page: 10 s, 30 s, 1 min, or until dismissed. */
     val RUN_CHIPS = listOf(10, 30, 60)
     /** Saved custom times (newest first), at most this many. */

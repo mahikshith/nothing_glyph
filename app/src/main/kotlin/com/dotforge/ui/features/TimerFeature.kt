@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,7 +53,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.AppGraph
@@ -72,6 +76,8 @@ import com.dotforge.ui.design.Chevron
 import com.dotforge.ui.design.Chip
 import com.dotforge.ui.design.DfIcons
 import com.dotforge.ui.design.FullSheet
+import com.dotforge.ui.design.GlyphBadge
+import com.dotforge.ui.design.Inter
 import com.dotforge.ui.design.GlyphPreview
 import com.dotforge.ui.design.Hint
 import com.dotforge.ui.design.ListRow
@@ -83,23 +89,22 @@ import com.dotforge.ui.design.RowGroup
 import com.dotforge.ui.design.SecondaryButton
 import com.dotforge.ui.design.SectionLabel
 import com.dotforge.ui.design.Segmented
-import com.dotforge.ui.design.StatusBanner
 import com.dotforge.ui.design.SwitchRow
 import com.dotforge.ui.design.TimingKind
-import com.dotforge.ui.design.TimingPanel
+import com.dotforge.ui.design.TimingSheet
+import com.dotforge.ui.design.speedText
 import com.dotforge.ui.design.TimingParts
 import com.dotforge.ui.design.Tokens
 import com.dotforge.ui.design.rememberSnacks
 import kotlinx.coroutines.delay
 
 /**
- * Features > Timer & stopwatch (mykee's ask): a live preview of what the Glyph shows (a demo of the style when
- * nothing runs), with Dismiss when a timer has ended; presets that start a timer in one tap and a Clock-style
- * keypad for a custom time; every timer (ours and the Clock app's) with the one on the Glyph marked; the
- * stopwatch with laps; the style; On the Glyph (brightness, the finish, the last 10 seconds, Try it); Sound and
- * Vibrate; and "Show Clock app timers".
+ * Features > Timer & stopwatch (mykee's ask), in the order you use it: a live preview of what the Glyph shows (a
+ * demo of the style when nothing runs), with Dismiss when a timer has ended; presets that start a timer in one tap
+ * and a Clock-style keypad for a custom time; every timer (ours and the Clock app's) with the one on the Glyph
+ * marked; anything to allow, on one line; the On the Glyph row (brightness, the finish's length, speed and repeat,
+ * the last 10 seconds, Try it, in one sheet); the style; Sound, Vibrate and "Show Clock app timers".
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TimerFeature(nav: Nav, setup: Setup) {
     val ctx = LocalContext.current
@@ -116,6 +121,8 @@ fun TimerFeature(nav: Nav, setup: Setup) {
     var tab by rememberSaveable { mutableIntStateOf(if (state.stopwatch.started && state.timers.isEmpty()) 1 else 0) }
     var custom by rememberSaveable { mutableStateOf(false) }
     var styles by rememberSaveable { mutableStateOf(false) }
+    var glyph by rememberSaveable { mutableStateOf(false) }
+    var allow by rememberSaveable { mutableStateOf(false) }
     var actionsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var now by remember { mutableLongStateOf(GlyphTimers.now()) }
     val ticking = state.timers.isNotEmpty() || state.clock.isNotEmpty() || state.watch?.running == true
@@ -136,44 +143,46 @@ fun TimerFeature(nav: Nav, setup: Setup) {
         GlyphTimers.cancel(t.id)
         snacks?.show("${t.name} stopped") { GlyphTimers.restore(t) }
     }
+    // what is left to allow, as one line under the presets
+    val asks = listOfNotNull(
+        Ask("Notifications", "So Time's up fills the screen and the timer shows on the lock screen") { post.launch(Manifest.permission.POST_NOTIFICATIONS) }.takeIf { !canPost },
+        Ask("Exact alarms", "So a timer ends on the second, not late") {
+            runCatching { exactLauncher.launch(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:" + ctx.packageName))) }
+        }.takeIf { !exact },
+        Ask("Notification access", "So the Clock app's timers show on the Glyph") { setup.needNotificationAccess() }.takeIf { mirror && !setup.notificationAccess },
+    )
 
     FeatureLayout(Feature.TIMER, nav) {
-        if (!canPost) item(key = "post") {
-            StatusBanner(
-                "Let DotForge post notifications, so Time's up can fill the screen and the timer shows on the lock screen.",
-                Modifier.padding(bottom = Tokens.Gap), button = "Allow",
-            ) { post.launch(Manifest.permission.POST_NOTIFICATIONS) }
-        }
-        if (!exact) item(key = "exact") {
-            StatusBanner("Timers may end late. Allow exact alarms so a timer ends on the second.", Modifier.padding(bottom = Tokens.Gap), button = "Allow") {
-                runCatching { exactLauncher.launch(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:" + ctx.packageName))) }
-            }
-        }
         item(key = "preview") {
             val shown = Timers.shown(state.all, state.watch, now, state.focus)
             val demo = if (tab == 1) GlyphTimers.preview(watchStyle) else GlyphTimers.preview(style)
+            val anim = remember(shown?.let { it::class }, shown?.key, now / 1000, style, watchStyle, tab, timing, lastTen) {
+                previewOf(shown, style, watchStyle) ?: demo
+            }
+            val styleName = if (tab == 1) watchStyle.label else style.label
+            val description = shown?.let { GlyphTimers.label(it) } ?: "$styleName style preview"
+            val caption = if (shown == null) "Style preview · $styleName" else "On the Glyph now"
+            val status = shown?.let { GlyphTimers.label(it) } ?: if (tab == 1) "Start the stopwatch below." else "Nothing running. Pick a time below."
+            val dim = if (shown == null) Modifier.alpha(0.6f) else Modifier
             Column(Modifier.fillMaxWidth().padding(vertical = Tokens.Small), horizontalAlignment = Alignment.CenterHorizontally) {
-                val anim = remember(shown?.let { it::class }, shown?.key, now / 1000, style, watchStyle, tab, timing, lastTen) {
-                    previewOf(shown, style, watchStyle) ?: demo
+                if (short) {
+                    // a short screen: the preview beside its words, so "Start a timer" shows without scrolling
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        GlyphPreview(anim, description, Modifier.size(96.dp).then(dim), size = PreviewSize.LARGE, userPlay = true)
+                        Column(Modifier.weight(1f).padding(start = Tokens.Gutter)) {
+                            Text(caption, style = MaterialTheme.typography.labelMedium, color = Tokens.Secondary)
+                            Text(status, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodyLarge, color = Tokens.Text)
+                        }
+                    }
+                } else {
+                    GlyphPreview(anim, description, Modifier.size(160.dp).then(dim), size = PreviewSize.LARGE, userPlay = true)
+                    Text(caption, Modifier.padding(top = Tokens.Small), style = MaterialTheme.typography.labelMedium, color = Tokens.Secondary)
+                    Text(status, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodyLarge, color = Tokens.Text, textAlign = TextAlign.Center)
                 }
-                val styleName = if (tab == 1) watchStyle.label else style.label
-                GlyphPreview(
-                    anim, shown?.let { GlyphTimers.label(it) } ?: "$styleName style preview",
-                    Modifier.size(if (short) 120.dp else 160.dp).then(if (shown == null) Modifier.alpha(0.6f) else Modifier),
-                    size = PreviewSize.LARGE, userPlay = true,
-                )
-                Text(
-                    if (shown == null) "Style preview · $styleName" else "On the Glyph now",
-                    Modifier.padding(top = Tokens.Small), style = MaterialTheme.typography.labelMedium, color = Tokens.Secondary,
-                )
-                Text(
-                    shown?.let { GlyphTimers.label(it) } ?: if (tab == 1) "Start the stopwatch below." else "Nothing running. Pick a time to start.",
-                    Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                    style = MaterialTheme.typography.bodyLarge, color = Tokens.Text, textAlign = TextAlign.Center,
-                )
-                Text(
-                    "Face down hides the Glyph. Stand the phone up.", Modifier.padding(top = Tokens.Tiny),
-                    style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, textAlign = TextAlign.Center,
+                // only while the Glyph shows something: then it matters which way up the phone lies
+                if (shown != null) Text(
+                    "Face down hides the Glyph. Stand the phone up.", Modifier.fillMaxWidth().padding(top = Tokens.Tiny),
+                    style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, textAlign = if (short) TextAlign.Start else TextAlign.Center,
                 )
                 if (shown is TimerShown.Done) {
                     val t = shown.timer
@@ -188,6 +197,18 @@ fun TimerFeature(nav: Nav, setup: Setup) {
         item(key = "tabs") { Segmented(listOf("Timer", "Stopwatch"), tab, Modifier.padding(vertical = Tokens.Small)) { tab = it } }
         if (tab == 0) timerTab(state, now, presets, onCustom = { custom = true }, onActions = { actionsFor = it }, onStop = stop)
         else stopwatchTab(state, now)
+        if (asks.isNotEmpty()) item(key = "allow") {
+            AllowLine(asks, Modifier.padding(top = Tokens.Gap)) { allow = true }
+        }
+        item(key = "glyph") {
+            RowGroup(Modifier.padding(top = Tokens.Section)) {
+                ListRow(
+                    "On the Glyph", Modifier.testTag(ON_THE_GLYPH_TAG), subtitle = glyphSummary(timing, lastTen),
+                    leading = { GlyphPreview(remember(timing) { GlyphTimers.finishPreview() }, "The finish with these settings") },
+                    trailing = { Chevron() },
+                ) { glyph = true }
+            }
+        }
         item(key = "style") {
             SectionLabel("Style")
             RowGroup {
@@ -201,48 +222,22 @@ fun TimerFeature(nav: Nav, setup: Setup) {
                 ) { styles = true }
             }
         }
-        item(key = "glyph") {
-            SectionLabel("On the Glyph")
-            RowGroup {
-                Column(Modifier.padding(horizontal = Tokens.Gutter, vertical = Tokens.Small)) {
-                    TimingPanel(
-                        timing, TimingKind.ANIMATION, showLine = false, animationMs = remember { TimerFaces.finished(AppGraph.profile).totalMs },
-                        parts = FINISH_PARTS, onChange = GlyphTimers::setTiming,
-                    )
-                }
-                RowDivider()
-                SwitchRow("Last 10 seconds", "Each second counts down big, with a ring flash", lastTen, onCheckedChange = GlyphTimers::setLastTen)
-                RowDivider()
-                Row(Modifier.fillMaxWidth().padding(horizontal = Tokens.Gutter, vertical = Tokens.Gap), verticalAlignment = Alignment.CenterVertically) {
-                    GlyphPreview(remember(timing) { GlyphTimers.finishPreview() }, "The finish with these settings")
-                    Text(finishLine(timing), Modifier.weight(1f).padding(horizontal = Tokens.Gutter), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
-                    SecondaryButton("Try it", onClick = GlyphTimers::tryFinish)
-                }
-            }
-        }
         item(key = "also") {
             SectionLabel("Also")
             RowGroup {
                 SwitchRow("Sound", "Rings with your alarm sound while the finish runs", sound, onCheckedChange = GlyphTimers::setSound)
                 RowDivider()
                 SwitchRow("Vibrate", "Buzzes while the finish runs", vibrate, onCheckedChange = GlyphTimers::setVibrate)
-            }
-            Hint("When a timer ends, Time's up fills the screen, even on the lock screen.")
-        }
-        item(key = "clock") {
-            RowGroup(Modifier.padding(top = Tokens.Small)) {
+                RowDivider()
                 val access = setup.notificationAccess
                 SwitchRow(
                     "Show Clock app timers",
-                    if (!access) "Needs access" else "Timers and the stopwatch you start in the Clock app show on the Glyph too",
+                    if (!access) "Needs notification access" else "Timers and the stopwatch you start in the Clock app show on the Glyph too",
                     mirror && access, enabled = access, onCheckedChange = GlyphTimers::setMirrorClock,
                 )
             }
-            if (!setup.notificationAccess) {
-                StatusBanner(
-                    "Let DotForge read notifications to show the Clock app's timers.", Modifier.padding(top = Tokens.Gap), button = "Allow",
-                ) { setup.needNotificationAccess() }
-            }
+            // promised only once it's true: Time's up needs the notification permission
+            if (canPost) Hint("When a timer ends, Time's up fills the screen, even on the lock screen.")
         }
     }
 
@@ -255,6 +250,22 @@ fun TimerFeature(nav: Nav, setup: Setup) {
         if (tab == 0) StyleSheet(style, { styles = false }) { GlyphTimers.setStyle(it); styles = false }
         else WatchStyleSheet(watchStyle, { styles = false }) { GlyphTimers.setWatchStyle(it); styles = false }
     }
+    if (glyph) TimingSheet(
+        timing, TimingKind.ANIMATION, remember { TimerFaces.finished(AppGraph.profile) }, "The finish", { glyph = false },
+        title = "On the Glyph", plainLine = finishLine(timing), parts = FINISH_PARTS, onChange = GlyphTimers::setTiming,
+        extra = {
+            androidx.compose.material3.HorizontalDivider(Modifier.padding(top = Tokens.Section), color = Tokens.Hairline)
+            SwitchRow("Last 10 seconds", "Each second counts down big, with a ring flash", lastTen, inset = 0.dp, onCheckedChange = GlyphTimers::setLastTen)
+            Row(Modifier.fillMaxWidth().padding(vertical = Tokens.Small), verticalAlignment = Alignment.CenterVertically) {
+                Text("The last 3 seconds and the finish, on the Glyph", Modifier.weight(1f).padding(end = Tokens.Gutter), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
+                SecondaryButton("Try it", onClick = GlyphTimers::tryFinish)
+            }
+        },
+    )
+    if (allow) FullSheet({ allow = false }, "Allow", subtitle = "Each one makes timers work better", confirm = null) {
+        asks.forEach { a -> OptionRow(a.title, a.why, chevron = false) { a.go(); allow = false } }
+        if (asks.isEmpty()) Hint("All set.")
+    }
     actionsFor?.let { id ->
         val t = state.all.firstOrNull { it.id == id }
         if (t == null) actionsFor = null
@@ -262,29 +273,67 @@ fun TimerFeature(nav: Nav, setup: Setup) {
     }
 }
 
-/** The finish part of On the Glyph: brightness first (it covers everything), then how the finish runs. */
+/** The On the Glyph row on both pages (tests and captures open it by this tag). */
+const val ON_THE_GLYPH_TAG = "on-the-glyph"
+
+/** One thing to allow: its name, why, and what asks for it. */
+private class Ask(val title: String, val why: String, val go: () -> Unit)
+
+/** Everything to allow on one line: "2 things to allow · Review", or the one thing with Allow. */
+@Composable
+private fun AllowLine(asks: List<Ask>, modifier: Modifier = Modifier, onReview: () -> Unit) {
+    val one = asks.singleOrNull()
+    Row(
+        modifier.fillMaxWidth().background(Tokens.Raised, Tokens.CardShape).padding(start = Tokens.Gutter, end = Tokens.Tiny),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(Tokens.Icon))
+        Text(
+            if (one != null) "Allow ${one.title.lowercase()}" else "${asks.size} things to allow",
+            Modifier.weight(1f).padding(horizontal = Tokens.Small), style = MaterialTheme.typography.bodyMedium, color = Tokens.Text,
+        )
+        TextButton(onClick = { if (one != null) one.go() else onReview() }, modifier = Modifier.heightIn(min = Tokens.Target)) {
+            Text(if (one != null) "Allow" else "Review", style = MaterialTheme.typography.labelLarge, color = Color.White)
+        }
+    }
+}
+
+/** The On the Glyph row's line: "100% · finish 30 s, repeats every 1 min". */
+internal fun glyphSummary(t: com.dotforge.device.Timing, lastTen: Boolean = true): String {
+    val c = t.clamped()
+    val finish = when (c.showFor) {
+        com.dotforge.device.ShowFor.SECONDS -> "finish ${runText(c.seconds)}" + if (c.remindMinutes > 0) ", repeats every ${c.remindMinutes} min" else ", no repeat"
+        else -> "finish until dismissed"
+    }
+    return listOfNotNull("${c.brightness}%", speedText(c.speed).takeIf { c.speed != 1f }, finish, "last 10 s off".takeIf { !lastTen }).joinToString(" · ")
+}
+
+private fun runText(seconds: Int) = if (seconds % 60 == 0) "${seconds / 60} min" else "$seconds s"
+
+/**
+ * The timer's On the Glyph sheet, in the panel's order: how long the finish runs, its speed, whether it comes
+ * back (every 1 or 5 min until dismissed), and brightness (chips; the slider behind "Exact brightness").
+ */
 private val FINISH_PARTS = TimingParts(
-    brightnessFirst = true,
     showForTitle = "When it ends",
     whole = false,
     secondsChips = GlyphTimers.RUN_CHIPS,
     untilLabel = "Until dismissed",
     exactTime = false,
-    remindTitle = "Then flash again",
-    remindChips = listOf(1),
+    remindChips = listOf(1, 5),
     remindAfterSeconds = true,
+    remindAlways = true,
     speedTitle = "Finish speed",
     speedSlider = false,
     forever = false,
     more = false,
+    compactBrightness = true,
 )
 
-/** "The finish runs for 30 s, then flashes again every minute." */
+/** "The finish runs for 30 s, then plays again every 1 min until you dismiss it." */
 internal fun finishLine(t: com.dotforge.device.Timing): String = when (t.showFor) {
-    com.dotforge.device.ShowFor.SECONDS -> {
-        val run = if (t.seconds % 60 == 0) "${t.seconds / 60} min" else "${t.seconds} s"
-        "The finish runs for $run" + if (t.remindMinutes > 0) ", then flashes again every minute." else "."
-    }
+    com.dotforge.device.ShowFor.SECONDS -> "The finish runs for ${runText(t.seconds)}" +
+        if (t.remindMinutes > 0) ", then plays again every ${t.remindMinutes} min until you dismiss it." else ", once."
     else -> "The finish runs until you dismiss it."
 }
 
@@ -364,19 +413,19 @@ private fun TimerRow(t: GlyphTimer, now: Long, shown: Boolean, others: Boolean, 
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 2)
             if (shown) GlyphBadge(Modifier.padding(top = Tokens.Tiny))
-            else if (others && !over) Text(
-                "Show on Glyph",
-                Modifier.padding(top = Tokens.Tiny).heightIn(min = 32.dp)
-                    .clickable(role = Role.Button) { GlyphTimers.showOnGlyph(t.id) }.padding(vertical = 6.dp),
-                style = MaterialTheme.typography.labelLarge, color = Color.White,
-            )
+            else if (others && !over) Box(
+                // a full 48 dp target, the words at the row's start
+                Modifier.heightIn(min = Tokens.Target).clickable(role = Role.Button, onClickLabel = "Show ${t.name} on the Glyph") { GlyphTimers.showOnGlyph(t.id) }
+                    .padding(end = Tokens.Small),
+                contentAlignment = Alignment.CenterStart,
+            ) { Text("Show on Glyph", style = MaterialTheme.typography.labelLarge, color = Color.White) }
         }
         when {
             over -> TextButton(onClick = { GlyphTimers.dismiss(t.id) }, modifier = Modifier.padding(start = Tokens.Tiny)) {
                 Text("Dismiss", style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
-            clock -> IconButton(onClick = { GlyphTimers.dismiss(t.id) }) {
-                Icon(DfIcons.EyeOff, contentDescription = "Stop showing on the Glyph", tint = Color.White)
+            clock -> TextButton(onClick = { GlyphTimers.dismiss(t.id) }, modifier = Modifier.heightIn(min = Tokens.Target)) {
+                Text("Hide", style = MaterialTheme.typography.labelLarge, color = Color.White, modifier = Modifier.semantics { contentDescription = "Hide ${t.name} from the Glyph" })
             }
             else -> Row {
                 IconButton(onClick = { if (t.running) GlyphTimers.pause(t.id) else GlyphTimers.resume(t.id) }) {
@@ -387,17 +436,6 @@ private fun TimerRow(t: GlyphTimer, now: Long, shown: Boolean, others: Boolean, 
         }
     }
 }
-
-/** A small white badge: this one is on the Glyph. */
-@Composable
-private fun GlyphBadge(modifier: Modifier = Modifier) =
-    Row(
-        modifier.background(Color.White, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(6.dp).background(Tokens.Accent, RoundedCornerShape(3.dp)))
-        Text("On the Glyph", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, color = Color.Black)
-    }
 
 /** Tapping a timer: show it on the Glyph, +1 min, pause or resume, stop. */
 @Composable
@@ -428,7 +466,7 @@ private fun LazyListScope.stopwatchTab(state: GlyphTimers.State, now: Long) {
     item(key = "watch") {
         Column(Modifier.fillMaxWidth().padding(top = Tokens.Small), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                TimerFaces.lap(w.elapsed(now)), style = MaterialTheme.typography.displayMedium,
+                TimerFaces.lap(w.elapsed(now)), style = READOUT,
                 modifier = Modifier.semantics { contentDescription = "Stopwatch " + TimerFaces.clock(w.elapsed(now), roundUp = false) },
             )
             if (w.started && !w.running) Text("Paused", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary)
@@ -482,6 +520,13 @@ private fun LazyListScope.stopwatchTab(state: GlyphTimers.State, now: Long) {
     }
 }
 
+/**
+ * The stopwatch and keypad readout: Inter with even-width digits, so ":" and "." read as themselves (the dot
+ * font drew them as crosses) and the digits don't jump as they change.
+ */
+private val READOUT: TextStyle
+    @Composable get() = MaterialTheme.typography.displayMedium.copy(fontFamily = Inter, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
+
 /** With 3 laps or more: the fastest and the slowest lap by number. */
 internal fun lapMarks(rows: List<Lap>): Map<Int, String> {
     if (rows.size < 3) return emptyMap()
@@ -504,11 +549,19 @@ private fun CustomTimerSheet(onDismiss: () -> Unit, onStart: (Long, String, Bool
     val ms = Timers.keypad(digits)
     // on a short screen the keys are 48 dp, so Start shows without scrolling
     val key = if (LocalConfiguration.current.screenHeightDp < 700) Tokens.Target else 56.dp
-    FullSheet(onDismiss, "Custom timer", confirm = null) {
+    FullSheet(
+        onDismiss, "Custom timer", confirm = null,
+        // Start is pinned under the keys: it never sits under the scroll fade
+        footer = {
+            PrimaryButton(
+                if (ms > 0) "Start " + Timers.lengthName(ms) else "Start", Modifier.fillMaxWidth().padding(top = Tokens.Small), enabled = ms > 0,
+            ) { onStart(ms.coerceAtLeast(1_000), label.trim(), save) }
+        },
+    ) {
         val d = digits.padStart(6, '0')
         Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.Bottom) {
             listOf(d.substring(0, 2) to "h", d.substring(2, 4) to "m", d.substring(4, 6) to "s").forEach { (v, unit) ->
-                Text(v, style = MaterialTheme.typography.displayMedium, color = if (digits.isEmpty()) Tokens.Secondary else Tokens.Text)
+                Text(v, style = READOUT, color = if (digits.isEmpty()) Tokens.Secondary else Tokens.Text)
                 Text(unit, Modifier.padding(start = 2.dp, end = 10.dp, bottom = 8.dp), style = MaterialTheme.typography.titleMedium, color = Tokens.Secondary)
             }
         }
@@ -538,9 +591,6 @@ private fun CustomTimerSheet(onDismiss: () -> Unit, onStart: (Long, String, Bool
             label = { Text("Name (optional)") }, placeholder = { Text("Tea") }, singleLine = true,
         )
         SwitchRow("Save as preset", "It joins the chips above", save, inset = 0.dp) { save = it }
-        PrimaryButton(
-            if (ms > 0) "Start " + Timers.lengthName(ms) else "Start", Modifier.fillMaxWidth().padding(top = Tokens.Small), enabled = ms > 0,
-        ) { onStart(ms.coerceAtLeast(1_000), label.trim(), save) }
     }
 }
 

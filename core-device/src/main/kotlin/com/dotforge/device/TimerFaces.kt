@@ -53,6 +53,9 @@ object TimerFaces {
     const val STEPS = 4
     const val GRID = 5
     private val PLUS = listOf(0 to 0, -1 to 0, 1 to 0, 0 to -1, 0 to 1)
+    /** The hourglass's glass, about 40 %. */
+    private const val GLASS = 105
+
     /** The dim track an empty ring keeps. */
     private const val TRACK = 20
 
@@ -79,20 +82,20 @@ object TimerFaces {
         return if (s > 60) "${ceil(s / 60.0).toLong()}" else "$s"
     }
 
-    /** What the middle of the Glyph reads: "4:12" (h:mm from an hour on), or the bare seconds under a minute. */
+    /** What the middle of the Glyph reads: "4:12", "1h02" from an hour on, or the bare seconds under a minute. */
     fun readout(seconds: Long): String {
         val s = seconds.coerceAtLeast(0)
         return when {
-            s >= 3600 -> "%d:%02d".format(s / 3600, (s % 3600) / 60)
+            s >= 3600 -> "%dh%02d".format(s / 3600, (s % 3600) / 60)
             s >= 60 -> "%d:%02d".format(s / 60, s % 60)
             else -> "$s"
         }
     }
 
-    /** The stopwatch's reading: always m:ss ("0:05", "12:30"), h:mm from an hour on. */
+    /** The stopwatch's reading: always m:ss ("0:05", "12:30"); from an hour on hours and minutes, "1h02". */
     fun watchReadout(seconds: Long): String {
         val s = seconds.coerceAtLeast(0)
-        return if (s >= 3600) "%d:%02d".format(s / 3600, (s % 3600) / 60) else "%d:%02d".format(s / 60, s % 60)
+        return if (s >= 3600) "%dh%02d".format(s / 3600, (s % 3600) / 60) else "%d:%02d".format(s / 60, s % 60)
     }
 
     // ---------------------------------------------------------------- text
@@ -142,13 +145,13 @@ object TimerFaces {
         val s = ceil(left / 1000.0).toLong()
         return when (style) {
             TimerStyle.RING_DRAIN -> {
-                val ring = if (s >= 60) drain(p, fraction) else secondsRing(p, s, sub)
+                val ring = if (s >= 60) drain(p, fraction, sub) else secondsRing(p, s, sub)
                 ring.overlay(middleFrame(p, s))
             }
             TimerStyle.ORBIT -> {
                 // the comet laps once a minute, clockwise as the seconds pass, over the whole timer's draining ring
                 val inMinute = ((60_000 - left % 60_000) % 60_000) / 60_000f + sub / 60f
-                val base = if (s >= 60) Effects.ring(p, fraction, on = 70, off = TRACK) else Effects.ring(p, s / 60f, on = 70, off = TRACK)
+                val base = if (s >= 60) Effects.ring(p, fraction, on = ORBIT_BASE, off = TRACK) else Effects.ring(p, s / 60f, on = ORBIT_BASE, off = TRACK)
                 comet(base, inMinute).overlay(middleFrame(p, s))
             }
             TimerStyle.HOURGLASS -> hourglass(p, fraction, sub)
@@ -169,10 +172,10 @@ object TimerFaces {
         return when (style) {
             StopwatchStyle.BIG_DIGITS -> {
                 val s = e / 1000
-                if (s >= 3600) Effects.centredDigits(p, listOf("${s / 3600}", "%02d".format((s % 3600) / 60)))
+                if (s >= 3600) Effects.centredDigits(p, listOf("${s / 3600}h", "%02d".format((s % 3600) / 60)))
                 else Effects.centredDigits(p, listOf("%02d".format(s / 60), "%02d".format(s % 60)))
             }
-            StopwatchStyle.RING_FILLS -> headed(p, minute, 255, 150).overlay(small(p, text))
+            StopwatchStyle.RING_FILLS -> headed(p, minute, 255, 150, sub).overlay(small(p, text))
             StopwatchStyle.PIE -> {
                 val f = pie(p, minute)
                 val t = small(p, text)
@@ -195,7 +198,7 @@ object TimerFaces {
     fun bigDigits(p: DeviceProfile, seconds: Long): Frame {
         val s = seconds.coerceAtLeast(0)
         return when {
-            s >= 3600 -> Effects.centredDigits(p, listOf("${s / 3600}", "%02d".format((s % 3600) / 60)))
+            s >= 3600 -> Effects.centredDigits(p, listOf("${s / 3600}h", "%02d".format((s % 3600) / 60)))
             s >= 60 -> Effects.centredDigits(p, listOf("%02d".format(s / 60), "%02d".format(s % 60)))
             else -> Effects.centredDigits(p, listOf("$s"))
         }
@@ -205,15 +208,19 @@ object TimerFaces {
      * The ring lit for [fraction], clockwise from 12 o'clock, its edge a bright head with a fading tail behind it
      * ([head], then down to [body]) over a dim track.
      */
-    fun headed(p: DeviceProfile, fraction: Float, head: Int = 255, body: Int = 150): Frame {
+    fun headed(p: DeviceProfile, fraction: Float, head: Int = 255, body: Int = 150, sub: Float? = null): Frame {
         val f = Frame.blank(p)
         val ring = p.ring
         val n = (ring.size * fraction.coerceIn(0f, 1f)).roundToInt()
-        val tail = listOf(head, 225, 195, 170)
+        val tail = listOf(head, 230, 205, 185, 170, 160)
+        // a glint runs down the tail once a second ([sub]), so the head moves even while the edge stands still
+        val glint = sub?.let { (it.coerceIn(0f, 0.999f) * tail.size).toInt() }
         ring.forEachIndexed { i, cell ->
+            val t = n - 1 - i
             f.pixels[cell] = when {
                 i >= n -> TRACK
-                n - 1 - i < tail.size -> maxOf(tail[n - 1 - i], body)
+                t == glint -> 255
+                t < tail.size -> maxOf(tail[t], body)
                 else -> body
             }
         }
@@ -221,7 +228,7 @@ object TimerFaces {
     }
 
     /** The ring lit for what is left: it drains back to 12 o'clock, a bright head at the draining edge. */
-    fun drain(p: DeviceProfile, fraction: Float): Frame = headed(p, fraction)
+    fun drain(p: DeviceProfile, fraction: Float, sub: Float? = null): Frame = headed(p, fraction, sub = sub)
 
     /**
      * The last minute's seconds ring: lit for [seconds] of 60. Each second starts with a tick: the dot that just
@@ -239,19 +246,38 @@ object TimerFaces {
         return f
     }
 
-    /** A comet on [base]'s ring: a full-brightness head at [position] (0..1 clockwise from 12) and a 5-dot fading tail. */
+    /**
+     * A comet on [base]'s ring: a full-brightness head at [position] (0..1 clockwise from 12) and a 7-dot tail
+     * fading out behind it. The head is placed between dots (the dot ahead fades in as it nears), so it glides:
+     * every quarter second looks different even though it laps only once a minute.
+     */
     fun comet(base: Frame, position: Float): Frame {
         val f = base.copy()
         val ring = f.profile.ring
         val n = ring.size
-        val head = Math.floorMod((((position % 1f) + 1f) % 1f * n).roundToInt(), n)
-        val levels = listOf(255, 255, 200, 145, 95, 55)
-        for ((t, v) in levels.withIndex()) {
-            val cell = ring[Math.floorMod(head - t, n)]
-            f.pixels[cell] = maxOf(f.pixels[cell], v)
+        val at = (((position % 1f) + 1f) % 1f) * n
+        val i0 = kotlin.math.floor(at).toInt()
+        val frac = at - i0
+        fun put(i: Int, v: Int) {
+            val cell = ring[Math.floorMod(i, n)]
+            f.pixels[cell] = maxOf(f.pixels[cell], v.coerceIn(0, 255))
+        }
+        // the dot ahead, fading in
+        if (frac > 0.05f) put(i0 + 1, (255 * frac).roundToInt())
+        for (t in 0..COMET_TAIL.size) {
+            val d = frac + t // how far this dot is behind the head
+            val k = d.toInt()
+            val v = if (k + 1 < COMET_TAIL.size) COMET_TAIL[k] + (COMET_TAIL[k + 1] - COMET_TAIL[k]) * (d - k) else 0f
+            if (v > 0) put(i0 - t, (255 * v).roundToInt())
         }
         return f
     }
+
+    /** Orbit's draining ring under the comet: dim, so the comet's whole tail shows over it. */
+    private const val ORBIT_BASE = 45
+
+    /** The comet's tail: brightness by dots behind the head. */
+    private val COMET_TAIL = listOf(1f, 0.72f, 0.5f, 0.34f, 0.22f, 0.13f, 0.07f, 0f)
 
     /** One bright comet on a dim track, [position] 0..1 clockwise from 12. */
     fun orbit(p: DeviceProfile, position: Float): Frame = comet(Effects.ring(p, 0f, off = TRACK), position)
@@ -327,16 +353,19 @@ object TimerFaces {
     fun hourglass(p: DeviceProfile, fraction: Float, sub: Float): Frame {
         val f = Frame.blank(p)
         val c = c(p).toInt()
-        val half = 9 // rows from the neck to a bulb's end
+        val half = 8 // rows from the neck to a bulb's end
         val top = c - half
         val bottom = c + half
-        fun width(y: Int) = (abs(y - c) * 7 / half).coerceAtLeast(1)
+        fun width(y: Int) = (abs(y - c) * 6 / half).coerceAtLeast(1)
+        // the stand: a plate above and below, and a post each side
+        for (x in c - 7..c + 7) { f[x, top - 1] = 190; f[x, bottom + 1] = 190 }
+        for (y in top..bottom) { f[c - 8, y] = 60; f[c + 8, y] = 60 }
         val inside = ArrayList<Pair<Int, Int>>()
         for (y in top..bottom) {
             val w = width(y)
-            f[c - w - 1, y] = 70
-            f[c + w + 1, y] = 70
-            if (y == top || y == bottom) for (x in c - w - 1..c + w + 1) f[x, y] = 70
+            f[c - w - 1, y] = GLASS
+            f[c + w + 1, y] = GLASS
+            if (y == top || y == bottom) for (x in c - w - 1..c + w + 1) f[x, y] = GLASS
             else if (y != c) for (x in c - w..c + w) inside += x to y
         }
         val upper = inside.filter { it.second < c }.sortedByDescending { it.second } // nearest the neck first
@@ -502,8 +531,11 @@ object TimerFaces {
     fun preview(p: DeviceProfile, style: TimerStyle): Animation {
         val total = 90_000L
         val frames = ArrayList<AnimFrame>()
+        // it opens on 1:06, the same number in every preview, and holds it for a moment
+        frames += AnimFrame(countdown(p, style, 66_000, total, 0f), 1200)
+        for (k in 1..3) frames += AnimFrame(countdown(p, style, 66_000, total, k / 4f), 400)
         var i = 0
-        for (left in listOf(90_000L, 82_000, 74_000, 66_000, 58_000, 46_000, 34_000, 22_000, 14_000)) {
+        for (left in listOf(58_000L, 46_000, 34_000, 22_000, 14_000)) {
             for (step in 0 until 2) frames += AnimFrame(countdown(p, style, left, total, (i++ % STEPS) / STEPS.toFloat()), 160)
         }
         for (s in 3 downTo 1) frames += lastSeconds(p, s * 1000L).frames
@@ -511,9 +543,14 @@ object TimerFaces {
         return Animation(p, frames)
     }
 
-    /** The stopwatch style's demo: 0:00 to about 1:20 quickly. */
+    /** The stopwatch style's demo: it opens on 1:06 (held a moment), then runs on quickly. */
     fun preview(p: DeviceProfile, style: StopwatchStyle): Animation =
-        Animation(p, (0 until 24).map { i -> AnimFrame(stopwatch(p, style, i * 3_500L, (i % STEPS) / STEPS.toFloat()), 160) })
+        Animation(
+            p,
+            listOf(AnimFrame(stopwatch(p, style, 66_000, 0f), 1200)) +
+                (1..3).map { k -> AnimFrame(stopwatch(p, style, 66_000, k / 4f), 400) } +
+                (1..20).map { i -> AnimFrame(stopwatch(p, style, 66_000 + i * 3_500L, (i % STEPS) / STEPS.toFloat()), 160) },
+        )
 
     private fun Frame.dim(k: Float): Frame = if (k >= 0.999f) this else scaled(k.coerceIn(0.05f, 1f))
 }

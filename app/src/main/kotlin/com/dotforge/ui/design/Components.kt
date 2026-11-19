@@ -553,6 +553,8 @@ fun FullSheet(
     pinned: (@Composable ColumnScope.() -> Unit)? = null,
     fill: Boolean = false,
     titleEnd: (@Composable () -> Unit)? = null,
+    /** Pinned under the content (a full-width Start): it never scrolls under the fade. */
+    footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     ModalBottomSheet(
@@ -627,6 +629,7 @@ fun FullSheet(
             if (scrolls && scroll.canScrollForward) Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(24.dp))
             }
+            if (footer != null) Column(Modifier.fillMaxWidth().padding(horizontal = Tokens.Gutter).padding(top = Tokens.Small, bottom = Tokens.Gutter), content = footer)
         }
         }
     }
@@ -1138,3 +1141,14 @@ fun DotSpinner(label: String?, modifier: Modifier = Modifier, size: androidx.com
         if (label != null) Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = Tokens.Gap))
     }
 }
+
+/** A small white "On the Glyph" badge with a red dot: this row is what the Glyph shows now. */
+@Composable
+fun GlyphBadge(modifier: Modifier = Modifier) =
+    Row(
+        modifier.background(Color.White, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(6.dp).background(Tokens.Accent, RoundedCornerShape(3.dp)))
+        Text("On the Glyph", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, color = Color.Black)
+    }
