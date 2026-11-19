@@ -85,7 +85,7 @@ abstract class FoundationScreens : ScreenshotTest() {
         PermissionItem("Keep DotForge running", "Keeps alerts and timers working in the background", PermissionState.NEEDED) {},
         PermissionItem("Microphone", "Only for the Music visualiser", PermissionState.OPTIONAL) {},
         PermissionItem("Modify system settings", "Only to set Glyph ringtones", PermissionState.OPTIONAL) {},
-        PermissionItem("Notifications", "Quiet copies of the notifications DotForge silences", PermissionState.ALLOWED) {},
+        PermissionItem("Show DotForge notifications", "The timer on the lock screen, and quiet copies of silenced ones", PermissionState.ALLOWED) {},
     )
 
     @Test fun profileMixedPermissionsAndHelp() {

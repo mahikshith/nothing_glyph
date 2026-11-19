@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
@@ -102,10 +103,16 @@ abstract class FirstRunScreens : ScreenshotTest() {
 
     private fun firstRun(
         start: Step? = null, device: DeviceState = DeviceState.PHONE3, apps: List<AppEntry> = many, found: String = "", refusals: Int = 0,
+        resumed: Boolean? = false, outside: Setup? = null,
     ) = show {
-        val setup = androidx.compose.runtime.remember { Setup(activity) }
-        FirstRun(setup, onRestore = {}, onDone = {}, device = device, apps = apps, backupFound = found, startAt = start, roleRefusals = refusals)
+        val setup = outside ?: androidx.compose.runtime.remember { Setup(activity) }
+        FirstRun(setup, onRestore = {}, onDone = {}, device = device, apps = apps, backupFound = found, startAt = start, roleRefusals = refusals, resumed = resumed)
         SetupSheets(setup)
+    }
+
+    private fun tap(text: String) {
+        rule.onNodeWithText(text).performSemanticsAction(SemanticsActions.OnClick)
+        settle()
     }
 
     // ---------------------------------------------------------------- Welcome
@@ -139,7 +146,19 @@ abstract class FirstRunScreens : ScreenshotTest() {
         capture(f, "02b-card-notification-access-done")
     }
 
+    @Test fun notificationAccessBlockedByAndroid() {
+        // a sideloaded install: back from Android's page without access, so the unlock steps show over the card
+        val setup = Setup(activity)
+        firstRun(Step.NOTIFICATIONS, outside = setup)
+        settle()
+        tap("Allow")
+        rule.runOnUiThread { setup.onResume() }
+        settle()
+        capture(f, "02c-card-notification-access-android-blocked")
+    }
+
     @Test fun calls() {
+        shadowOf(ctx.getSystemService(RoleManager::class.java)).addAvailableRole(RoleManager.ROLE_CALL_SCREENING)
         firstRun(Step.CALLS)
         settle()
         capture(f, "03-card-calls")
@@ -151,6 +170,12 @@ abstract class FirstRunScreens : ScreenshotTest() {
         capture(f, "03c-card-calls-role-refused-twice")
     }
 
+    @Test fun callsNoRoleOnThisPhone() {
+        firstRun(Step.CALLS)
+        settle()
+        capture(f, "03g-card-calls-no-role-default-apps")
+    }
+
     @Test fun callsAllowed() {
         shadowOf(ctx.getSystemService(RoleManager::class.java)).addHeldRole(RoleManager.ROLE_CALL_SCREENING)
         firstRun(Step.CALLS)
@@ -160,6 +185,15 @@ abstract class FirstRunScreens : ScreenshotTest() {
         firstRun(Step.CALLS)
         settle()
         capture(f, "03e-card-calls-done")
+    }
+
+    @Test fun callsContactsBlocked() {
+        // Contacts refused twice: the card says App info is the only way, before opening it
+        shadowOf(ctx.getSystemService(RoleManager::class.java)).addHeldRole(RoleManager.ROLE_CALL_SCREENING)
+        ctx.getSharedPreferences("setup", android.content.Context.MODE_PRIVATE).edit().putBoolean("contacts_asked", true).commit()
+        firstRun(Step.CALLS)
+        settle()
+        capture(f, "03f-card-calls-contacts-blocked")
     }
 
     @Test fun keepRunning() {
@@ -177,9 +211,8 @@ abstract class FirstRunScreens : ScreenshotTest() {
         firstRun(Step.CALLER_NAME)
         settle()
         capture(f, "05-card-caller-name-optional")
-        rule.onNodeWithText("Open Glyph settings").performSemanticsAction(SemanticsActions.OnClick)
-        settle()
-        capture(f, "05b-card-caller-name-after-settings")
+        tap("Open Glyph Interface")
+        capture(f, "05b-card-caller-name-opened")
         soundOnly()
         firstRun(Step.CALLER_NAME)
         settle()
@@ -223,6 +256,36 @@ abstract class FirstRunScreens : ScreenshotTest() {
         firstRun(Step.DONE)
         settle()
         capture(f, "07b-done-two-still-need-permission")
+    }
+
+    @Test fun backFromDone() {
+        firstRun(Step.PICK_APPS, apps = onlyPhone)
+        settle()
+        tap("Continue with 1")
+        rule.onNodeWithContentDescription("Back").performSemanticsAction(SemanticsActions.OnClick)
+        settle()
+        capture(f, "07c-back-from-done-pick-apps")
+        tap("Continue with 1")
+        capture(f, "07d-done-again-hello-not-replayed")
+    }
+
+    // ---------------------------------------------------------------- a restored or existing install
+
+    @Test fun startAfterRestore() {
+        FirstRunPrefs.markRestored(activity)
+        allowAccess()
+        firstRun(resumed = null)
+        settle()
+        capture(f, "08-start-after-restore-first-core-card-to-do")
+    }
+
+    @Test fun startExistingInstall() {
+        allowAccess(); allowCalls()
+        firstRun(resumed = true)
+        settle()
+        capture(f, "08b-start-existing-install-keep-running")
+        tap("Not now")
+        capture(f, "08c-existing-install-done-no-pick-apps")
     }
 
     // ---------------------------------------------------------------- Settings > Permissions, Profile, Home

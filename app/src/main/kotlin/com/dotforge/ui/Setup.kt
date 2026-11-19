@@ -125,6 +125,17 @@ class Setup(private val activity: ComponentActivity) {
         return runCatching { launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)) }.isSuccess
     }
 
+    /** This phone has the call screening role (some don't: First run then goes straight to Default apps). */
+    fun screeningRoleAvailable(): Boolean =
+        activity.getSystemService(RoleManager::class.java)?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true
+
+    /** Contacts was refused before and Android won't show its dialog again: only App info can turn it on. */
+    fun contactsBlocked(): Boolean =
+        !contacts && prefs.getBoolean(KEY_CONTACTS_ASKED, false) && !activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_CONTACTS)
+
+    /** DotForge's App info page, without the notification-access unlock steps that [openAppInfo] starts. */
+    fun openAppSettings() = openAppDetails()
+
     /** Android's Default apps page, where the caller ID and spam app is picked once its dialog stops showing. */
     fun openDefaultApps() {
         runCatching { activity.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }.onFailure { openAppDetails() }

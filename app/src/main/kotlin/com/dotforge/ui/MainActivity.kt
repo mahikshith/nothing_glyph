@@ -142,13 +142,17 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * First run until it is finished or skipped, then never again (FirstRunPrefs); [app] after that. "Restore from a
+ * First run until it is finished or skipped, then never again (FirstRunPrefs); [app] after that. An existing or
+ * restored install sees only the core permission cards still to do. "Restore from a
  * backup" shows the Backup page over the app and comes back to First run if the user returns without restoring.
  */
 @Composable
 fun FirstRunHost(nav: Nav, setup: Setup, app: @Composable () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var firstRun by rememberSaveable { mutableStateOf(!com.dotforge.setup.FirstRunPrefs.done(ctx)) }
+    // an install that was already set up with nothing left to allow is marked done without showing anything
+    var firstRun by rememberSaveable {
+        mutableStateOf(com.dotforge.setup.FirstRunPrefs.shouldShow(ctx, setup.perms, com.dotforge.ui.alerts.deviceState(ctx) == com.dotforge.ui.alerts.DeviceState.PHONE3))
+    }
     var restoring by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(nav.page) { if (nav.page == null) restoring = false }
     if (firstRun && !restoring) {

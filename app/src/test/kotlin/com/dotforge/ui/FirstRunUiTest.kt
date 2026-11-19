@@ -156,14 +156,41 @@ class FirstRunUiTest {
         shadowOf(rule.activity).receiveResult(asked.intent, Activity.RESULT_CANCELED, null)
         rule.waitForIdle()
         assertTrue(Manifest.permission.READ_CONTACTS in shadowOf(rule.activity).lastRequestedPermission.requestedPermissions)
-        rule.onNodeWithText("Android didn't let DotForge screen calls, so spam calls can't be blocked.").assertExists()
+        rule.onNodeWithText("Call screening is off, so spam calls won't be blocked.").assertExists()
         rule.onNodeWithText("Try again").assertExists()
+    }
+
+    @Test fun refusedTwiceOpensDefaultAppsWithTheSteps() {
+        shadowOf(ctx.getSystemService(RoleManager::class.java)).addAvailableRole(RoleManager.ROLE_CALL_SCREENING)
+        firstRun(Step.CALLS)
+        repeat(2) {
+            rule.onNodeWithText(if (it == 0) "Allow" else "Try again").tap()
+            rule.waitForIdle()
+            val asked = shadowOf(rule.activity).nextStartedActivityForResult
+            shadowOf(rule.activity).receiveResult(asked.intent, Activity.RESULT_CANCELED, null)
+            rule.waitForIdle()
+        }
+        rule.onNodeWithText("Tap Caller ID & spam app, then pick DotForge.").assertExists()
+        rule.onNodeWithText("Open Default apps").tap()
+        assertEquals(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS, nextStarted()?.action)
     }
 
     @Test fun callsWithoutTheRoleOnThisPhoneOpensDefaultApps() {
         firstRun(Step.CALLS)
-        rule.onNodeWithText("Allow").tap()
+        rule.onNodeWithText("Tap Caller ID & spam app, then pick DotForge.").assertExists()
+        rule.onNodeWithText("Open Default apps").tap()
         assertEquals(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS, nextStarted()?.action)
+    }
+
+    @Test fun contactsRefusedTwiceSaysSoBeforeOpeningAppInfo() {
+        shadowOf(ctx.getSystemService(RoleManager::class.java)).addHeldRole(RoleManager.ROLE_CALL_SCREENING)
+        // asked before, and Android no longer shows its dialog: the card explains first, then opens App info
+        ctx.getSharedPreferences("setup", Context.MODE_PRIVATE).edit().putBoolean("contacts_asked", true).commit()
+        firstRun(Step.CALLS)
+        rule.onNodeWithText("Android won't ask again. In App info, tap Permissions, then Contacts.").assertExists()
+        assertNull(nextStarted())
+        rule.onNodeWithText("Open App info").tap()
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, nextStarted()?.action)
     }
 
     @Test fun callsIsDoneOnlyWithTheRoleAndContacts() {
@@ -182,9 +209,10 @@ class FirstRunUiTest {
         assertEquals(Settings.ACTION_SETTINGS, NothingSettings.glyphSettings(ctx.packageManager).intent.action)
         firstRun(Step.CALLER_NAME)
         rule.onNodeWithText("Optional").assertExists()
-        rule.onNodeWithText("Open Settings").tap()
+        // the fallback says where to go inside Settings
+        rule.onNodeWithText("Open Glyph Interface, then Ringtone lights, and pick Sound only.").assertExists()
+        rule.onNodeWithText("Open settings").tap()
         assertEquals(Settings.ACTION_SETTINGS, nextStarted()?.action)
-        rule.onNodeWithText("Set ringtone lights to Sound only, then come back.").assertExists()
     }
 
     @Test fun callerNameOpensNothingsGlyphSettingsWhenTheyExist() {
@@ -193,12 +221,30 @@ class FirstRunUiTest {
         shadowOf(ctx.packageManager).addIntentFilterForActivity(glyphs, IntentFilter("android.settings.ACTION_GLYPHS_SETTINGS").apply { addCategory(Intent.CATEGORY_DEFAULT) })
         assertEquals("android.settings.ACTION_GLYPHS_SETTINGS", NothingSettings.glyphSettings(ctx.packageManager).intent.action)
         firstRun(Step.CALLER_NAME)
-        rule.onNodeWithText("Open Glyph settings").tap()
+        rule.onNodeWithText("To see who's calling, set Glyph ringtone lights to Sound only. Nothing's own ringtone light show turns off.").assertExists()
+        rule.onNodeWithText("Open Glyph Interface").tap()
         assertEquals("android.settings.ACTION_GLYPHS_SETTINGS", nextStarted()?.action)
         // Sound only, read back on resume: Done
         Settings.Global.putString(ctx.contentResolver, NothingSettings.RINGTONE_MODE, "1")
         resume()
         rule.onNodeWithText("Done").assertExists()
+    }
+
+    @Test fun callerNameMovesOnOnceOpenedEvenWhenThePhoneDoesntSay() {
+        val glyphs = ComponentName("com.android.settings", "com.nothing.settings.GlyphSettings")
+        shadowOf(ctx.packageManager).addActivityIfNotPresent(glyphs)
+        shadowOf(ctx.packageManager).addIntentFilterForActivity(glyphs, IntentFilter("android.settings.ACTION_GLYPHS_SETTINGS").apply { addCategory(Intent.CATEGORY_DEFAULT) })
+        firstRun(Step.CALLER_NAME)
+        rule.onNodeWithText("Not now").assertExists()
+        rule.onNodeWithText("Open Glyph Interface").tap()
+        // nothing readable comes back: progress doesn't wait on it
+        resume()
+        rule.onNodeWithContentDescription("Show the caller's name: opened").assertExists()
+        rule.onNodeWithText("Not now").assertDoesNotExist()
+        rule.onNodeWithText("Open again").assertExists()
+        rule.onNodeWithText("Next").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Pick your apps", substring = true).assertExists()
     }
 
     // ---------------------------------------------------------------- Pick apps
@@ -221,7 +267,9 @@ class FirstRunUiTest {
         assertTrue(rules.any { SimpleRules.isAppRule(it) && it.packages == listOf("com.whatsapp") && it.name == "WhatsApp" })
         assertTrue(rules.any { SimpleRules.isAppRule(it) && it.packages == listOf("org.telegram.messenger") })
         assertTrue(rules.first { it.id == SimpleRules.PHONE_CALLS }.enabled)
-        rule.onNodeWithText("You're set").assertExists()
+        // nothing allowed in this test: Done names what is missing
+        rule.onNodeWithText("Almost set").assertExists()
+        rule.onNodeWithText("4 things need permission. Home shows how to fix them.").assertExists()
     }
 
     @Test fun withOnlyPhoneInstalledOnlyPhoneIsOfferedAndTicked() {
@@ -252,10 +300,46 @@ class FirstRunUiTest {
         var home = false
         firstRun(Step.DONE, onDone = { home = true })
         assertTrue(AppGraph.arbiter.active.value.any { it.id == Hello.ID } || AppGraph.arbiter.frame.value != null)
-        rule.onNodeWithText("You can change all of this in Settings.").assertExists()
+        rule.onNodeWithText("Change your apps in Alerts and your permissions in Profile.").assertExists()
         rule.onNodeWithText("Skip setup").assertDoesNotExist()
         rule.onNodeWithText("Go to Home").tap()
         assertTrue(home)
+    }
+
+    @Test fun doneSaysYoureSetOnlyWhenEveryCorePermissionIsAllowed() {
+        allowAll()
+        firstRun(Step.DONE)
+        rule.onNodeWithText("You're set").assertExists()
+        rule.onNodeWithText("need permission", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun theHelloPlaysOnceNotAgainAfterBackAndContinue() {
+        firstRun(Step.PICK_APPS, apps = listOf(AppEntry("com.whatsapp", "WhatsApp")))
+        rule.onNodeWithText("Continue with 1").tap()
+        rule.waitForIdle()
+        assertTrue(hello())
+        AppGraph.arbiter.clearAll()
+        rule.onNodeWithContentDescription("Back").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Continue with 1").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Go to Home").assertExists()
+        assertFalse(hello())
+    }
+
+    private fun hello() = AppGraph.arbiter.active.value.any { it.id == Hello.ID } || AppGraph.arbiter.frame.value != null
+
+    private fun allowAll() {
+        allowAccess()
+        shadowOf(ctx.getSystemService(RoleManager::class.java)).addHeldRole(RoleManager.ROLE_CALL_SCREENING)
+        shadowOf(rule.activity.application).grantPermissions(Manifest.permission.READ_CONTACTS)
+        shadowOf(ctx.getSystemService(PowerManager::class.java)).setIgnoringBatteryOptimizations(ctx.packageName, true)
+    }
+
+    @Test fun welcomeHasOneWayOnAndNoSkip() {
+        firstRun()
+        rule.onNodeWithText("Get started").assertExists()
+        rule.onNodeWithText("Skip setup").assertDoesNotExist()
     }
 
     @Test fun firstRunNeverShowsTwice() {
@@ -270,7 +354,8 @@ class FirstRunUiTest {
             }
         }
         rule.waitForIdle()
-        rule.onNodeWithText("Get started").assertExists()
+        rule.onNodeWithText("Get started").tap()
+        rule.waitForIdle()
         rule.onNodeWithText("Skip setup").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Home here").assertExists()
@@ -280,6 +365,65 @@ class FirstRunUiTest {
         rule.waitForIdle()
         rule.onNodeWithText("Home here").assertExists()
         rule.onNodeWithText("Get started").assertDoesNotExist()
+    }
+
+    // ---------------------------------------------------------------- an install that existed before First run
+
+    private fun host(): Nav {
+        val nav = Nav(Tab.HOME)
+        rule.setContent {
+            DotForgeTheme {
+                val setup = remember { Setup(rule.activity) }
+                FirstRunHost(nav, setup) { Text("Home here") }
+                SetupSheets(setup)
+            }
+        }
+        rule.waitForIdle()
+        return nav
+    }
+
+    private fun ownRule() = AppGraph.rules.upsert(SimpleRules.newApp("org.telegram.messenger", "Telegram"))
+
+    @Test fun anExistingInstallWithEverythingAllowedIsMarkedDoneSilently() {
+        ownRule()
+        allowAll()
+        host()
+        rule.onNodeWithText("Home here").assertExists()
+        rule.onNodeWithText("Get started").assertDoesNotExist()
+        assertTrue(FirstRunPrefs.done(ctx))
+    }
+
+    @Test fun anExistingInstallSeesOnlyTheCoreCardsStillToDoAndNeverPickApps() {
+        ownRule()
+        val calls = AppGraph.rules.rules.value.first { it.id == SimpleRules.PHONE_CALLS }
+        allowAccess()
+        host()
+        // no Welcome: straight to the first core card still to do
+        rule.onNodeWithText("Get started").assertDoesNotExist()
+        rule.onNodeWithText("Calls").assertExists()
+        rule.onNodeWithContentDescription("Step 2 of 3").assertExists()
+        rule.onNodeWithText("Not now").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Keep running").assertExists()
+        rule.onNodeWithText("Not now").tap()
+        rule.waitForIdle()
+        // the caller name card and Pick apps are skipped: Done, and the Phone calls row is as it was
+        rule.onNodeWithText("Almost set").assertExists()
+        rule.onNodeWithText("Pick your apps", substring = true).assertDoesNotExist()
+        assertEquals(calls, AppGraph.rules.rules.value.first { it.id == SimpleRules.PHONE_CALLS })
+    }
+
+    @Test fun anUpdatedInstallCountsAsExisting() {
+        assertFalse(FirstRunPrefs.existing(ctx))
+        ctx.getSharedPreferences("backup", Context.MODE_PRIVATE).edit().putLong("last_ms", 5L).commit()
+        assertTrue(FirstRunPrefs.existing(ctx))
+    }
+
+    @Test fun aFreshInstallStaysFreshOnceItsOwnPicksAreSaved() {
+        assertFalse(FirstRunPrefs.resumed(ctx))
+        ownRule()
+        // decided once at the first start, so Pick apps' own rows never turn it into an existing install
+        assertFalse(FirstRunPrefs.resumed(ctx))
     }
 
     // ---------------------------------------------------------------- Settings > Permissions
@@ -301,6 +445,22 @@ class FirstRunUiTest {
         rule.onNodeWithContentDescription("Microphone, Not allowed, optional", substring = true).assertExists()
     }
 
+    @Test fun anOptionalPermissionTurnsNeededWhileSomethingOnUsesIt() {
+        rule.setContent {
+            DotForgeTheme {
+                val setup = remember { Setup(rule.activity) }
+                com.dotforge.ui.settings.PermissionsPage(Nav(Tab.HOME), com.dotforge.ui.settings.rememberPermissions(setup))
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithText("Needed for the basics").assertExists()
+        rule.onNodeWithContentDescription("Show DotForge notifications, Not allowed, optional", substring = true).assertExists()
+        // an app rule that silences: its quiet copy needs DotForge's own notifications
+        AppGraph.rules.upsert(SimpleRules.newApp("com.whatsapp", "WhatsApp").copy(action = com.dotforge.rules.Action.SILENCE))
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Show DotForge notifications, Not allowed, needed", substring = true).assertExists()
+    }
+
     // ---------------------------------------------------------------- Home's banner
 
     @Test fun homesBannerShowsOnlyWhenACorePermissionIsMissingAndOpensPermissions() {
@@ -308,8 +468,8 @@ class FirstRunUiTest {
         var status by androidx.compose.runtime.mutableStateOf(HomeStatus(access = false, keepRunning = false))
         rule.setContent { DotForgeTheme { HomeScreen(nav, Setup(rule.activity), rememberLazyListState(), status, HomeNow()) } }
         rule.waitForIdle()
-        rule.onNodeWithText("2 things need permission").assertExists()
-        rule.onNodeWithText("2 things need permission").tap()
+        rule.onNodeWithText("Notification access and Keep running need permission").assertExists()
+        rule.onNodeWithText("Notification access and Keep running need permission").tap()
         assertEquals(Page.Permissions, nav.page)
         status = HomeStatus(microphone = false)
         rule.waitForIdle()

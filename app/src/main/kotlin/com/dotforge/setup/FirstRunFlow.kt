@@ -21,7 +21,25 @@ data class Perms(
     val calls: Boolean get() = screening && contacts
 
     /** The core permissions still missing, one per permission (as Profile > Permissions lists them). */
-    val missingCore: Int get() = listOf(access, screening, contacts, keepRunning).count { !it }
+    val missingCore: Int get() = missingNames.size
+
+    /** Their names, in the Permissions page's order. */
+    val missingNames: List<String>
+        get() = listOf(access to "Notification access", screening to "Call screening", contacts to "Contacts", keepRunning to "Keep running")
+            .filterNot { it.first }.map { it.second }
+
+    companion object {
+        /**
+         * "Call screening and Keep running need permission", "Contacts needs permission", or "3 things need
+         * permission": names when there are two or fewer. Null when nothing is missing.
+         */
+        fun needLine(names: List<String>): String? = when (names.size) {
+            0 -> null
+            1 -> "${names[0]} needs permission"
+            2 -> "${names[0]} and ${names[1]} need permission"
+            else -> "${names.size} things need permission"
+        }
+    }
 }
 
 /**
@@ -34,17 +52,24 @@ object FirstRunFlow {
     /** The permission cards, in order; the first three are the core ones. */
     val CARDS = listOf(Step.NOTIFICATIONS, Step.CALLS, Step.KEEP_RUNNING, Step.CALLER_NAME)
 
+    /** The core cards: the only ones a restored or existing install sees. */
+    val CORE = listOf(Step.NOTIFICATIONS, Step.CALLS, Step.KEEP_RUNNING)
+
     /**
-     * The steps for this phone. The caller name card needs Nothing's Glyph settings, so only a Phone (3) gets it;
-     * after a restore the apps came back with the backup, so Pick apps is left out.
+     * The steps for this phone. The caller name card needs Nothing's Glyph settings, so only a Phone (3) gets it.
+     * [resumed] (after a restore, or an install that was already set up before First run existed): only the core
+     * cards and Done, never Welcome or Pick apps, so nothing already set up is changed.
      */
-    fun order(phone3: Boolean, restored: Boolean): List<Step> = Step.entries.filter { s ->
-        when (s) {
-            Step.CALLER_NAME -> phone3
-            Step.PICK_APPS -> !restored
-            else -> true
-        }
-    }
+    fun order(phone3: Boolean, resumed: Boolean): List<Step> =
+        if (resumed) CORE + Step.DONE
+        else Step.entries.filter { s -> s != Step.CALLER_NAME || phone3 }
+
+    /**
+     * An install that was set up before First run existed: it has rules or designs of its own, settings someone
+     * changed, or it was updated rather than freshly installed.
+     */
+    fun isExisting(ownRules: Boolean, designs: Boolean, settings: Boolean, firstInstallMs: Long, lastUpdateMs: Long): Boolean =
+        ownRules || designs || settings || firstInstallMs != lastUpdateMs
 
     /** True when [step] has nothing left to allow. */
     fun done(step: Step, p: Perms): Boolean = when (step) {
@@ -55,13 +80,15 @@ object FirstRunFlow {
         else -> false
     }
 
-    /** Where First run starts: Welcome, or the first card still to do after a restore (the restore was the welcome). */
-    fun start(order: List<Step>, restored: Boolean, p: Perms): Step =
-        if (restored) next(Step.WELCOME, order, p) else Step.WELCOME
+    /** Where First run starts: Welcome, or for a resumed install the first card still to do (Done: nothing left). */
+    fun start(order: List<Step>, resumed: Boolean, p: Perms): Step =
+        if (resumed) from(0, order, p) else Step.WELCOME
 
     /** The step after [from] ("Next", "Not now" or Continue), passing over cards that are already allowed. */
-    fun next(from: Step, order: List<Step>, p: Perms): Step {
-        var i = order.indexOf(from).coerceAtLeast(0) + 1
+    fun next(from: Step, order: List<Step>, p: Perms): Step = from(order.indexOf(from) + 1, order, p)
+
+    private fun from(index: Int, order: List<Step>, p: Perms): Step {
+        var i = index.coerceAtLeast(0)
         while (i < order.size && order[i] in CARDS && done(order[i], p)) i++
         return order.getOrElse(i) { Step.DONE }
     }
@@ -77,22 +104,34 @@ object FirstRunFlow {
     }
 }
 
-/** The Calls card's state: its one line under the reason, and what its main button does. */
-data class CallsCard(val line: String?, val button: String, val action: Action) {
-    enum class Action { ASK_ROLE, OPEN_DEFAULT_APPS, ASK_CONTACTS, NEXT }
+/**
+ * The Calls card's state: a warning ([warning], shown as a banner), a quieter line under it ([line]), and what the
+ * main button does.
+ */
+data class CallsCard(val warning: String?, val line: String?, val button: String, val action: Action) {
+    enum class Action { ASK_ROLE, OPEN_DEFAULT_APPS, ASK_CONTACTS, OPEN_APP_INFO, NEXT }
 
     companion object {
         /** Android stops showing the role dialog after this many refusals, so the button opens Default apps. */
         const val ROLE_TRIES = 2
+        const val SCREENING_OFF = "Call screening is off, so spam calls won't be blocked."
+        const val DEFAULT_APPS_STEPS = "Tap Caller ID & spam app, then pick DotForge."
+        const val CONTACTS_OFF = "Contacts is off, so callers show as numbers."
+        const val CONTACTS_APP_INFO = "Android won't ask again. In App info, tap Permissions, then Contacts."
 
-        fun of(screening: Boolean, contacts: Boolean, roleRefusals: Int): CallsCard = when {
-            screening && contacts -> CallsCard(null, "Next", Action.NEXT)
-            !screening && roleRefusals >= ROLE_TRIES ->
-                CallsCard("Android didn't let DotForge screen calls, so spam calls can't be blocked. Pick DotForge in Default apps instead.", "Open settings", Action.OPEN_DEFAULT_APPS)
-            !screening && roleRefusals > 0 ->
-                CallsCard("Android didn't let DotForge screen calls, so spam calls can't be blocked.", "Try again", Action.ASK_ROLE)
-            !screening -> CallsCard("Android asks twice: once to screen calls, then for your contacts.", "Allow", Action.ASK_ROLE)
-            else -> CallsCard("Contacts is off, so callers show as numbers.", "Allow contacts", Action.ASK_CONTACTS)
+        /**
+         * [roleRefusals]: how often the role dialog was answered No (or [roleMissing]: the phone has none);
+         * [contactsBlocked]: Contacts was refused twice, so only App info can turn it on.
+         */
+        fun of(screening: Boolean, contacts: Boolean, roleRefusals: Int, contactsBlocked: Boolean = false, roleMissing: Boolean = false): CallsCard = when {
+            screening && contacts -> CallsCard(null, null, "Next", Action.NEXT)
+            // a phone without the dialog: straight to Default apps, with no warning before anything was refused
+            !screening && (roleRefusals >= ROLE_TRIES || roleMissing) ->
+                CallsCard(SCREENING_OFF.takeIf { roleRefusals > 0 }, DEFAULT_APPS_STEPS, "Open Default apps", Action.OPEN_DEFAULT_APPS)
+            !screening && roleRefusals > 0 -> CallsCard(SCREENING_OFF, null, "Try again", Action.ASK_ROLE)
+            !screening -> CallsCard(null, "Android asks twice: once to screen calls, then for your contacts.", "Allow", Action.ASK_ROLE)
+            contactsBlocked -> CallsCard(CONTACTS_OFF, CONTACTS_APP_INFO, "Open App info", Action.OPEN_APP_INFO)
+            else -> CallsCard(null, CONTACTS_OFF, "Allow contacts", Action.ASK_CONTACTS)
         }
     }
 }
@@ -130,7 +169,8 @@ object PickApps {
     /** Ticked at the start: WhatsApp, Messages (or the phone's SMS app) and Phone, only those that are installed. */
     fun preTicked(offered: List<AppEntry>, defaultSms: String? = null, defaultDialer: String? = null): Set<String> {
         val pkgs = offered.map { it.packageName }
-        val messages = listOfNotNull(MESSAGES, defaultSms).firstOrNull { it in pkgs }
+        // the phone's own SMS app wins over Google Messages
+        val messages = listOfNotNull(defaultSms, MESSAGES).firstOrNull { it in pkgs }
         val phone = pkgs.firstOrNull { isPhone(it, defaultDialer) }
         return setOfNotNull(WHATSAPP.takeIf { it in pkgs }, messages, phone)
     }
@@ -143,9 +183,12 @@ object PickApps {
         val out = ArrayList<Rule>()
         val phoneOffered = offered.any { isPhone(it.packageName, defaultDialer) }
         val phonePicked = picked.any { isPhone(it, defaultDialer) }
-        if (phoneOffered) {
-            val calls = rules.firstOrNull { it.id == SimpleRules.PHONE_CALLS } ?: SimpleRules.phoneCalls()
-            if (calls.enabled != phonePicked || rules.none { it.id == SimpleRules.PHONE_CALLS }) out += calls.copy(enabled = phonePicked)
+        val existing = rules.firstOrNull { it.id == SimpleRules.PHONE_CALLS }
+        // a Phone calls row someone already changed (its glyph, timing, sound…) is theirs: never touched
+        val untouched = existing == null || existing.copy(enabled = true) == SimpleRules.phoneCalls()
+        if (phoneOffered && untouched) {
+            val calls = existing ?: SimpleRules.phoneCalls()
+            if (calls.enabled != phonePicked || existing == null) out += calls.copy(enabled = phonePicked)
         }
         val labels = offered.associate { it.packageName to it.label }
         picked.filterNot { isPhone(it, defaultDialer) }.forEach { pkg ->
@@ -173,6 +216,47 @@ object FirstRunPrefs {
     /** A backup was restored before First run finished: it comes back at the permission cards after the restart. */
     fun markRestored(ctx: Context) {
         if (!done(ctx)) prefs(ctx).edit().putBoolean(RESTORED, true).commit()
+    }
+
+    private const val MODE = "mode"
+
+    /**
+     * Restored, or an install that existed before First run (decided once, at its first start, and kept so a
+     * fresh install's own picks never turn it into an "existing" one halfway through).
+     */
+    fun resumed(ctx: Context): Boolean {
+        if (restored(ctx)) return true
+        val p = prefs(ctx)
+        p.getString(MODE, null)?.let { return it == "resumed" }
+        val existing = existing(ctx)
+        p.edit().putString(MODE, if (existing) "resumed" else "fresh").commit()
+        return existing
+    }
+
+    /** See [FirstRunFlow.isExisting]: rules or designs of its own, settings someone changed, or an update. */
+    fun existing(ctx: Context): Boolean {
+        val presets = RuleEngine.presets().map { it.id }.toSet()
+        val ownRules = com.dotforge.AppGraph.rules.rules.value.any { it.id !in presets }
+        val designs = runCatching { com.dotforge.AppGraph.designs.designs.value.isNotEmpty() }.getOrDefault(false)
+        // files only a person's own choices write (asked-once flags, Home's hidden checklist, a backup)
+        val settings = listOf("setup", "home").any { ctx.getSharedPreferences(it, Context.MODE_PRIVATE).all.isNotEmpty() } ||
+            ctx.getSharedPreferences("backup", Context.MODE_PRIVATE).getLong("last_ms", 0L) > 0L
+        val info = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }.getOrNull()
+        return FirstRunFlow.isExisting(ownRules, designs, settings, info?.firstInstallTime ?: 0L, info?.lastUpdateTime ?: 0L)
+    }
+
+    /**
+     * Whether First run shows at all. A resumed install with every core permission already allowed has nothing
+     * to do: it is marked done without showing anything.
+     */
+    fun shouldShow(ctx: Context, p: Perms, phone3: Boolean): Boolean {
+        if (done(ctx)) return false
+        val resumed = resumed(ctx)
+        if (resumed && FirstRunFlow.start(FirstRunFlow.order(phone3, resumed = true), resumed = true, p) == FirstRunFlow.Step.DONE) {
+            markDone(ctx)
+            return false
+        }
+        return true
     }
 
     fun reset(ctx: Context) = prefs(ctx).edit().clear().commit()

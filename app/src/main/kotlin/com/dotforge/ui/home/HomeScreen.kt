@@ -128,7 +128,7 @@ data class HomeStatus(
     val todo: Int get() = listOf(appsPicked, doubleLights).count { !it }
 
     /** Core permissions missing: Notification access, Call screening, Contacts, Keep running. */
-    val missing: Int get() = com.dotforge.setup.Perms(access, screening, contacts, keepRunning).missingCore
+    val missing: List<String> get() = com.dotforge.setup.Perms(access, screening, contacts, keepRunning).missingNames
 }
 
 /** What the Glyph is doing: the frame, what shows it, the alerts waiting until checked, and Nothing's own light. */
@@ -278,7 +278,7 @@ internal fun notice(access: Boolean, f: FilterSettings, quietOn: Boolean): Notic
 
 /** The words for a [Notice]; [quietStatus] is Quiet's own status ("On until 16:37"). */
 internal fun noticeLine(n: Notice, quietStatus: String = ""): String? = when (n) {
-    Notice.ACCESS -> "Alerts are off. Notification access was turned off."
+    Notice.ACCESS -> "Alerts are off until Notification access is allowed."
     Notice.PAUSED -> "Alerts paused · calls still light"
     Notice.QUIET -> "Quiet " + quietStatus.removePrefix("On ")
     Notice.NONE -> null
@@ -381,9 +381,11 @@ private fun NowCard(n: HomeNow, s: HomeStatus, setup: Setup, onChoose: () -> Uni
     val lit = s.device == DeviceState.PHONE3
     val noticeText = noticeLine(note, quiet)
     val line = nowLine(n, s.device, noticeText, clock)
-    // the notice is the line itself when nothing shows; under "Showing" it gets its own row
-    val noticeRow = lit && n.busy == null && n.showing != null && note != Notice.NONE
-    val lineIsNotice = lit && n.busy == null && n.showing == null && note != Notice.NONE
+    // the notice is the line itself when nothing shows; under "Showing" it gets its own row. Missing access is
+    // only said here: the permission banner above is the one place that asks for it
+    val asks = note != Notice.NONE && note != Notice.ACCESS
+    val noticeRow = lit && n.busy == null && n.showing != null && asks
+    val lineIsNotice = lit && n.busy == null && n.showing == null && asks
     val stop = if (lit) stopLabel(n) else null
     val side = if (LocalConfiguration.current.screenHeightDp < 700) 160.dp else Tokens.PreviewLarge
     RowGroup(Modifier.padding(bottom = Tokens.Gap)) {
@@ -417,7 +419,6 @@ private fun NowCard(n: HomeNow, s: HomeStatus, setup: Setup, onChoose: () -> Uni
 @Composable
 private fun NoticeRow(n: Notice, text: String, setup: Setup, modifier: Modifier = Modifier) {
     val (action, go) = when (n) {
-        Notice.ACCESS -> "Allow" to { setup.needNotificationAccess(); Unit }
         Notice.PAUSED -> "Turn on" to { AppGraph.filters.updateFilters { it.copy(alertsPaused = false) } }
         else -> null to {}
     }
@@ -432,12 +433,11 @@ private fun NoticeRow(n: Notice, text: String, setup: Setup, modifier: Modifier 
     }
 }
 
-/** "2 things need permission", or null when every core permission is allowed (row 51: one slim line, not a card). */
-internal fun permissionBanner(missing: Int): String? = when {
-    missing <= 0 -> null
-    missing == 1 -> "1 thing needs permission"
-    else -> "$missing things need permission"
-}
+/**
+ * "Call screening and Keep running need permission" (names when two or fewer), "3 things need permission", or
+ * null when every core permission is allowed (row 51: one slim line, not a card).
+ */
+internal fun permissionBanner(missing: List<String>): String? = com.dotforge.setup.Perms.needLine(missing)
 
 /** Home's one slim line while a core permission is missing: a warning, the count and Fix, opening Permissions. */
 @Composable
@@ -638,7 +638,8 @@ private fun QuickSwitches(s: HomeStatus, n: HomeNow, setup: Setup, nav: Nav) {
         else HomeTile("Torch", if (torchOn) torchLine(clock) else "Off", TileControl.Toggle(torchOn) { TorchTileService.toggle() }, m, onOpen = torchPage)
     }, { m ->
         if (note != null) blocked("Alerts", alertsPage, m)
-        else if (!s.access) HomeTile("Alerts", "Needs access", TileControl.Action("Allow", "Allow notification access") { setup.needNotificationAccess() }, m, onOpen = alertsPage)
+        // the banner is the one place that asks for a core permission: the tile only says why it's off
+        else if (!s.access) HomeTile("Alerts", "Off · needs permission", TileControl.Toggle(false, enabled = false) {}, m, onOpen = alertsPage)
         else HomeTile(
             "Alerts", if (filters.alertsPaused) "Paused · calls still light" else "On · ${if (apps == 1) "1 app" else "$apps apps"}",
             TileControl.Toggle(!filters.alertsPaused) { on ->
@@ -673,7 +674,7 @@ private fun QuickSwitches(s: HomeStatus, n: HomeNow, setup: Setup, nav: Nav) {
         else HomeTile("Battery", if (battery) "Shows when charging" else "Off", TileControl.Toggle(battery) { AppGraph.system.setChargingMeter(it) }, m, onOpen = batteryPage)
     }, { m ->
         if (note != null) blocked("Live progress", progressPage, m)
-        else if (progress && !s.access) HomeTile("Live progress", "Needs access", TileControl.Action("Allow", "Allow notification access") { setup.needNotificationAccess() }, m, onOpen = progressPage)
+        else if (progress && !s.access) HomeTile("Live progress", "Off · needs permission", TileControl.Toggle(false, enabled = false) {}, m, onOpen = progressPage)
         else HomeTile(
             "Live progress", if (progress) "On" else "Off",
             TileControl.Toggle(progress) { on -> AppGraph.setProgressRings(on); if (on) setup.needNotificationAccess() },

@@ -171,13 +171,20 @@ object GlyphLibrary {
             val th = atan2(v, u)
             r <= 0.34 + 0.52 * abs(cos(2.5 * (th + PI / 2))).let { it * it * it }
         },
+        // a round dome, straight sides that flare to a wide rim, the clapper under it and a knob on top (the old
+        // triangle read as a tree)
         still("bell", "Bell") { u, v ->
-            (v >= -0.6 && v <= 0.42 && abs(u) <= 0.2 + (v + 0.6) * 0.5) || disc(u, v, 0.0, 0.6, 0.17) || (abs(u) < 0.09 && v < -0.55 && v > -0.8)
+            (v <= -0.12 && disc(u, v, 0.0, -0.12, 0.42)) || (v in -0.12..0.3 && abs(u) <= 0.42 + (v + 0.12) * 0.3) ||
+                (v > 0.3 && v <= 0.44 && abs(u) <= 0.64) || disc(u, v, 0.0, 0.62, 0.13) || disc(u, v, 0.0, -0.6, 0.09)
         },
         still("ring", "Ring") { u, v -> hypot(u, v) in 0.52..0.8 },
         still("rings", "Rings") { u, v -> hypot(u, v) < 0.98 && floor(hypot(u, v) * 5).toInt() % 2 == 0 },
         still("check", "Check") { u, v -> min(segD(u, v, -0.55, 0.0, -0.15, 0.4), segD(u, v, -0.15, 0.4, 0.6, -0.42)) < 0.12 },
-        still("phone", "Phone") { u, v -> abs(u) <= 0.42 && abs(v) <= 0.75 && !(abs(u) <= 0.28 && v > -0.58 && v < 0.48) },
+        // a handset: the earpiece top left, a curved grip, the mouthpiece bottom right (the old outline read as an empty box)
+        still("phone", "Phone") { u, v ->
+            path(u, v, 0.15, -0.52, -0.62, -0.6, -0.2, -0.42, 0.22, -0.08, 0.5, 0.32, 0.6) ||
+                seg(u, v, -0.52, -0.62, -0.22, -0.42, 0.13) || seg(u, v, 0.32, 0.6, 0.55, 0.3, 0.13)
+        },
         still("spam", "Spam") { u, v ->
             if (v < -0.74 || v > 0.84) return@still false
             val w = if (v < 0.12) 0.64 else 0.64 * (1 - (v - 0.12) / 0.72)

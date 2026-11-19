@@ -85,26 +85,28 @@ object NothingSettings {
             SettingsLink(Intent("android.settings.ACTION_GLYPHS_SETTINGS").setPackage(SETTINGS_PACKAGE), "Open Glyph Interface"),
         )
         return candidates.firstOrNull { pm.resolveActivity(it.intent, 0) != null }
-            ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open Settings")
+            ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open settings")
     }
 
     /** Nothing's Glyph Interface page (where the phone's own Glyph brightness is), else system Settings. */
     fun glyphSettings(pm: PackageManager): SettingsLink =
         SettingsLink(Intent("android.settings.ACTION_GLYPHS_SETTINGS").setPackage(SETTINGS_PACKAGE), "Open Glyph Interface")
             .takeIf { pm.resolveActivity(it.intent, 0) != null }
-            ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open Settings")
+            ?: SettingsLink(Intent(Settings.ACTION_SETTINGS), "Open settings")
 
-    /** True when the firmware lets us read the bedtime switch, so "Follow Nothing bedtime" can work. */
     /**
      * Whether Nothing's own lights for notifications ([NOTIFICATION_MODE]) or the ringtone ([RINGTONE_MODE]) are
      * set to "Sound only", so they don't cover DotForge's frames. Null when the firmware doesn't let us read it.
      * Assumption, to check on the phone: the value is "1" for Sound only.
+     * First run treats a true here only as a bonus "Done"; progress never waits on it.
      */
+    // TODO: check on a Phone (3) that these keys exist and that "1" means Sound only.
     fun soundOnly(cr: ContentResolver, key: String): Boolean? = global(cr, key)?.takeIf { it != NOT_READABLE }?.let { it.trim() == "1" }
 
     const val NOTIFICATION_MODE = "led_notification_mode"
     const val RINGTONE_MODE = "led_default_ringtone_sound_mode"
 
+    /** True when the firmware lets us read the bedtime switch, so "Follow Nothing bedtime" can work. */
     fun bedtimeReadable(cr: ContentResolver): Boolean = global(cr, BEDTIME_ENABLE) != null
 
     /** The bedtime schedule when it is switched on and readable, null otherwise. */

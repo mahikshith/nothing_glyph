@@ -40,7 +40,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -120,7 +119,10 @@ private fun defaultDialer(ctx: Context): String? = runCatching { ctx.getSystemSe
  * minute, every step skippable, and never shown again once finished ([onDone]). The cards re-check on resume and
  * show a Done tick. POST_NOTIFICATIONS is not asked here: the timer asks when it first needs it.
  *
- * [device], [apps], [backupFound], [startAt] and [roleRefusals] stand in for the phone in screenshots and tests.
+ * A resumed install (restored, or set up before First run existed) sees only the core cards still to do and Done.
+ *
+ * [device], [apps], [backupFound], [startAt], [roleRefusals] and [resumed] stand in for the phone in screenshots
+ * and tests.
  */
 @Composable
 fun FirstRun(
@@ -132,39 +134,45 @@ fun FirstRun(
     backupFound: String? = null,
     startAt: Step? = null,
     roleRefusals: Int = 0,
+    resumed: Boolean? = null,
 ) {
     val ctx = LocalContext.current
     val dev = device ?: remember { deviceState(ctx) }
-    val restored = remember { FirstRunPrefs.restored(ctx) }
-    val order = remember(dev, restored) { FirstRunFlow.order(dev == DeviceState.PHONE3, restored) }
+    val again = resumed ?: remember { FirstRunPrefs.resumed(ctx) }
+    val order = remember(dev, again) { FirstRunFlow.order(dev == DeviceState.PHONE3, again) }
     val perms = setup.perms
-    var step by rememberSaveable { mutableStateOf(startAt ?: FirstRunFlow.start(order, restored, perms)) }
+    var step by rememberSaveable { mutableStateOf(startAt ?: FirstRunFlow.start(order, again, perms)) }
     var refusals by rememberSaveable { mutableIntStateOf(roleRefusals) }
+    // the hello plays on the Glyph once, not again after Back from Done and Continue
+    var helloPlayed by rememberSaveable { mutableStateOf(false) }
     val back = FirstRunFlow.back(step, order)
     fun next() { step = FirstRunFlow.next(step, order, perms) }
     BackHandler(enabled = back != null) { back?.let { step = it } }
 
     Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        TopRow(step, order, back?.let { b -> { step = b } }, onSkip = onDone.takeIf { step != Step.DONE })
+        // Welcome has one way on (Get started) and the restore link; Skip setup is on every card
+        TopRow(step, order, back?.let { b -> { step = b } }, onSkip = onDone.takeIf { step != Step.DONE && step != Step.WELCOME })
         when (step) {
             Step.WELCOME -> Welcome(dev, backupFound, onRestore) { next() }
             Step.NOTIFICATIONS -> Card(
-                "bell", "Notification access",
-                "Needed for alerts, the caller's name from caller ID apps, and live progress.",
-                done = perms.access, button = "Allow", onAllow = setup::openAccessSettings, onNext = ::next,
+                "bell", "Notification access", NOTIFICATIONS_WHY,
+                done = perms.access, button = "Allow", line = "On the next screen, turn on DotForge.",
+                onAllow = setup::openAccessSettings, onNext = ::next,
             )
             Step.CALLS -> CallsStep(setup, refusals, onRefused = { refusals++ }, onNext = ::next)
             Step.KEEP_RUNNING -> Card(
-                "battery", "Keep running",
-                "So the Glyph still lights when the screen is off.",
+                "battery", "Keep running", "So the Glyph still lights when the screen is off.",
                 done = perms.keepRunning, button = "Allow", onAllow = setup::needKeepRunning, onNext = ::next,
             )
             Step.CALLER_NAME -> CallerNameStep(setup, done = perms.callerName == true, onNext = ::next)
             Step.PICK_APPS -> PickAppsStep(apps, onNext = ::next)
-            Step.DONE -> Done(dev, perms.missingCore, onDone)
+            Step.DONE -> Done(dev, perms.missingNames, played = helloPlayed, onPlayed = { helloPlayed = true }, onDone)
         }
     }
 }
+
+/** The Notification access card's sentence, also the Permissions page's (Android's next screen says the rest). */
+const val NOTIFICATIONS_WHY = "DotForge reads notifications on this phone to light the Glyph. Nothing leaves the phone."
 
 /** Back, where this step sits ("Step 2 of 5" as dots), and Skip setup. */
 @Composable
@@ -186,17 +194,22 @@ private fun TopRow(step: Step, order: List<Step>, onBack: (() -> Unit)?, onSkip:
     }
 }
 
-/** A step: what scrolls (icon, title, words) and the pinned buttons under it. */
+/**
+ * A step: what scrolls (icon, title, words) and the pinned buttons under it. While more scrolls under the
+ * buttons, a hairline sits on top of them so nothing looks cut flat.
+ */
 @Composable
 private fun ColumnScope.StepLayout(
     top: @Composable ColumnScope.() -> Unit,
     buttons: @Composable ColumnScope.() -> Unit,
 ) {
+    val scroll = rememberScrollState()
     Column(
-        Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = Tokens.Gutter),
+        Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = Tokens.Gutter),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = top,
     )
+    androidx.compose.material3.HorizontalDivider(color = if (scroll.canScrollForward) Tokens.Hairline else Color.Transparent)
     Column(Modifier.fillMaxWidth().padding(horizontal = Tokens.Gutter).padding(top = Tokens.Small, bottom = Tokens.Gutter), content = buttons)
 }
 
@@ -212,12 +225,22 @@ private fun Body(text: String, modifier: Modifier = Modifier) = Text(
     style = MaterialTheme.typography.bodyLarge, color = Tokens.Secondary, textAlign = TextAlign.Center,
 )
 
-/** "Not now" (or "Next" once done) under the main button: a full-width 48 dp text button. */
+@Composable
+private fun Line(text: String) = Text(
+    text, Modifier.fillMaxWidth().padding(top = Tokens.Gutter),
+    style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, textAlign = TextAlign.Center,
+)
+
+/** "Not now" under the main button: a full-width 48 dp text button. */
 @Composable
 private fun QuietButton(text: String, onClick: () -> Unit) =
     TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = Tokens.Target).padding(top = Tokens.Tiny)) {
         Text(text, style = MaterialTheme.typography.labelLarge, color = Color.White)
     }
+
+/** The quiet button's slot left empty, so the main button stays where it was. */
+@Composable
+private fun QuietSlot() = Spacer(Modifier.fillMaxWidth().height(Tokens.Target + Tokens.Tiny))
 
 // ---------------------------------------------------------------- Welcome
 
@@ -260,8 +283,9 @@ private fun ColumnScope.Welcome(device: DeviceState, backupFound: String?, onRes
 // ---------------------------------------------------------------- permission cards
 
 /**
- * One permission card: the dot icon (a tick over it once allowed), the name, one plain sentence, an optional
- * [line] (a refusal, the second ask), Allow and Not now. Once allowed: "Done" and Next.
+ * One permission card: the dot icon (a tick over it once done), the name, one plain sentence, an optional
+ * [warning] banner and a quieter [line], Allow and Not now. Once done: a tick with [doneLabel] ("Done", or
+ * "Opened" when the phone can't confirm) and Next in the main button's place, which never moves.
  */
 @Composable
 private fun ColumnScope.Card(
@@ -274,7 +298,9 @@ private fun ColumnScope.Card(
     onNext: () -> Unit,
     optional: Boolean = false,
     line: String? = null,
-    warning: Boolean = false,
+    warning: String? = null,
+    doneLabel: String = "Done",
+    quiet: Pair<String, () -> Unit>? = null,
 ) = StepLayout(
     top = {
         Spacer(Modifier.height(Tokens.Section))
@@ -289,22 +315,21 @@ private fun ColumnScope.Card(
         if (optional) Tag("Optional", Modifier.padding(top = Tokens.Small))
         Body(reason)
         if (done) Row(
-            Modifier.padding(top = Tokens.Gutter).semantics(mergeDescendants = true) { contentDescription = "$title: done" },
+            Modifier.padding(top = Tokens.Gutter).semantics(mergeDescendants = true) { contentDescription = "$title: ${doneLabel.lowercase()}" },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Small),
         ) {
             Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
-            Text("Done", style = MaterialTheme.typography.titleMedium)
-        } else if (line != null) {
-            if (warning) StatusBanner(line, Modifier.padding(top = Tokens.Section))
-            else Text(
-                line, Modifier.fillMaxWidth().padding(top = Tokens.Gutter),
-                style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, textAlign = TextAlign.Center,
-            )
+            Text(doneLabel, style = MaterialTheme.typography.titleMedium)
+        } else {
+            if (warning != null) StatusBanner(warning, Modifier.padding(top = Tokens.Section))
+            if (line != null) Line(line)
         }
     },
     buttons = {
-        if (done) PrimaryButton("Next", Modifier.fillMaxWidth(), onClick = onNext)
-        else {
+        if (done) {
+            PrimaryButton("Next", Modifier.fillMaxWidth(), onClick = onNext)
+            if (quiet != null) QuietButton(quiet.first, quiet.second) else QuietSlot()
+        } else {
             PrimaryButton(button, Modifier.fillMaxWidth(), onClick = onAllow)
             QuietButton("Not now", onNext)
         }
@@ -313,7 +338,8 @@ private fun ColumnScope.Card(
 
 /**
  * Calls: the call screening role and Contacts behind one Allow. The role dialog comes first; when it closes,
- * Contacts is asked in the same go. A refused role says so and offers Try again, then Default apps.
+ * Contacts is asked in the same go, unless Android would only send the user to App info: then the card says so
+ * first. A refused role says so and offers Try again, then Default apps with the steps.
  */
 @Composable
 private fun ColumnScope.CallsStep(setup: Setup, refusals: Int, onRefused: () -> Unit, onNext: () -> Unit) {
@@ -322,18 +348,20 @@ private fun ColumnScope.CallsStep(setup: Setup, refusals: Int, onRefused: () -> 
     val role = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         setup.onScreeningResult()
         if (!setup.screening) onRefused()
-        if (!setup.contacts) askContacts()
+        if (!setup.contacts && !setup.contactsBlocked()) askContacts()
     }
-    val card = CallsCard.of(setup.screening, setup.contacts, refusals)
+    val roleMissing = remember { !setup.screeningRoleAvailable() }
+    val card = CallsCard.of(setup.screening, setup.contacts, refusals, contactsBlocked = setup.contactsBlocked(), roleMissing = roleMissing)
     Card(
         "phone", "Calls",
         "Lets DotForge block spam calls and show who's calling, using your contacts.",
-        done = card.action == CallsCard.Action.NEXT, button = card.button, line = card.line, warning = refusals > 0 && !setup.screening,
+        done = card.action == CallsCard.Action.NEXT, button = card.button, line = card.line, warning = card.warning,
         onAllow = {
             when (card.action) {
                 CallsCard.Action.ASK_ROLE -> if (!setup.requestScreeningRole { role.launch(it) }) setup.openDefaultApps()
                 CallsCard.Action.OPEN_DEFAULT_APPS -> setup.openDefaultApps()
                 CallsCard.Action.ASK_CONTACTS -> askContacts()
+                CallsCard.Action.OPEN_APP_INFO -> setup.openAppSettings()
                 CallsCard.Action.NEXT -> onNext()
             }
         },
@@ -341,27 +369,37 @@ private fun ColumnScope.CallsStep(setup: Setup, refusals: Int, onRefused: () -> 
     )
 }
 
-/** The optional caller name card: Nothing's ringtone lights cover the name unless they are set to Sound only. */
+/**
+ * The optional caller name card. Coming back from Glyph settings counts as progress ("Opened" and Next): whether
+ * the phone really says Sound only is read too, but only ever adds a "Done" (NothingSettings.soundOnly is not
+ * checked on a Phone (3) yet).
+ */
 @Composable
 private fun ColumnScope.CallerNameStep(setup: Setup, done: Boolean, onNext: () -> Unit) {
     val ctx = LocalContext.current
     val link = remember { NothingSettings.glyphSettings(ctx.packageManager) }
+    val fallback = link.intent.action == android.provider.Settings.ACTION_SETTINGS
     var opened by rememberSaveable { mutableStateOf(false) }
+    val open = { opened = true; setup.openCallerNameSettings() }
     Card(
-        "person", "Show the caller's name",
-        "Nothing's ringtone lights cover the name unless Glyph ringtone lights are set to Sound only.",
-        done = done, optional = true, button = if (link.intent.action == android.provider.Settings.ACTION_SETTINGS) "Open Settings" else "Open Glyph settings",
-        line = if (opened) "Set ringtone lights to Sound only, then come back." else null,
-        onAllow = { opened = true; setup.openCallerNameSettings() },
-        onNext = onNext,
+        "person", "Show the caller's name", CALLER_NAME_WHY,
+        done = done || opened, doneLabel = if (done) "Done" else "Opened", optional = true,
+        button = if (fallback) "Open settings" else "Open Glyph Interface",
+        line = if (fallback) CALLER_NAME_STEPS else null,
+        quiet = if (done) null else "Open again" to open,
+        onAllow = open, onNext = onNext,
     )
 }
+
+const val CALLER_NAME_WHY = "To see who's calling, set Glyph ringtone lights to Sound only. Nothing's own ringtone light show turns off."
+const val CALLER_NAME_STEPS = "Open Glyph Interface, then Ringtone lights, and pick Sound only."
 
 // ---------------------------------------------------------------- Pick apps
 
 /**
- * Pick apps: the installed messaging and call apps, WhatsApp, Messages and Phone ticked when installed, and See
- * all apps. Continue writes normal Alerts rows (each app's own icon); Phone is the Phone calls row.
+ * Pick apps: the installed messaging and call apps, WhatsApp, Messages (the phone's own SMS app first) and Phone
+ * ticked when installed, and See all apps. Each row shows the glyph it will get. Continue writes normal Alerts
+ * rows (each app's own icon); Phone is the Phone calls row.
  */
 @Composable
 private fun ColumnScope.PickAppsStep(preset: List<AppEntry>?, onNext: () -> Unit) {
@@ -378,13 +416,13 @@ private fun ColumnScope.PickAppsStep(preset: List<AppEntry>?, onNext: () -> Unit
     StepLayout(
         top = {
             Title("Pick your apps")
-            Body("Each one lights the Glyph with its own icon. Change them any time in Alerts.")
+            Body("Each one lights the Glyph with its own icon, shown on the right. Change them any time in Alerts.")
             Spacer(Modifier.height(Tokens.Gutter))
             when {
                 offered == null -> LoadingRows(4)
                 else -> {
                     if (offered.isEmpty()) Hint("No messaging or call apps found. See all apps to pick any app.")
-                    else AppRows(offered, picked, ::toggle)
+                    else AppRows(offered, picked, dialer, ::toggle)
                     val rest = all.orEmpty().filterNot { a -> offered.any { it.packageName == a.packageName } }
                     if (!everything && rest.isNotEmpty()) TextButton(
                         onClick = { everything = true },
@@ -392,7 +430,7 @@ private fun ColumnScope.PickAppsStep(preset: List<AppEntry>?, onNext: () -> Unit
                     ) { Text("See all apps", style = MaterialTheme.typography.labelLarge, color = Color.White) }
                     if (everything && rest.isNotEmpty()) {
                         SectionLabel("All apps")
-                        AppRows(rest, picked, ::toggle)
+                        AppRows(rest, picked, dialer, ::toggle)
                     }
                 }
             }
@@ -409,21 +447,29 @@ private fun ColumnScope.PickAppsStep(preset: List<AppEntry>?, onNext: () -> Unit
     )
 }
 
-/** Apps with a tick each: the whole row toggles. */
+/** Apps with the glyph each would get (40 dp) and a tick: the whole row toggles. */
 @Composable
-private fun AppRows(apps: List<AppEntry>, picked: List<String>, toggle: (String) -> Unit) = RowGroup {
+private fun AppRows(apps: List<AppEntry>, picked: List<String>, dialer: String?, toggle: (String) -> Unit) = RowGroup {
     apps.forEachIndexed { i, e ->
         if (i > 0) RowDivider(leading = true)
         val on = e.packageName in picked
+        val glyph = remember(e.packageName) {
+            val r = if (PickApps.isPhone(e.packageName, dialer)) com.dotforge.rules.SimpleRules.phoneCalls()
+            else com.dotforge.rules.SimpleRules.newApp(e.packageName, e.label)
+            com.dotforge.ui.alerts.posterOf(r, e.label)
+        }
         ListRow(
             e.label,
             Modifier.toggleable(on, role = Role.Checkbox) { toggle(e.packageName) },
             leading = { AppIcon(e.packageName, e.label) },
             trailing = {
-                Checkbox(
-                    on, onCheckedChange = null,
-                    colors = CheckboxDefaults.colors(checkedColor = Color.White, checkmarkColor = Color.Black, uncheckedColor = Tokens.Secondary),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
+                    GlyphPreview(glyph, "${e.label}'s glyph")
+                    Checkbox(
+                        on, onCheckedChange = null,
+                        colors = CheckboxDefaults.colors(checkedColor = Color.White, checkmarkColor = Color.Black, uncheckedColor = Tokens.Secondary),
+                    )
+                }
             },
         )
     }
@@ -433,34 +479,35 @@ private fun AppRows(apps: List<AppEntry>, picked: List<String>, toggle: (String)
 
 /**
  * Done: the hello plays on screen and once on the real Glyph (an app frame; when it ends the arbiter clears the
- * matrix with closeAppMatrix), one line on where to change things, and Go to Home.
+ * matrix with closeAppMatrix), where to change things, and Go to Home. With a core permission still missing:
+ * "Almost set" and what is missing, by name.
  */
 @Composable
-private fun ColumnScope.Done(device: DeviceState, missing: Int, onDone: () -> Unit) {
+private fun ColumnScope.Done(device: DeviceState, missing: List<String>, played: Boolean, onPlayed: () -> Unit, onDone: () -> Unit) {
     val hello = remember { Hello.animation(AppGraph.profile) }
-    DisposableEffect(Unit) {
+    val firstTime = remember { !played }
+    LaunchedEffect(Unit) {
+        if (played) return@LaunchedEffect
+        onPlayed()
         if (device == DeviceState.PHONE3) AppGraph.arbiter.post(DisplayRequest(Hello.ID, Priority.STUDIO_PREVIEW, hello, loop = false, label = "Hello"))
-        onDispose { }
     }
     StepLayout(
         top = {
             Spacer(Modifier.height(Tokens.Section))
-            GlyphPreview(hello, "Hello", Modifier.size(bigPreview()), size = PreviewSize.LARGE, userPlay = true)
-            Title("You're set")
-            Body("You can change all of this in Settings.")
-            if (missing > 0) Text(
-                "${missing.things()} still ${if (missing == 1) "needs" else "need"} permission. Home shows how to fix ${if (missing == 1) "it" else "them"}.",
-                Modifier.fillMaxWidth().padding(top = Tokens.Gutter),
-                style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, textAlign = TextAlign.Center,
-            )
+            GlyphPreview(hello, "Hello", Modifier.size(bigPreview()), size = PreviewSize.LARGE, userPlay = firstTime)
+            Title(if (missing.isEmpty()) "You're set" else "Almost set")
+            Body("Change your apps in Alerts and your permissions in Profile.")
+            com.dotforge.setup.Perms.needLine(missing)?.let { need ->
+                Line("$need. Home shows how to fix ${if (missing.size == 1) "it" else "them"}.")
+            }
         },
-        buttons = { PrimaryButton("Go to Home", Modifier.fillMaxWidth(), onClick = onDone) },
+        buttons = {
+            PrimaryButton("Go to Home", Modifier.fillMaxWidth(), onClick = onDone)
+            QuietSlot()
+        },
     )
 }
 
 /** The 200 dp preview, or 128 dp on a short screen (360x640 and the like) so the words and buttons fit. */
 @Composable
 private fun bigPreview() = if (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 720) 128.dp else Tokens.PreviewLarge
-
-/** "1 thing", "2 things". */
-fun Int.things(): String = if (this == 1) "1 thing" else "$this things"

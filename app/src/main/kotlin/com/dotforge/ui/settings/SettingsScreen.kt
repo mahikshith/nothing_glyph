@@ -27,6 +27,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dotforge.backup.BackupStore
 import com.dotforge.ui.Nav
 import com.dotforge.ui.Page
@@ -80,8 +82,9 @@ fun permissionsSummary(items: List<PermissionItem>): String {
 
 /**
  * Every permission DotForge uses, with what it is for. The core four (as First run asks them) are Needed until
- * allowed; the rest are Needed only while something switched on uses them. Tapping opens the same Android screen
- * First run opens.
+ * allowed. Of the rest, Microphone is Needed while the visualiser runs and "Show DotForge notifications" while an
+ * app rule silences notifications (the quiet copy needs it); the others stay Optional. Tapping opens the same Android
+ * screen First run opens.
  */
 @Composable
 fun rememberPermissions(setup: Setup): List<PermissionItem> {
@@ -91,6 +94,10 @@ fun rememberPermissions(setup: Setup): List<PermissionItem> {
         ctx.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
     val usage = remember(resumes) { com.dotforge.toys.DayUsage.allowed(ctx) }
+    val live by com.dotforge.visualiser.LiveVisualiser.running.collectAsStateWithLifecycle()
+    val rules by com.dotforge.AppGraph.rules.rules.collectAsStateWithLifecycle()
+    // a silenced notification is only kept as a quiet copy when DotForge may post one (spam is hidden on purpose)
+    val posts = rules.any { it.enabled && it.action == com.dotforge.rules.Action.SILENCE && it.source != com.dotforge.rules.Source.CALLS }
     fun open(intent: android.content.Intent) {
         runCatching { ctx.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
@@ -99,7 +106,7 @@ fun rememberPermissions(setup: Setup): List<PermissionItem> {
     val contacts = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { setup.onContactsResult() }
     val appInfo = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", ctx.packageName, null))
     return listOf(
-        PermissionItem("Notification access", "Lights the Glyph for your apps, caller names and live progress", permissionState(setup.notificationAccess, true), "bell", core = true) {
+        PermissionItem("Notification access", com.dotforge.ui.onboarding.NOTIFICATIONS_WHY, permissionState(setup.notificationAccess, true), "bell", core = true) {
             if (setup.notificationAccess) setup.manageAccess() else setup.openAccessSettings()
         },
         PermissionItem("Call screening", "Blocks spam calls and shows who's calling", permissionState(setup.screening, true), "phone", core = true) {
@@ -109,8 +116,8 @@ fun rememberPermissions(setup: Setup): List<PermissionItem> {
             if (setup.contacts) setup.openAppInfo() else setup.allowContacts { contacts.launch(android.Manifest.permission.READ_CONTACTS) }
         },
         PermissionItem("Keep running", "So the Glyph still lights when the screen is off", permissionState(setup.keepRunning, true), "battery", core = true) { setup.needKeepRunning() },
-        PermissionItem("Microphone", "Only for the Music visualiser", permissionState(setup.microphone, false), "music") { setup.needMicrophone() },
-        PermissionItem("Notifications", "The timer on the lock screen, and quiet copies of silenced ones", permissionState(setup.notifications, false), "chat") { setup.needNotifications() },
+        PermissionItem("Microphone", "Only for the Music visualiser", permissionState(setup.microphone, live), "music") { setup.needMicrophone() },
+        PermissionItem("Show DotForge notifications", "The timer on the lock screen, and quiet copies of silenced ones", permissionState(setup.notifications, posts), "chat") { setup.needNotifications() },
         PermissionItem("Modify system settings", "Only to set Glyph ringtones", permissionState(setup.systemSettings, false), "ring") { setup.openWriteSettings() },
         PermissionItem("Location", "Only for DF Weather's \"Where I am\"", permissionState(location, false), "pin") { open(appInfo) },
         PermissionItem("Usage access", "Only for DF Day dots' screen time", permissionState(usage, false), "clock") {
@@ -262,11 +269,11 @@ fun PermissionRow(p: PermissionItem) =
         Chevron()
     }
 
-/** A 10 dp status dot: green Allowed, red Needed, grey Optional. */
+/** A status dot, 10 sp so it grows with the text beside it: green Allowed, red Needed, grey Optional. */
 @Composable
 fun StatusDot(state: PermissionState, modifier: Modifier = Modifier) =
     Box(
-        modifier.size(10.dp).background(
+        modifier.size(with(androidx.compose.ui.platform.LocalDensity.current) { 10.sp.toDp() }).background(
             when (state) {
                 PermissionState.ALLOWED -> Tokens.Allowed
                 PermissionState.NEEDED -> Tokens.Accent
@@ -286,13 +293,13 @@ fun StateLabel(state: PermissionState, modifier: Modifier = Modifier) =
 
 /**
  * Settings > Permissions: every permission as a row (dot icon, name, plain reason, a status dot and word).
- * Needed for alerts first, then the ones only some features use. Home's banner opens this page.
+ * "Needed for the basics" first, then "Optional": the ones only some features use. Home's banner opens this page.
  */
 @Composable
 fun PermissionsPage(nav: Nav, permissions: List<PermissionItem>) =
     PageLayout("Permissions", onBack = nav::pop) {
         item(key = "what") { Hint("Tap one to open Android's page for it. Nothing leaves this phone.") }
-        listOf("Needed for alerts" to permissions.filter { it.core }, "Only for some features" to permissions.filterNot { it.core }).forEach { (label, items) ->
+        listOf("Needed for the basics" to permissions.filter { it.core }, "Optional" to permissions.filterNot { it.core }).forEach { (label, items) ->
             if (items.isNotEmpty()) item(key = label) {
                 SectionLabel(label)
                 RowGroup {

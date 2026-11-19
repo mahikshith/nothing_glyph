@@ -191,11 +191,12 @@ class HomeUiTest {
     }
 
     @Test fun theStatusLineGoesInPriorityOrder() {
-        // lost access first, with Allow
+        // lost access first: said, but only the permission banner asks for it
         AppGraph.filters.updateFilters { it.copy(alertsPaused = true, quietUntil = System.currentTimeMillis() + 3_600_000) }
         home(status = HomeStatus(access = false))
-        rule.onNodeWithText("Alerts are off. Notification access was turned off.").assertExists()
-        rule.onAllNodesWithText("Allow")[0].assertExists()
+        rule.onNodeWithText("Alerts are off until Notification access is allowed.").assertExists()
+        rule.onNodeWithText("Notification access needs permission").assertExists()
+        assertTrue(rule.onAllNodesWithText("Allow").fetchSemanticsNodes().isEmpty())
         // then paused, then Quiet
         home(status = HomeStatus())
         rule.onNodeWithText("Alerts paused · calls still light").assertExists()
@@ -280,7 +281,7 @@ class HomeUiTest {
         // done lines collapse into the count; permissions are the banner's one line, not the checklist's
         rule.onNodeWithText("Pick your apps").assertDoesNotExist()
         rule.onNodeWithText("Keep DotForge running").assertDoesNotExist()
-        rule.onNodeWithText("2 things need permission").assertExists()
+        rule.onNodeWithText("Notification access and Keep running need permission").assertExists()
         rule.onNodeWithText("Hide").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Finish setting up").assertDoesNotExist()
@@ -339,7 +340,10 @@ class HomeUiTest {
         scrollTo("Needs microphone")
         rule.onNodeWithText("Needs microphone ›").assertExists()
         rule.onNodeWithContentDescription("Allow the microphone").assertExists()
-        rule.onAllNodesWithContentDescription("Allow notification access").fetchSemanticsNodes().isNotEmpty().let(::assertTrue)
+        // Notification access is asked only by the banner: the Alerts tile says why it's off, with no Allow
+        assertTrue(rule.onAllNodesWithContentDescription("Allow notification access").fetchSemanticsNodes().isEmpty())
+        scrollTo("Off · needs permission")
+        rule.onAllNodesWithText("Off · needs permission", substring = true).fetchSemanticsNodes().isNotEmpty().let(::assertTrue)
     }
 
     @Test fun aTileOpensItsFeaturePage() {
