@@ -101,6 +101,8 @@ internal object Names {
      * case, and words in capitals or mixed case (UFO, UwU, DJ) stay as they are.
      */
     fun sentence(name: String): String {
+        // names of days keep their capitals: New Year
+        if (name.contains("New Year")) return sentence(name.replace("New Year", "\u0000")).replace("\u0000", "New Year")
         val words = name.trim().split(' ')
         return words.mapIndexed { i, w ->
             when {

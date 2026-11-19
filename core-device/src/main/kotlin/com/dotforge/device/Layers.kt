@@ -65,7 +65,9 @@ object Compositor {
     /** The background's loop with its effect. */
     fun background(p: DeviceProfile, bg: BackgroundLayer): Animation {
         val src = runCatching { Animation.fromMuseumJson(p, bg.frames) }.getOrElse { Animation.single(Frame.blank(p)) }
-        val still = Posters.of(src)
+        // a one-frame picture stays exactly where it was placed (a glyph + text design's glyph sits above its
+        // words); only a moving source is reduced to its poster, which centres it
+        val still = if (src.frames.size == 1) src.frames[0].frame else Posters.of(src)
         val out: Animation = when (bg.effect) {
             BackgroundEffect.STILL -> Animation.single(still, 1000)
             BackgroundEffect.PLAY -> src

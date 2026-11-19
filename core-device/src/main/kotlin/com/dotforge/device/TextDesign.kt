@@ -82,6 +82,9 @@ data class TextSpec(
 object TextRender {
     /** One dot of scroll at Normal speed. */
     const val STEP_MS = 70
+
+    /** Word by word: how long each word takes to slide in before it holds still. */
+    const val WORD_ARRIVE_MS = 150
     private const val DIM_OUTLINE = 70
 
     private class Builder(val p: DeviceProfile) {
@@ -125,103 +128,83 @@ object TextRender {
         return b.build()
     }
 
-    /** A still picture for previews: the text centred (or its start, when it doesn't fit). */
-    fun poster(p: DeviceProfile, spec: TextSpec): Frame {
-        val s = spec.clamped()
-        if (s.style == TextStyle.FIT) return Frame.of(p, fitFrame(p, s, s.text.ifBlank { " " }))
-        val text = s.text.ifBlank { " " }
-        val h = DotFonts.height(s.font)
-        val width = usable(p, s, h)
-        // on the whole Glyph, words that don't fit one line are stacked, whole, on up to three lines
-        if (s.band == TextBand.FULL && h == DotFonts.height(DotFont.SMALL) && DotFonts.width(s.font, text, s.spacing) > width) {
-            stacked(p, s, text)?.let { return Frame.of(p, it) }
-        }
-        // the whole text when it fits, else the first screenful of whole words: in its own font, or in Small
-        // (same height) when not even the first word fits; whole letters only as a last resort
-        val firstWord = text.trim().substringBefore(' ')
-        val sameHeight = DotFonts.height(s.font) == DotFonts.height(DotFont.SMALL)
-        val (font, spacing) = listOf(s.font to s.spacing, DotFont.SMALL to maxOf(1, s.spacing))
-            .filter { (f, _) -> f == s.font || sameHeight }
-            .firstOrNull { (f, sp) -> DotFonts.width(f, firstWord, sp) <= width } ?: (s.font to s.spacing)
-        val shown = if (DotFonts.width(font, text, spacing) <= width) text else screenful(font, text, width, spacing)
-        val strip = DotFonts.strip(font, shown, spacing)
-        return Frame.of(p, place(p, s, strip, (p.size - strip.w) / 2, top(s, strip.h)))
-    }
+    /** What a poster shows: whole words on [lines] (one to three), in [font] with [spacing]; [fits] is false when no word fits whole. */
+    internal class PosterPlan(val font: DotFont, val spacing: Int, val lines: List<String>, val fits: Boolean = true)
+
+    /** Words that say little on their own, so a poster that can show only one word picks another. */
+    private val COMMON = setOf("A", "I", "U", "THE", "AN", "HAPPY", "GOOD", "MY", "ON", "AT", "IN", "OF", "TO", "IS", "IT'S", "AND", "ME", "YOU", "+", "&", "PE", "HO", "JI", "KAR")
 
     /**
-     * [text]'s whole words on 2-3 centred lines (its own font, else Regular, else Small); when a word fits no line in
-     * any font, it is broken into two (else three) even parts on their own lines (FORE / VER), so the poster still shows every letter.
-     * Null when even that won't fit.
+     * The poster's layout: never a word cut in two. The whole text on one line in the item's font, else Regular,
+     * else Small (the first that fits); on the whole Glyph, else its words stacked whole on two or three lines;
+     * else the one most telling word that fits (DIWALI rather than HAPPY).
      */
-    private fun stacked(p: DeviceProfile, s: TextSpec, text: String): IntArray? {
-        val words = text.trim().split(Regex("\\s+"))
-        val n = p.size
-        for (split in 1..3)
-        for ((font, spacing) in listOf(s.font to s.spacing, DotFont.REGULAR to s.spacing, DotFont.SMALL to maxOf(1, s.spacing)).distinct()) {
-            for (count in 2..3) {
-                val h = DotFonts.height(font)
-                val gap = 2
-                val y0 = (n - (count * h + (count - 1) * gap)) / 2
-                // each line's room: the narrowest of its rows, less a dot each side (two with a border)
-                val room = (0 until count).map { i ->
-                    val ys = (y0 + i * (h + gap)) until (y0 + i * (h + gap) + h)
-                    ys.minOf { y -> (0 until n).count { p.isActive(it, y) } } - if (s.border) 4 else 2
-                }
-                val lines = ArrayList<String>()
-                var ok = true
-                // a broken word keeps its lines to itself: CHAI / PE / CHA / LO? never reads "PE CHA"
-                val parts = words.flatMap { w ->
-                    (if (split == 1) null else parts(font, w, spacing, room.min(), split))?.map { it to true } ?: listOf(w to false)
-                }
-                var lastBroken = false
-                for ((w, broken) in parts) {
-                    val last = lines.lastOrNull()
-                    val join = last != null && !broken && !lastBroken
-                    lastBroken = broken
-                    if (join && DotFonts.width(font, "$last $w", spacing) <= room[lines.size - 1]) lines[lines.size - 1] = "$last $w"
-                    else if (lines.size < count && DotFonts.width(font, w, spacing) <= room[lines.size]) lines += w
-                    else { ok = false; break }
-                }
-                if (!ok) continue
-                val px = IntArray(p.cellCount)
-                val top = y0 + (count - lines.size) * (h + gap) / 2
-                lines.forEachIndexed { i, line ->
-                    val strip = DotFonts.strip(font, line, spacing)
-                    val x0 = (n - strip.w) / 2
-                    for (y in 0 until strip.h) for (x in 0 until strip.w) {
-                        val yy = top + i * (h + gap) + y
-                        if (strip.lit(x, y) && p.isActive(x0 + x, yy)) px[yy * n + x0 + x] = 255
-                    }
-                }
-                return look(p, s, px)
+    internal fun posterPlan(p: DeviceProfile, spec: TextSpec): PosterPlan {
+        val s = spec.clamped()
+        val text = s.text.trim().ifBlank { " " }
+        val words = text.split(Regex("\\s+"))
+        val fonts = listOf(s.font to s.spacing, DotFont.REGULAR to s.spacing, DotFont.SMALL to maxOf(1, s.spacing)).distinct()
+        for ((f, sp) in fonts) if (DotFonts.width(f, text, sp) <= usable(p, s, DotFonts.height(f))) return PosterPlan(f, sp, listOf(text))
+        if (s.band == TextBand.FULL) {
+            for ((f, sp) in fonts) {
+                if (DotFonts.height(f) != DotFonts.height(DotFont.SMALL)) continue
+                for (count in 2..3) stackLines(p, s, words, f, sp, count)?.let { return PosterPlan(f, sp, it) }
             }
         }
-        return null
+        val ranked = words.distinct().sortedWith(compareBy<String>({ it.uppercase() in COMMON }, { -it.count(Char::isLetterOrDigit) }))
+        for (w in ranked) for ((f, sp) in fonts) if (DotFonts.width(f, w, sp) <= usable(p, s, DotFonts.height(f))) return PosterPlan(f, sp, listOf(w))
+        return PosterPlan(DotFont.SMALL, 1, listOf(words.first()), fits = false)
     }
 
-    /** [word] cut into [k] even parts when each fits [room]; null when it already fits whole or the parts don't. */
-    private fun parts(font: DotFont, word: String, spacing: Int, room: Int, k: Int): List<String>? {
-        if (DotFonts.width(font, word, spacing) <= room || word.length < k) return null
-        val chunks = word.chunked((word.length + k - 1) / k)
-        return chunks.takeIf { c -> c.all { DotFonts.width(font, it, spacing) <= room } }
+    /** A still picture for previews and tiles, laid out by [posterPlan]. */
+    fun poster(p: DeviceProfile, spec: TextSpec): Frame {
+        val s = spec.clamped()
+        val plan = posterPlan(p, s)
+        // Fit shows its own pick of font when the whole text fits one line
+        if (s.style == TextStyle.FIT && plan.lines.size == 1 && plan.lines[0] == s.text.trim()) return Frame.of(p, fitFrame(p, s, s.text.ifBlank { " " }))
+        val h = DotFonts.height(plan.font)
+        if (plan.lines.size == 1) {
+            val strip = DotFonts.strip(plan.font, plan.lines[0], plan.spacing)
+            return Frame.of(p, place(p, s, strip, (p.size - strip.w) / 2, top(s, strip.h)))
+        }
+        val n = p.size
+        val count = plan.lines.size
+        val gap = stackGap(count)
+        val y0 = (n - (count * h + (count - 1) * gap)) / 2
+        val px = IntArray(p.cellCount)
+        plan.lines.forEachIndexed { i, line ->
+            val strip = DotFonts.strip(plan.font, line, plan.spacing)
+            val x0 = (n - strip.w) / 2
+            for (y in 0 until strip.h) for (x in 0 until strip.w) {
+                val yy = y0 + i * (h + gap) + y
+                if (strip.lit(x, y) && p.isActive(x0 + x, yy)) px[yy * n + x0 + x] = 255
+            }
+        }
+        return Frame.of(p, look(p, s, px))
     }
 
-    /** The longest start of [text] that fits [width]: whole words when the first word fits, else whole letters. */
-    internal fun screenful(font: DotFont, text: String, width: Int, spacing: Int): String {
-        val words = text.trim().split(Regex("\\s+"))
-        var out = ""
+    /** Dark rows between stacked lines: two between two lines, one between three (so all three fit the circle). */
+    private fun stackGap(count: Int) = if (count >= 3) 1 else 2
+
+    /** [words] whole on exactly [count] centred lines (each line's room is its narrowest row, less the margin), or null. */
+    private fun stackLines(p: DeviceProfile, s: TextSpec, words: List<String>, font: DotFont, spacing: Int, count: Int): List<String>? {
+        val n = p.size
+        val h = DotFonts.height(font)
+        val gap = stackGap(count)
+        val y0 = (n - (count * h + (count - 1) * gap)) / 2
+        val margin = if (s.border || s.style == TextStyle.MARQUEE) 4 else 2
+        val room = (0 until count).map { i ->
+            val ys = (y0 + i * (h + gap)) until (y0 + i * (h + gap) + h)
+            ys.minOf { y -> (0 until n).count { p.isActive(it, y) } } - margin
+        }
+        val lines = ArrayList<String>()
         for (w in words) {
-            val next = if (out.isEmpty()) w else "$out $w"
-            if (DotFonts.width(font, next, spacing) > width) break
-            out = next
+            val last = lines.lastOrNull()
+            if (last != null && DotFonts.width(font, "$last $w", spacing) <= room[lines.size - 1]) lines[lines.size - 1] = "$last $w"
+            else if (lines.size < count && DotFonts.width(font, w, spacing) <= room[lines.size]) lines += w
+            else return null
         }
-        if (out.isNotEmpty()) return out
-        var cut = ""
-        for (ch in text.trim()) {
-            if (DotFonts.width(font, cut + ch, spacing) > width) break
-            cut += ch
-        }
-        return cut.ifEmpty { text.take(1) }
+        return if (lines.size == count) lines else null
     }
 
     // ---- placing
@@ -420,12 +403,16 @@ object TextRender {
         val strip = DotFonts.strip(s.font, text, s.spacing)
         val ring = p.ring
         val y = top(s, strip.h)
-        val fits = strip.w <= usable(p, s, strip.h)
-        val steps = if (fits) 48 else p.size + strip.w
+        val width = usable(p, s, strip.h)
+        val fits = strip.w <= width
+        // words that don't fit one line take turns in the middle, each held still, while the lights run
+        val shown = if (fits) listOf(strip) else chunks(s.font, text, width, s.spacing).map { DotFonts.strip(s.font, it, s.spacing) }
+        val each = if (fits) 48 else 14
         val reverse = s.direction == TextDirection.RIGHT
-        for (t in 0 until steps) {
-            val x = if (fits) (p.size - strip.w) / 2 else p.size - t
-            val px = place(p, s.copy(border = false), strip, x, y)
+        for (t in 0 until each * shown.size) {
+            val st = shown[t / each]
+            val x = (p.size - st.w) / 2
+            val px = place(p, s.copy(border = false), st, x, y)
             // a dark dot between the letters and the running lights
             for (c in ring) px[c] = 0
             for (c in nearRing(p)) px[c] = 0
@@ -504,11 +491,11 @@ object TextRender {
                 continue
             }
             val x = (p.size - strip.w) / 2
-            // a short slide in from the chosen side
-            for (k in 3 downTo 1) b.add(place(p, s, strip, x + slide.first * k * 3, y + slide.second * k * 3), 50)
-            b.add(place(p, s, strip, x, y), 550)
+            // a short slide in from the chosen side, then the word holds (longer with a longer pause)
+            for (k in 3 downTo 1) b.add(place(p, s, strip, x + slide.first * k * 3, y + slide.second * k * 3), WORD_ARRIVE_MS / 3)
+            b.add(place(p, s, strip, x, y), 550 + s.pauseMs / 2)
         }
-        b.add(IntArray(p.cellCount), 200 + s.pauseMs)
+        b.add(IntArray(p.cellCount), 200 + s.pauseMs / 2)
     }
 
     private fun bounce(b: Builder, s: TextSpec, text: String) {
@@ -624,6 +611,8 @@ object TextRender {
     private fun fitFrame(p: DeviceProfile, s: TextSpec, text: String): IntArray {
         val n = p.size
         val order = listOf(DotFont.BIG, if (s.font == DotFont.SERIF) DotFont.SERIF else DotFont.TALL, s.font, DotFont.REGULAR, DotFont.SMALL).distinct()
+            // in a band, letters keep a dark row above and below (a picture sits next to them)
+            .filter { s.band == TextBand.FULL || DotFonts.height(it) <= s.band.rows.count() - 2 }
         for (f in order) {
             val strip = DotFonts.strip(f, text, s.spacing)
             if (strip.w <= usable(p, s, strip.h) && strip.h <= s.band.rows.count()) {
