@@ -2,7 +2,11 @@ package com.dotforge.ui
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
@@ -67,19 +71,23 @@ class LibraryUiTest {
 
     private fun tile(name: String) = rule.onAllNodesWithContentDescription(name, substring = true).onFirst()
 
-    @Test fun chipsListAllFavouritesRecentAndTheNewCategories() {
+    @Test fun opensOnFeaturedAndCategoriesSitInTheirOwnSheet() {
         rule.setContent { DotForgeTheme { LibraryBrowser { } } }
-        rule.onNodeWithText("All").assertExists()
-        rule.onNodeWithText("Favourites").assertExists()
-        rule.onNodeWithText("Recently used").assertExists()
-        for (title in listOf("Love", "Heartbreak", "Moods", "Anime style", "Celebrations", "Utility", "Food & delivery", "Travel & rides", "Work & study", "Sports", "Text", "Glyph + text")) {
-            rule.onNodeWithTag("library-chips").performScrollToNode(hasText(title))
-            rule.onNodeWithText(title).assertExists()
+        rule.onNodeWithText("Featured").assertIsSelected()
+        for (chip in listOf("All", "Favourites", "Recently used")) {
+            rule.onNodeWithTag("library-chips").performScrollToNode(hasText(chip))
+            rule.onNodeWithText(chip).assertExists()
         }
-        // a category chip shows only that category
-        rule.onNodeWithText("Glyph + text").tap()
+        rule.onNodeWithContentDescription("Categories").tap()
+        rule.waitForIdle()
+        for (title in listOf("Love", "Heartbreak", "Moods", "Anime style", "Celebrations", "Utility", "Food & delivery", "Travel & rides", "Work & study", "Sports", "Text", "Glyph + text")) {
+            rule.onNode(hasContentDescription("$title, ", substring = true)).performScrollTo().assertExists()
+        }
+        // a category shows only that category, and its chip leads the row
+        rule.onNode(hasContentDescription("Glyph + text, ", substring = true)).performScrollTo().tap()
         rule.waitForIdle()
         tile("I ♥ U, glyph and text").assertExists()
+        rule.onNodeWithText("Glyph + text ▾").assertIsSelected()
     }
 
     @Test fun searchFindsAndShowsAnEmptyState() {
@@ -87,14 +95,17 @@ class LibraryUiTest {
         search("food bag")
         tile("Food bag, still").assertExists()
         search("qqqzzz")
-        rule.onNodeWithText("No results for “qqqzzz”").assertExists()
+        rule.onNodeWithText("Nothing matches “qqqzzz”.").assertExists()
+        rule.onNodeWithText("Clear search").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Featured").assertIsSelected()
     }
 
     @Test fun favouritesComeFromALongPressAndPersist() {
         rule.setContent { DotForgeTheme { LibraryBrowser { } } }
         rule.onNodeWithText("Favourites").tap()
         rule.waitForIdle()
-        rule.onNodeWithText("No favourites yet").assertExists()
+        rule.onNodeWithText("Long-press any design to keep it here.").assertExists()
         rule.onNodeWithText("All").tap()
         search("food bag")
         tile("Food bag, still").performSemanticsAction(SemanticsActions.OnLongClick)
@@ -112,7 +123,7 @@ class LibraryUiTest {
         tile("Food bag, still").performSemanticsAction(SemanticsActions.OnLongClick)
         rule.waitForIdle()
         assertFalse(LibraryPrefs.isFavourite("g-food-bag"))
-        rule.onNodeWithText("No favourites yet").assertExists()
+        rule.onNodeWithText("Long-press any design to keep it here.").assertExists()
     }
 
     @Test fun recentlyUsedFollowsPicksAndKeepsTheNewestFirst() {
@@ -121,7 +132,7 @@ class LibraryUiTest {
         rule.onNodeWithText("Recently used").tap()
 
         rule.waitForIdle()
-        rule.onNodeWithText("Nothing used yet").assertExists()
+        rule.onNodeWithText("What you try, use or edit shows here.").assertExists()
         rule.onNodeWithText("All").tap()
         search("parcel delivered")
         tile("Parcel delivered").tap()
@@ -149,7 +160,7 @@ class LibraryUiTest {
         var picked: String? = null
         rule.setContent { DotForgeTheme { TextBackgroundSheet(onDismiss = {}) { name, _ -> picked = name } } }
         search("namaste")
-        rule.onNodeWithText("No results for “namaste”").assertExists()
+        rule.onNodeWithText("Nothing matches “namaste”.").assertExists()
         search("diya")
         tile("Diya, still").tap()
         rule.waitForIdle()
@@ -160,7 +171,7 @@ class LibraryUiTest {
     @Test fun homePicksFromTheLibraryAndOpensTheItemSheet() {
         val nav = Nav(Tab.HOME)
         rule.setContent { DotForgeTheme { HomeScreen(nav, Setup(rule.activity), androidx.compose.foundation.lazy.rememberLazyListState()) } }
-        rule.onNodeWithText("Pick from the library").tap()
+        rule.onNodeWithText("Choose a design").tap()
         rule.waitForIdle()
         // (not one of Home's own tiles, so the tap lands in the picker)
         search("parcel delivered")
@@ -176,12 +187,16 @@ class LibraryUiTest {
         val nav = Nav(Tab.STUDIO)
         rule.setContent { DotForgeTheme { LibraryScreen(nav) } }
         search("sixer")
-        tile("SIXER!, glyph and text").tap()
+        tile("SIXER, glyph and text").tap()
         rule.waitForIdle()
         rule.onNodeWithText("Try on Glyph").tap()
         rule.waitForIdle()
         assertTrue(AppGraph.arbiter.active.value.any { it.id == LibraryActions.TRY_ID })
-        AppGraph.arbiter.remove(LibraryActions.TRY_ID)
+        // the button turns into Stop in place
+        rule.onNodeWithText("Stop on Glyph").tap()
+        // the arbiter drops requests on its own scope, so wait for it rather than for Compose
+        rule.waitUntil(5_000) { AppGraph.arbiter.active.value.none { it.id == LibraryActions.TRY_ID } }
+        assertFalse(AppGraph.arbiter.active.value.any { it.id == LibraryActions.TRY_ID })
         rule.onNodeWithText("Add to Favourites").tap()
         rule.waitForIdle()
         assertTrue(LibraryPrefs.favourites.any { it.startsWith("gt-") })
@@ -190,7 +205,30 @@ class LibraryUiTest {
         val page = nav.page as Page.Editor
         val draft = Drafts.take(page.draft)!!
         assertNotNull("the glyph + text keeps its layers", draft.layers?.background)
-        assertEquals("SIXER!", draft.layers?.text?.spec?.text)
+        assertEquals("SIXER", draft.layers?.text?.spec?.text)
+    }
+
+    @Test fun useForSavesACopyOnlyOnceItIsUsed() {
+        val nav = Nav(Tab.STUDIO)
+        rule.setContent { DotForgeTheme { LibraryScreen(nav) } }
+        search("parcel delivered")
+        tile("Parcel delivered").tap()
+        rule.waitForIdle()
+        val before = AppGraph.designs.designs.value.size
+        rule.onNodeWithText("Use for…").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Tick where it shows. Done saves a copy to your designs.").assertExists()
+        rule.onNodeWithText("Done").tap()
+        rule.waitForIdle()
+        assertEquals("nothing ticked, nothing saved", before, AppGraph.designs.designs.value.size)
+        tile("Parcel delivered").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Use for…").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Gallery").performScrollTo().tap()
+        rule.onNodeWithText("Done").tap()
+        rule.waitForIdle()
+        assertEquals(before + 1, AppGraph.designs.designs.value.size)
     }
 
     @Test fun textItemsOpenInTheTextScreenAndUseForSavesACopy() {

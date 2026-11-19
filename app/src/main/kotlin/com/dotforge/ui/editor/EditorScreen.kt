@@ -533,8 +533,8 @@ private fun TopBar(s: EditorSession, phone: PhoneState, onClose: () -> Unit, onD
                 if (stacked) Spacer(Modifier.weight(1f))
                 else Column(Modifier.weight(1f).clickable(onClickLabel = "Rename", onClick = onRename).padding(horizontal = Tokens.Tiny)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // the name gets the room up to the Glyph pill, on up to 2 lines
-                        Text(s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        // the name gets the room up to the Glyph pill, on one line: an ellipsis, never a word split
+                        Text(s.doc.name, style = MaterialTheme.typography.titleMedium.capped(), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         Icon(DfIcons.Pencil, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.padding(start = 6.dp).size(16.dp))
                     }
                     Text(saved, style = MaterialTheme.typography.bodySmall.capped(), color = Tokens.Secondary, maxLines = 1, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })

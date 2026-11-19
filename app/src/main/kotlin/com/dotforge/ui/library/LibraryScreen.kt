@@ -2,6 +2,17 @@ package com.dotforge.ui.library
 
 import android.content.SharedPreferences
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
+import com.dotforge.device.library.Category
+import com.dotforge.ui.design.EmptyState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -207,13 +218,14 @@ object LibraryActions {
     }
 }
 
-/** Which tiles the browser shows: everything, favourites, recently used or one category. */
+/** Which tiles the browser shows: Featured, everything, favourites, recently used or one category. */
 @Stable
 class LibraryBrowserState(chip: String, query: String) {
     var chip by mutableStateOf(chip)
     var query by mutableStateOf(query)
 
     companion object {
+        val FEATURED = Categories.Featured.id
         const val ALL = "all"
         const val FAVOURITES = "favourites"
         const val RECENT = "recent"
@@ -221,7 +233,7 @@ class LibraryBrowserState(chip: String, query: String) {
 }
 
 @Composable
-fun rememberLibraryBrowserState(chip: String = LibraryBrowserState.ALL, query: String = ""): LibraryBrowserState {
+fun rememberLibraryBrowserState(chip: String = LibraryBrowserState.FEATURED, query: String = ""): LibraryBrowserState {
     var savedChip by rememberSaveable { mutableStateOf(chip) }
     var savedQuery by rememberSaveable { mutableStateOf(query) }
     val s = remember { LibraryBrowserState(savedChip, savedQuery) }
@@ -229,17 +241,22 @@ fun rememberLibraryBrowserState(chip: String = LibraryBrowserState.ALL, query: S
     return s
 }
 
-/** One row of the grid: a group heading (Text's Greetings, Love...) or a tile. */
+/** One row of the grid: a count or tip line, a group heading (Text's Greetings, Love...) or a tile. */
 private sealed interface Cell {
+    data class Note(val text: String) : Cell
     data class Heading(val title: String) : Cell
     data class Tile(val item: LibraryItem) : Cell
 }
 
+/** The category chips' sheet groups: pictures, words, then the rest. */
+private val WORDS = setOf(Categories.Text, Categories.GlyphText)
+
 /**
- * The one library picker: search, then "All", Favourites, Recently used and the category chips, then a grid of
- * live tiles. The Library page, the Alerts glyph picker, the editor's Insert and Background, the Text screen's
- * background and Home all use it. Long-press a tile to add it to Favourites. [extra] goes before the tiles
- * (the alerts picker's App icon and Their name). [selectedId] is outlined.
+ * The one library picker: a search field and one chip row (Featured, All, Favourites, Recently used and
+ * Categories, which opens a grid of every category with its count), then a grid of tiles, each on its fixed
+ * poster. The Library page, the Alerts glyph picker, the editor's Insert and Background, the Text screen's
+ * background and Home all use it. Long-press a tile to add it to Favourites. [extra] goes before Featured's
+ * tiles. [selectedId] is outlined. [gutter] pads the field and grid; the chip row runs to the edges.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -249,91 +266,160 @@ fun LibraryBrowser(
     filter: (LibraryItem) -> Boolean = { true },
     selectedId: String? = null,
     actionLabel: String = "Open",
+    gutter: Dp = 0.dp,
+    leading: (@Composable () -> Unit)? = null,
     extra: (LazyGridScope.() -> Unit)? = null,
     onOpen: (LibraryItem) -> Unit,
 ) {
     val snacks = rememberSnacks()
     val haptics = rememberHaptics()
-    val categories = remember { Categories.all.filter { c -> AnimationLibrary.items(c).any(filter) } }
+    val categories = remember { Categories.all.filter { c -> c != Categories.Featured && AnimationLibrary.items(c).any(filter) } }
     val favourites = LibraryPrefs.favourites.toList()
     val recent = LibraryPrefs.recent.toList()
     val chip = state.chip
     val query = state.query.trim()
+    var choosing by remember { mutableStateOf(false) }
     val cells: List<Cell> = remember(chip, query, favourites, recent) {
-        val base = when (chip) {
-            LibraryBrowserState.ALL -> allInOrder
-            LibraryBrowserState.FAVOURITES -> favourites.mapNotNull(AnimationLibrary::item)
-            LibraryBrowserState.RECENT -> recent.mapNotNull(AnimationLibrary::item)
+        val base = when {
+            // Featured is a showcase: typing searches everything
+            chip == LibraryBrowserState.ALL || (chip == LibraryBrowserState.FEATURED && query.isNotEmpty()) -> allInOrder
+            chip == LibraryBrowserState.FAVOURITES -> favourites.mapNotNull(AnimationLibrary::item)
+            chip == LibraryBrowserState.RECENT -> recent.mapNotNull(AnimationLibrary::item)
             else -> AnimationLibrary.items(Categories.byId(chip))
         }.filter(filter)
         val list = if (query.isEmpty()) base else base.toSet().let { inScope -> AnimationLibrary.search(query).filter { it in inScope } }
-        if (chip == Categories.Text.id && query.isEmpty()) {
+        if (list.isEmpty()) return@remember emptyList()
+        // the count follows the filter; the long-press tip shows until the first favourite
+        val count = "${list.size} ${if (list.size == 1) "design" else "designs"}" +
+            if (favourites.isEmpty() && chip != LibraryBrowserState.FAVOURITES) " · Long-press one to keep it in Favourites" else ""
+        val tiles = if (chip == Categories.Text.id && query.isEmpty()) {
             val groups = list.groupBy { it.group ?: "More" }
-            (com.dotforge.device.library.AnimationLibrary.textGroups + "More").flatMap { g -> groups[g]?.let { listOf(Cell.Heading(g)) + it.map(Cell::Tile) }.orEmpty() }
+            (AnimationLibrary.textGroups + "More").flatMap { g -> groups[g]?.let { listOf(Cell.Heading(g)) + it.map(Cell::Tile) }.orEmpty() }
         } else list.map(Cell::Tile)
+        listOf(Cell.Note(count)) + tiles
     }
     Column(modifier) {
-        OutlinedTextField(
-            state.query, { state.query = it.take(40) }, Modifier.fillMaxWidth(), singleLine = true,
-            placeholder = { Text("Search the library", color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Tokens.Secondary) },
-            trailingIcon = if (state.query.isNotEmpty()) ({
-                IconButton(onClick = { state.query = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = Color.White) }
-            }) else null,
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, unfocusedBorderColor = Tokens.Hairline, cursorColor = Color.White),
-            shape = RoundedCornerShape(14.dp),
+        Row(Modifier.fillMaxWidth().padding(horizontal = gutter), verticalAlignment = Alignment.CenterVertically) {
+            leading?.invoke()
+            SearchField(state.query, { state.query = it.take(40) }, Modifier.weight(1f))
+        }
+        val chosen = categories.firstOrNull { it.id == chip }
+        val chips = listOf(
+            LibraryBrowserState.FEATURED to "Featured", LibraryBrowserState.ALL to "All",
+            LibraryBrowserState.FAVOURITES to "Favourites", LibraryBrowserState.RECENT to "Recently used",
         )
-        val chips = listOf(LibraryBrowserState.ALL to "All", LibraryBrowserState.FAVOURITES to "Favourites", LibraryBrowserState.RECENT to "Recently used") +
-            categories.map { it.id to it.title }
-        val chipState = rememberLazyListState(initialFirstVisibleItemIndex = chips.indexOfFirst { it.first == chip }.coerceAtLeast(0).let { if (it < 2) 0 else it - 1 })
         LazyRow(
-            Modifier.fillMaxWidth().padding(top = Tokens.Small).testTag("library-chips"), state = chipState,
+            Modifier.fillMaxWidth().padding(top = Tokens.Tiny).testTag("library-chips"),
+            contentPadding = PaddingValues(horizontal = gutter),
             horizontalArrangement = Arrangement.spacedBy(Tokens.Small),
         ) {
+            // the chosen category leads, so it is never scrolled out of sight
+            item(key = "categories") {
+                Chip(chosen?.let { "${it.title} ▾" } ?: "Categories ▾", chosen != null, Modifier.semantics { contentDescription = chosen?.let { "Category: ${it.title}. Choose another" } ?: "Categories" }) { choosing = true }
+            }
             items(chips, key = { it.first }) { (id, label) -> Chip(label, chip == id) { state.chip = id } }
         }
         val grid = rememberLazyGridState()
         LaunchedEffect(chip, query) { grid.scrollToItem(0) }
-        val empty = cells.isEmpty()
-        if (empty) {
-            Column(Modifier.fillMaxWidth().padding(top = Tokens.Section), horizontalAlignment = Alignment.CenterHorizontally) {
-                val (title, line) = when {
-                    query.isNotEmpty() -> "No results for “$query”" to
-                        (if (chip != LibraryBrowserState.ALL) "Nothing here matches. Try All, or other words." else "Try other words, like heart, rain or birthday.")
-                    chip == LibraryBrowserState.FAVOURITES -> "No favourites yet" to "Long-press any tile to add it here."
-                    chip == LibraryBrowserState.RECENT -> "Nothing used yet" to "What you try, use or edit shows here."
-                    else -> "Nothing here" to "Pick another category."
+        if (cells.isEmpty()) {
+            Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = gutter)) {
+                when {
+                    query.isNotEmpty() -> EmptyState("Nothing matches “$query”.", "Clear search", glyph = "question", primary = false) { state.query = "" }
+                    chip == LibraryBrowserState.FAVOURITES -> EmptyState("Long-press any design to keep it here.", "Browse Featured", glyph = "g-heart", primary = false) { state.chip = LibraryBrowserState.FEATURED }
+                    chip == LibraryBrowserState.RECENT -> EmptyState("What you try, use or edit shows here.", "Browse Featured", glyph = "g-hourglass", primary = false) { state.chip = LibraryBrowserState.FEATURED }
+                    else -> EmptyState("Nothing here yet.", "Browse Featured", primary = false) { state.chip = LibraryBrowserState.FEATURED }
                 }
-                Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
-                Text(line, style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Tokens.Tiny))
-                if (query.isNotEmpty() && chip != LibraryBrowserState.ALL) {
-                    SecondaryButton("Search everything", Modifier.padding(top = Tokens.Gutter)) { state.chip = LibraryBrowserState.ALL }
+            }
+        } else LazyVerticalGrid(
+            GridCells.Adaptive(TILE_MIN), Modifier.fillMaxWidth().weight(1f).padding(top = Tokens.Tiny), state = grid,
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
+            contentPadding = PaddingValues(start = gutter, end = gutter, bottom = Tokens.Gutter),
+        ) {
+            if (chip == LibraryBrowserState.FEATURED && query.isEmpty()) extra?.invoke(this)
+            items(cells, key = { c ->
+                when (c) { is Cell.Tile -> c.item.id; is Cell.Heading -> "h:" + c.title; is Cell.Note -> "note" }
+            }, span = { c -> if (c is Cell.Tile) GridItemSpan(1) else GridItemSpan(maxLineSpan) }) { c ->
+                when (c) {
+                    is Cell.Note -> Text(c.text, style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, maxLines = 2)
+                    is Cell.Heading -> Text(
+                        c.title, style = MaterialTheme.typography.titleSmall, color = Tokens.Secondary,
+                        modifier = Modifier.padding(top = Tokens.Small).semantics { heading() },
+                    )
+                    is Cell.Tile -> {
+                        val item = c.item
+                        val fav = item.id in favourites
+                        LibraryTile(item, fav, item.id == selectedId, actionLabel, onClick = { onOpen(item) }, onLongClick = {
+                            haptics.confirm()
+                            val now = LibraryPrefs.toggleFavourite(item.id)
+                            snacks?.show(if (now) "Added ${item.name} to Favourites" else "Removed ${item.name} from Favourites") { LibraryPrefs.toggleFavourite(item.id) }
+                        })
+                    }
                 }
             }
         }
-        CompositionLocalProvider(LocalPreviewsPaused provides grid.isScrollInProgress) {
-            LazyVerticalGrid(
-                GridCells.Adaptive(TILE_MIN), Modifier.fillMaxWidth().weight(1f, fill = !empty).padding(top = Tokens.Small), state = grid,
-                horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
-                contentPadding = PaddingValues(bottom = Tokens.Gutter),
+    }
+    if (choosing) CategoriesSheet(categories, filter, chip, onDismiss = { choosing = false }) { c -> choosing = false; state.chip = c.id }
+}
+
+/** The search field: one line, 48 dp, with a clear button while there is text. */
+@Composable
+private fun SearchField(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.text.BasicTextField(
+        value, onChange, modifier.heightIn(min = Tokens.Target).semantics { contentDescription = "Search the library" },
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+        decorationBox = { inner ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = Tokens.Target).background(Tokens.Card, RoundedCornerShape(24.dp)).padding(start = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (chip == LibraryBrowserState.ALL && query.isEmpty()) extra?.invoke(this)
-                items(cells, key = { c -> if (c is Cell.Tile) c.item.id else "h:" + (c as Cell.Heading).title }, span = { c ->
-                    if (c is Cell.Heading) GridItemSpan(maxLineSpan) else GridItemSpan(1)
-                }) { c ->
-                    when (c) {
-                        is Cell.Heading -> Text(
-                            c.title, style = MaterialTheme.typography.titleSmall, color = Tokens.Secondary,
-                            modifier = Modifier.padding(top = Tokens.Small).semantics { heading() },
-                        )
-                        is Cell.Tile -> {
-                            val item = c.item
-                            val fav = item.id in favourites
-                            LibraryTile(item, fav, item.id == selectedId, actionLabel, onClick = { onOpen(item) }, onLongClick = {
-                                haptics.confirm()
-                                val now = LibraryPrefs.toggleFavourite(item.id)
-                                snacks?.show(if (now) "Added ${item.name} to Favourites" else "Removed ${item.name} from Favourites") { LibraryPrefs.toggleFavourite(item.id) }
-                            })
+                Icon(Icons.Filled.Search, contentDescription = null, tint = Tokens.Secondary, modifier = Modifier.size(20.dp))
+                Box(Modifier.weight(1f).padding(start = 10.dp)) {
+                    if (value.isEmpty()) Text("Search the library", style = MaterialTheme.typography.bodyLarge, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    inner()
+                }
+                if (value.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = Color.White) }
+                else Spacer(Modifier.width(14.dp))
+            }
+        },
+    )
+}
+
+/** Every category as a tile with its picture and count: pictures first, then words, then everything else. */
+@Composable
+private fun CategoriesSheet(categories: List<Category>, filter: (LibraryItem) -> Boolean, current: String, onDismiss: () -> Unit, onPick: (Category) -> Unit) {
+    val glyphs = categories.filter { it in GLYPH_CATEGORIES }
+    val words = categories.filter { it in WORDS }
+    val more = categories - glyphs.toSet() - words.toSet()
+    FullSheet(onDismiss, "Categories", confirm = null) {
+        for ((title, list) in listOf("Glyphs" to glyphs, "Words" to words, "More" to more)) {
+            if (list.isEmpty()) continue
+            com.dotforge.ui.design.SectionLabel(title)
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+                // tiles grow with the font so a one-word title ("Celebrations") never breaks mid-word
+                val scale = androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
+                val cols = (maxWidth / (104.dp * scale)).toInt().coerceIn(2, 4)
+                Column(verticalArrangement = Arrangement.spacedBy(Tokens.Small)) {
+                    list.chunked(cols).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Small)) {
+                            row.forEach { c ->
+                                val items = remember(c) { AnimationLibrary.items(c).filter(filter) }
+                                val icon = remember(c) { items.firstOrNull { it.form == ItemForm.STILL || it.form == ItemForm.LAYERED } ?: items.first() }
+                                Column(
+                                    Modifier.weight(1f)
+                                        .background(if (c.id == current) Color.White.copy(alpha = 0.14f) else Tokens.Card, RoundedCornerShape(14.dp))
+                                        .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "Show ${c.title}") { onPick(c) }
+                                        .semantics(mergeDescendants = true) { contentDescription = "${c.title}, ${items.size}" }
+                                        .padding(Tokens.Small),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    DotMatrix(remember(icon.id) { AnimationLibrary.thumbnail(icon, AppGraph.profile) }.pixels, AppGraph.profile, Modifier.size(56.dp))
+                                    Text(c.title, style = MaterialTheme.typography.bodyMedium.capped(1.5f), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Tokens.Tiny))
+                                    Text("${items.size}", style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary)
+                                }
+                            }
+                            repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
@@ -341,6 +427,9 @@ fun LibraryBrowser(
         }
     }
 }
+
+/** The glyph-art categories, listed first in the Categories sheet. */
+private val GLYPH_CATEGORIES = with(Categories) { setOf(Love, Heartbreak, Moods, Anime, Seasonal, NatureWeather, Time, Utility, Food, Travel, Work, Sports) }
 
 /** "All": Featured first, then each category in chip order. */
 private val allInOrder: List<LibraryItem> by lazy {
@@ -350,11 +439,19 @@ private val allInOrder: List<LibraryItem> by lazy {
 /** The narrowest a tile gets; tiles grow to fill the row. */
 private val TILE_MIN = 92.dp
 
-/** A grid tile: the live preview, a heart badge when it is a favourite, and the name on up to 2 lines. */
+/**
+ * A grid tile: the item's fixed poster (the whole design, never a fragment), a play badge when it moves, a heart
+ * when it is a favourite, and the name on up to 2 lines.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryTile(item: LibraryItem, favourite: Boolean, selected: Boolean, actionLabel: String, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val kind = when (item.form) { ItemForm.STILL -> "still"; ItemForm.ANIMATION -> "animated"; ItemForm.TEXT -> "text"; ItemForm.LAYERED -> "glyph and text" }
+    val moves = remember(item.id) { item.animated }
+    val kind = when (item.form) {
+        ItemForm.STILL, ItemForm.ANIMATION -> if (moves) "animated" else "still"
+        ItemForm.TEXT -> if (moves) "moving text" else "text"
+        ItemForm.LAYERED -> "glyph and text"
+    }
     Column(
         Modifier
             .then(if (selected) Modifier.background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp)) else Modifier)
@@ -369,7 +466,11 @@ fun LibraryTile(item: LibraryItem, favourite: Boolean, selected: Boolean, action
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-            LivePreview(item, Modifier.fillMaxSize())
+            Poster(item, Modifier.fillMaxSize())
+            if (moves) Icon(
+                Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White,
+                modifier = Modifier.align(Alignment.BottomStart).size(20.dp).background(Color.Black.copy(alpha = 0.7f), CircleShape).padding(2.dp),
+            )
             if (favourite) Icon(
                 Icons.Filled.Favorite, contentDescription = null, tint = Color.White,
                 modifier = Modifier.align(Alignment.TopEnd).size(20.dp).background(Color.Black.copy(alpha = 0.7f), CircleShape).padding(3.dp),
@@ -382,50 +483,66 @@ fun LibraryTile(item: LibraryItem, favourite: Boolean, selected: Boolean, action
     }
 }
 
+/** [item]'s fixed poster: the whole design held still. */
+@Composable
+fun Poster(item: LibraryItem, modifier: Modifier = Modifier) {
+    val p = AppGraph.profile
+    val poster = remember(item.id) { AnimationLibrary.thumbnail(item, p) }
+    DotMatrix(poster.pixels, p, modifier)
+}
+
 /**
- * [item] playing in a square: its brightest frame first, then the loop on from there (never faster than 3 frames a second),
- * paused while the grid scrolls and still under Remove animations.
+ * The item sheet's big preview: the poster first, then the loop from there; a play / pause button under it.
+ * Under Remove animations it waits for Play.
  */
 @Composable
-fun LivePreview(item: LibraryItem, modifier: Modifier = Modifier) {
+private fun SheetPreview(item: LibraryItem) {
     val p = AppGraph.profile
     val anim = remember(item.id) { item.load(p) }
     val poster = remember(item.id) { AnimationLibrary.thumbnail(item, p) }
-    val run = anim.frames.size > 1 && !LocalPreviewsPaused.current && !LocalReduceMotion.current
+    val moves = anim.frames.size > 1
+    val reduce = LocalReduceMotion.current
+    var playing by remember(item.id) { mutableStateOf(moves && !reduce) }
     var frame by remember(item.id) { mutableStateOf(poster) }
-    LaunchedEffect(item.id, run) {
-        if (!run) { frame = poster; return@LaunchedEffect }
+    LaunchedEffect(item.id, playing) {
+        if (!playing) { frame = poster; return@LaunchedEffect }
         delay(POSTER_HOLD_MS)
-        // carry on from the poster's frame, so scrolling words don't jump back to an empty start
         val start = anim.frames.indexOfFirst { it.frame.pixels.contentEquals(poster.pixels) }.coerceAtLeast(0)
         var i = start
         while (true) {
             val f = anim.frames[i]
             frame = f.frame
-            delay(f.durationMs.coerceAtLeast(PREVIEW_MIN_FRAME_MS).toLong())
+            delay(f.durationMs.coerceAtLeast(Animation.MIN_FRAME_MS).toLong())
             i = (i + 1) % anim.frames.size
         }
     }
-    DotMatrix(frame.pixels, p, modifier)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        DotMatrix(frame.pixels, p, Modifier.size(PreviewSize.LARGE.dp).semantics { contentDescription = com.dotforge.ui.design.previewLabel(item.name, anim) })
+        if (moves) IconButton(
+            onClick = { playing = !playing },
+            modifier = Modifier.align(Alignment.BottomEnd).background(Tokens.Raised, CircleShape),
+        ) {
+            Icon(if (playing) DfIcons.Pause else Icons.Filled.PlayArrow, contentDescription = if (playing) "Pause" else "Play", tint = Color.White)
+        }
+    }
 }
 
 /**
- * Tapping a tile: a big preview, Try on Glyph, Use for… (alerts, the caller glyph, Home's player), Edit a copy and
- * Favourite, with the credit line where the item needs one.
+ * Tapping a tile: a big preview with play / pause, Try on Glyph (it turns into Stop while it shows), Use for…
+ * (alerts, people, Home's player), Edit a copy and Favourite, with the credit line where the item needs one.
+ * The buttons scroll under the preview, with a fade while more is below.
  */
 @Composable
 fun LibraryItemSheet(item: LibraryItem, nav: Nav, onDismiss: () -> Unit, onUseFor: (Design) -> Unit) {
-    val anim = remember(item.id) { LibraryActions.animation(item) }
     val fav = item.id in LibraryPrefs.favourites
+    val active by AppGraph.arbiter.active.collectAsState()
+    val trying = active.any { it.id == LibraryActions.TRY_ID && it.label == "Library: ${item.name}" }
     val subtitle = when {
-        item.category.title != item.form.label -> "${item.category.title} · ${item.form.label}"
+        item.category.title != item.form.label -> "${item.category.title} · ${if (item.form == ItemForm.ANIMATION && !item.animated) "Still" else item.form.label}"
         item.group != null -> "${item.category.title} · ${item.group}"
         else -> item.category.title
     }
-    FullSheet(onDismiss, item.name, subtitle = subtitle, pinned = {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { GlyphPreview(anim, item.name, size = PreviewSize.LARGE, userPlay = true) }
-    }) {
-        // the sheet's own snackbar host, so "Showing … on the Glyph" shows on the sheet
+    FullSheet(onDismiss, item.name, subtitle = subtitle, pinned = { SheetPreview(item) }) {
         val snacks = rememberSnacks()
         val opens = when (item.form) {
             ItemForm.TEXT -> "Edit a copy opens it in the Text screen."
@@ -434,22 +551,18 @@ fun LibraryItemSheet(item: LibraryItem, nav: Nav, onDismiss: () -> Unit, onUseFo
         }
         opens?.let { Hint(it) }
         item.credit?.let { Text("Credit: $it", style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary, modifier = Modifier.padding(top = Tokens.Tiny)) }
-        PrimaryButton("Try on Glyph", Modifier.fillMaxWidth().padding(top = Tokens.Gutter)) {
-            LibraryActions.tryOn(item)
-            snacks?.show("Showing ${item.name} on the Glyph", action = "Stop") { AppGraph.arbiter.remove(LibraryActions.TRY_ID) }
+        PrimaryButton(if (trying) "Stop on Glyph" else "Try on Glyph", Modifier.fillMaxWidth().padding(top = Tokens.Gutter).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }) {
+            if (trying) AppGraph.arbiter.remove(LibraryActions.TRY_ID) else LibraryActions.tryOn(item)
         }
-        SecondaryButton("Use for…", Modifier.fillMaxWidth().padding(top = Tokens.Small)) { onUseFor(LibraryActions.saveCopy(item)) }
+        SecondaryButton("Use for…", Modifier.fillMaxWidth().padding(top = Tokens.Small)) { LibraryPrefs.used(item.id); onUseFor(LibraryActions.design(item)) }
         SecondaryButton("Edit a copy", Modifier.fillMaxWidth().padding(top = Tokens.Small)) { onDismiss(); LibraryActions.editCopy(item, nav) }
-        Row(
-            Modifier.fillMaxWidth().padding(top = Tokens.Small), verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SecondaryButton(if (fav) "Remove from Favourites" else "Add to Favourites", Modifier.fillMaxWidth().semantics { stateDescription = if (fav) "Favourite" else "Not a favourite" }) {
-                val now = LibraryPrefs.toggleFavourite(item.id)
-                snacks?.show(if (now) "Added to Favourites" else "Removed from Favourites") { LibraryPrefs.toggleFavourite(item.id) }
-            }
+        SecondaryButton(if (fav) "Remove from Favourites" else "Add to Favourites", Modifier.fillMaxWidth().padding(top = Tokens.Small).semantics { stateDescription = if (fav) "Favourite" else "Not a favourite" }) {
+            val now = LibraryPrefs.toggleFavourite(item.id)
+            snacks?.show(if (now) "Added to Favourites" else "Removed from Favourites") { LibraryPrefs.toggleFavourite(item.id) }
         }
-        if (item.tags.isNotEmpty()) Text(
-            item.tags.take(8).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary,
+        val tags = item.displayTags.filter { it.isNotBlank() && it != item.name.lowercase() }.take(6)
+        if (tags.isNotEmpty()) Text(
+            "Find it with: " + tags.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = Tokens.Secondary,
             modifier = Modifier.padding(top = Tokens.Gutter),
         )
     }
@@ -457,7 +570,7 @@ fun LibraryItemSheet(item: LibraryItem, nav: Nav, onDismiss: () -> Unit, onUseFo
 
 /**
  * The library picker in a sheet, for hosts: a tap picks. [filter] limits what shows; [top] sits above (a photo
- * option, App icon and Their name).
+ * option, App icon and Their name). With [onPickYours] it has the Library / Yours switch the other pickers have.
  */
 @Composable
 fun LibraryPickerSheet(
@@ -467,37 +580,71 @@ fun LibraryPickerSheet(
     selectedId: String? = null,
     top: (@Composable () -> Unit)? = null,
     extra: (LazyGridScope.() -> Unit)? = null,
+    onPickYours: ((Design) -> Unit)? = null,
     onPick: (LibraryItem) -> Unit,
 ) {
     val height = (LocalConfiguration.current.screenHeightDp * 0.7f).dp
+    var tab by rememberSaveable { mutableStateOf(0) }
     FullSheet(onDismiss, title, confirm = null, scrolls = false) {
         top?.invoke()
-        LibraryBrowser(Modifier.fillMaxWidth().height(height), filter = filter, selectedId = selectedId, actionLabel = "Use", extra = extra) { item ->
-            LibraryPrefs.used(item.id)
-            onPick(item)
+        if (onPickYours != null) com.dotforge.ui.design.Segmented(listOf("Library", "Yours"), tab, Modifier.padding(bottom = Tokens.Small)) { tab = it }
+        if (tab == 0 || onPickYours == null) {
+            LibraryBrowser(Modifier.fillMaxWidth().height(height), filter = filter, selectedId = selectedId, actionLabel = "Use", extra = extra) { item ->
+                LibraryPrefs.used(item.id)
+                onPick(item)
+            }
+        } else YoursGrid(Modifier.fillMaxWidth().height(height), onPickYours)
+    }
+}
+
+/** Your saved designs as a grid of tiles; a tap picks one. */
+@Composable
+fun YoursGrid(modifier: Modifier, onPick: (Design) -> Unit) {
+    val designs by AppGraph.designs.designs.collectAsState()
+    if (designs.isEmpty()) {
+        EmptyState("Nothing saved yet. Designs you make show here.", modifier = modifier)
+        return
+    }
+    LazyVerticalGrid(
+        GridCells.Adaptive(TILE_MIN), modifier,
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Small), verticalArrangement = Arrangement.spacedBy(Tokens.Small),
+    ) {
+        items(designs, key = { it.id }) { d ->
+            val thumb = remember(d.id) { AppGraph.designs.animation(d)?.let(com.dotforge.device.Posters::of) }
+            Column(
+                Modifier.clickable(onClickLabel = "Use ${d.name}") { onPick(d) }.padding(Tokens.Tiny),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                DotMatrix(thumb?.pixels, AppGraph.profile, Modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = d.name })
+                Text(d.name, style = MaterialTheme.typography.bodySmall.capped(1.5f), color = Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            }
         }
     }
 }
 
-/** The Library page: the browser over the whole screen; a tile opens its sheet. */
+/**
+ * The Library page: back and search on one line, one chip row, then the grid (the header stays under a quarter
+ * of the screen at 360 dp and large text); a tile opens its sheet.
+ */
 @Composable
 fun LibraryScreen(nav: Nav, state: LibraryBrowserState = rememberLibraryBrowserState()) {
     var open by remember { mutableStateOf<String?>(null) }
     var useFor by remember { mutableStateOf<Design?>(null) }
     androidx.activity.compose.BackHandler(onBack = nav::pop)
-    Column(Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        TopBar("Library", nav::pop)
-        Text(
-            "${AnimationLibrary.all.size} glyphs, texts and animations. Long-press to add a favourite.",
-            style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary,
-            modifier = Modifier.padding(horizontal = Tokens.Gutter).padding(bottom = Tokens.Small),
-        )
-        LibraryBrowser(Modifier.fillMaxWidth().weight(1f).padding(horizontal = Tokens.Gutter), state = state) { open = it.id }
+    Column(
+        Modifier.fillMaxSize().background(Tokens.Background).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = Tokens.Tiny)
+            .semantics { paneTitle = "Library" },
+    ) {
+        LibraryBrowser(Modifier.fillMaxWidth().weight(1f), state = state, gutter = Tokens.Gutter, leading = {
+            IconButton(onClick = nav::pop, modifier = Modifier.padding(end = Tokens.Tiny)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+        }) { open = it.id }
     }
     open?.let { id -> AnimationLibrary.item(id) }?.let { item ->
         LibraryItemSheet(item, nav, onDismiss = { open = null }) { d -> open = null; useFor = d }
     }
-    useFor?.let { d -> UseForSheet(d, nav, fresh = true) { useFor = null } }
+    useFor?.let { d -> UseForSheet(d, nav, fresh = true, unsaved = true) { useFor = null } }
 }
 
 /** Fixed sizes for a compact strip of tiles (Home). */

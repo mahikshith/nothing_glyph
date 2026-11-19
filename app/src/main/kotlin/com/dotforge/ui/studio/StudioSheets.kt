@@ -173,7 +173,7 @@ class CameraShot(private val ctx: Context) {
  * the Gallery, several at once.
  */
 @Composable
-fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, onDismiss: () -> Unit) {
+fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, unsaved: Boolean = false, onDismiss: () -> Unit) {
     val snacks = rememberSnacks()
     val rules = remember { AppGraph.rules.rules.value }
     // every alert that can show a design: phone calls and reminders, each app, phone moments; then people
@@ -184,9 +184,18 @@ fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, onDismiss: () -> Unit) {
     var player by remember { mutableStateOf(AppGraph.toys.playerDesignId == d.id) }
     var gallery by remember { mutableStateOf(d.id in AppGraph.toys.galleryIds) }
     FullSheet(
-        onDismiss, "Use ${d.name} for…", subtitle = if (fresh) "Saved. Pick where it shows, or Not now." else null,
+        onDismiss, "Use ${d.name} for…",
+        subtitle = when {
+            // a library design is saved to your designs only once it is used somewhere
+            unsaved -> "Tick where it shows. Done saves a copy to your designs."
+            fresh -> "Saved. Pick where it shows, or Not now."
+            else -> null
+        },
         confirm = "Done",
-        onConfirm = {
+        onConfirm = confirm@{
+            val ticked = rules.count { it.id in chosen } + (if (player) 1 else 0) + (if (gallery) 1 else 0)
+            if (unsaved && ticked > 0) AppGraph.designs.save(d)
+            if (unsaved && ticked == 0) { onDismiss(); return@confirm }
             var n = 0
             rules.forEach { r ->
                 val on = r.id in chosen
@@ -197,12 +206,12 @@ fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, onDismiss: () -> Unit) {
             if (player != (AppGraph.toys.playerDesignId == d.id)) AppGraph.toys.playerDesignId = if (player) d.id else null
             if (gallery != (d.id in AppGraph.toys.galleryIds)) AppGraph.toys.galleryIds = if (gallery) AppGraph.toys.galleryIds + d.id else AppGraph.toys.galleryIds - d.id
             val count = n + (if (player) 1 else 0) + (if (gallery) 1 else 0)
-            if (count > 0) snacks?.show("${d.name} is in use")
+            if (count > 0) snacks?.show(if (unsaved) "Saved ${d.name} and put it to use" else "${d.name} is in use")
             onDismiss()
         },
     ) {
         val using = alerts.count { it.id in chosen } + people.count { it.id in chosen } + (if (player) 1 else 0) + (if (gallery) 1 else 0)
-        Hint(if (using == 0) "Not used anywhere yet. Tick where it should show." else "Ticked: where it shows now ($using).")
+        if (!unsaved) Hint(if (using == 0) "Not used anywhere yet. Tick where it should show." else "Ticked: where it shows now ($using).")
         SectionLabel("Apps and alerts")
         if (alerts.isEmpty()) Hint("No apps light up yet. Add one in Alerts.")
         alerts.forEach { r -> CheckRow(r.name, r.id in chosen) { if (it) chosen += r.id else chosen -= r.id } }
@@ -212,7 +221,7 @@ fun UseForSheet(d: Design, nav: Nav, fresh: Boolean, onDismiss: () -> Unit) {
         SectionLabel("Toys")
         CheckRow("DotForge player and Always-on", player) { player = it }
         CheckRow("Gallery", gallery) { gallery = it }
-        TextButton(onClick = onDismiss, modifier = Modifier.padding(top = Tokens.Small).heightIn(min = Tokens.Target)) { Text("Not now", color = Color.White) }
+        TextButton(onClick = onDismiss, modifier = Modifier.padding(top = Tokens.Small).heightIn(min = Tokens.Target)) { Text(if (unsaved) "Cancel" else "Not now", color = Color.White) }
     }
 }
 

@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -526,6 +527,12 @@ fun BackgroundPickSheet(s: EditorSession, onDismiss: () -> Unit, snacks: Snacks?
     PickDesignSheet(
         "Background", onDismiss, exclude = s.designId, libraryFilter = backgroundFilter,
         top = {
+            val current = s.doc.layers?.background
+            if (current != null) OptionRow("None", "No picture behind", preview = { Icon(Icons.Filled.Close, null, tint = Color.White) }) {
+                s.edit { setLayers(s.doc.layers!!.copy(background = null)) }
+                onDismiss()
+                snacks?.show("Removed the background") { s.edit { setLayers((s.doc.layers ?: Layers()).copy(background = current)) } }
+            }
             OptionRow(if (busy) "Reading the photo…" else "From a photo", "Turned into dots, 25×25", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) {
                 if (!busy) photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }

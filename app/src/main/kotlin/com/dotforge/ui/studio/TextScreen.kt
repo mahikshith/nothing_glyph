@@ -453,7 +453,13 @@ fun TextScreen(designId: String?, text: String?, nav: Nav, startPanel: TextPanel
 
         when (panel) {
             TextPanel.TIMING -> TimingSheet(t.timing, TimingKind.TEXT, anim, t.name, onDismiss = { panel = TextPanel.NONE }) { t.timing = it }
-            TextPanel.BACKGROUND -> TextBackgroundSheet(onDismiss = { panel = TextPanel.NONE }) { name, a ->
+            TextPanel.BACKGROUND -> TextBackgroundSheet(onDismiss = { panel = TextPanel.NONE }, onNone = t.background?.let { bg ->
+                {
+                    t.background = null
+                    panel = TextPanel.NONE
+                    snacks?.show("Removed the background") { t.background = bg }
+                }
+            }) { name, a ->
                 t.background = BackgroundLayer(a.toMuseumJson(), name, if (a.frames.size > 1) BackgroundEffect.PLAY else BackgroundEffect.STILL)
                 if (t.spec.band == TextBand.FULL) t.spec = t.spec.copy(band = TextBand.BOTTOM)
                 panel = TextPanel.NONE
@@ -546,7 +552,7 @@ private fun StyleStrip(spec: TextSpec, onPick: (TextStyle) -> Unit) {
 
 /** A background for the words: the library, your designs or a photo. */
 @Composable
-internal fun TextBackgroundSheet(onDismiss: () -> Unit, onPick: (String, Animation) -> Unit) {
+internal fun TextBackgroundSheet(onDismiss: () -> Unit, onNone: (() -> Unit)? = null, onPick: (String, Animation) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val snacks = rememberSnacks()
@@ -563,6 +569,7 @@ internal fun TextBackgroundSheet(onDismiss: () -> Unit, onPick: (String, Animati
         )
     }
     PickDesignSheet("Background", onDismiss, top = {
+        if (onNone != null) com.dotforge.ui.design.OptionRow("None", "Just the words", preview = { Icon(androidx.compose.material.icons.Icons.Filled.Close, null, tint = Color.White) }) { onNone() }
         com.dotforge.ui.design.OptionRow(if (busy) "Reading the photo…" else "From a photo", "Turned into dots, 25×25", preview = { Icon(com.dotforge.ui.design.DfIcons.Photo, null, tint = Color.White) }) {
             if (!busy) photo.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
         }

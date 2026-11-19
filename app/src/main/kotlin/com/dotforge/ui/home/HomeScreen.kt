@@ -39,6 +39,7 @@ fun HomeScreen(nav: Nav, setup: Setup, state: LazyListState) {
     var picking by remember { mutableStateOf(false) }
     var open by remember { mutableStateOf<String?>(null) }
     var useFor by remember { mutableStateOf<com.dotforge.studio.Design?>(null) }
+    var mine by remember { mutableStateOf<com.dotforge.studio.Design?>(null) }
     Screen("DotForge", state = state, actions = { ProfileButton { nav.push(Page.Profile) } }) {
         item { SectionLabel("Show something on the Glyph") }
         item {
@@ -60,15 +61,15 @@ fun HomeScreen(nav: Nav, setup: Setup, state: LazyListState) {
                 }
             }
         }
-        item { PrimaryButton("Pick from the library", Modifier.fillMaxWidth().padding(top = Tokens.Small)) { picking = true } }
-        item { SecondaryButton("Open the Library", Modifier.fillMaxWidth().padding(top = Tokens.Small)) { nav.push(Page.Library) } }
-        item { Hint("More of Home is coming in the next update.", Modifier.padding(top = Tokens.Gutter)) }
+        // one way in: the same picker as everywhere else, with Library and Yours
+        item { PrimaryButton("Choose a design", Modifier.fillMaxWidth().padding(top = Tokens.Small)) { picking = true } }
     }
-    if (picking) LibraryPickerSheet("Library", onDismiss = { picking = false }) { item -> picking = false; open = item.id }
+    if (picking) LibraryPickerSheet("Choose a design", onDismiss = { picking = false }, onPickYours = { d -> picking = false; mine = d }) { item -> picking = false; open = item.id }
+    mine?.let { d -> com.dotforge.ui.studio.UseForSheet(d, nav, fresh = false) { mine = null } }
     open?.let(AnimationLibrary::item)?.let { item ->
         LibraryItemSheet(item, nav, onDismiss = { open = null }) { d -> open = null; useFor = d }
     }
-    useFor?.let { d -> com.dotforge.ui.studio.UseForSheet(d, nav, fresh = true) { useFor = null } }
+    useFor?.let { d -> com.dotforge.ui.studio.UseForSheet(d, nav, fresh = true, unsaved = true) { useFor = null } }
 }
 
 /** The round profile avatar at the top right of Home. */

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
@@ -578,11 +579,24 @@ fun FullSheet(
                 // the header stays put: a hairline once content has scrolled under it
                 androidx.compose.material3.HorizontalDivider(color = Tokens.Hairline)
             }
-            Column(
-                (if (scrolls) Modifier.verticalScroll(scroll) else Modifier)
-                    .fillMaxWidth().padding(horizontal = Tokens.Gutter).padding(top = Tokens.Small, bottom = Tokens.Gutter),
-                content = content,
-            )
+            Box(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+                Column(
+                    (if (scrolls) Modifier.verticalScroll(scroll) else Modifier)
+                        .fillMaxWidth().padding(horizontal = Tokens.Gutter).padding(top = Tokens.Small, bottom = Tokens.Gutter),
+                    content = content,
+                )
+                // a scroll cue: the last lines fade and an arrow shows while more is below
+                if (scrolls && scroll.canScrollForward) {
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp)
+                            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Tokens.Sheet))),
+                    )
+                    Icon(
+                        Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Tokens.Secondary,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).size(24.dp),
+                    )
+                }
+            }
         }
         }
     }
@@ -747,8 +761,8 @@ fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClic
     }
 }
 
-/** A chip's height in layout: 36 visual + 4 above and below. */
-private val CHIP_ROW = 44.dp
+/** A chip's height in layout and touch: 36 visual + 6 above and below, a full 48 dp target. */
+private val CHIP_ROW = 48.dp
 
 /** A segmented control: equal segments, the selected one white. */
 @Composable

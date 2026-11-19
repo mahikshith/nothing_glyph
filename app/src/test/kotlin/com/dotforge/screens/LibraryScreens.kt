@@ -11,6 +11,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
@@ -66,7 +67,7 @@ abstract class LibraryScreens : ScreenshotTest() {
         rule.waitForIdle()
     }
 
-    private fun library(chip: String = LibraryBrowserState.ALL, query: String = "") = show {
+    private fun library(chip: String = LibraryBrowserState.FEATURED, query: String = "") = show {
         UndoSnackbarHost { LibraryScreen(Nav(Tab.STUDIO), LibraryBrowserState(chip, query)) }
     }
 
@@ -81,35 +82,39 @@ abstract class LibraryScreens : ScreenshotTest() {
 
     // ---------------------------------------------------------------- the page
 
-    @Test fun all() {
+    @Test fun featuredAndAll() {
         library()
         settle()
-        capture(f, "01-library-all")
+        capture(f, "01-library-featured")
+        library(LibraryBrowserState.ALL)
+        settle()
+        capture(f, "02-library-all")
     }
 
     @Test fun categories() {
         library(Categories.Love.id)
         settle()
-        capture(f, "02-library-love")
+        capture(f, "04-library-love")
         library(Categories.Anime.id)
         settle()
-        capture(f, "03-library-anime")
-        library(Categories.Food.id)
-        settle()
-        capture(f, "04-library-food")
+        capture(f, "05-library-anime")
         library(Categories.Text.id)
         settle()
-        capture(f, "05-library-text-groups")
+        capture(f, "06-library-text-groups")
         library(Categories.GlyphText.id)
         settle()
-        capture(f, "06-library-glyph-text")
+        capture(f, "07-library-glyph-text")
+        library(Categories.Seasonal.id)
+        settle()
+        capture(f, "08-library-celebrations")
     }
 
-    @Test fun chipsScrolled() {
+    @Test fun categoriesSheet() {
         library()
-        rule.onNodeWithTag("library-chips").performScrollToNode(hasText("Glyph + text"))
+        rule.onNodeWithContentDescription("Categories").tap()
+        rule.waitForIdle()
         settle()
-        capture(f, "07-library-chips-scrolled")
+        capture(f, "03-categories-sheet")
     }
 
     @Test fun search() {
@@ -169,7 +174,7 @@ abstract class LibraryScreens : ScreenshotTest() {
         capture(f, "35-item-favourite")
         rule.onNodeWithText("Try on Glyph").tap()
         rule.waitForIdle()
-        capture(f, "36-item-try-on-glyph")
+        capture(f, "36-item-try-on-glyph-stop")
         AppGraph.arbiter.remove(LibraryActions.TRY_ID)
     }
 
@@ -226,6 +231,17 @@ abstract class LibraryScreens : ScreenshotTest() {
         }
     }
 
+    @Test fun hostHomeYours() {
+        AppGraph.designs.save(LibraryActions.design(item("g-cake")))
+        home()
+        rule.onNodeWithText("Choose a design").tap()
+        rule.waitForIdle()
+        rule.onNodeWithText("Yours").tap()
+        rule.waitForIdle()
+        settle()
+        capture(f, "48-host-home-picker-yours")
+    }
+
     @Test fun hostHome() {
         home()
         settle()
@@ -234,7 +250,7 @@ abstract class LibraryScreens : ScreenshotTest() {
         home()
         settle()
         capture(f, "45-host-home-recent")
-        rule.onNodeWithText("Pick from the library").tap()
+        rule.onNodeWithText("Choose a design").tap()
         rule.waitForIdle()
         settle()
         capture(f, "46-host-home-picker")
