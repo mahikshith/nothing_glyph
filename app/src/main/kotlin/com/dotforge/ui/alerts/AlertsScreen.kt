@@ -68,8 +68,12 @@ import com.dotforge.ui.rememberNeedsScreening
 /** What sheet is open over Alerts. */
 sealed interface AlertSheet {
     /** A rule's one sheet; [picker] and [block] open one of its stacked sheets too (links and screenshots). */
-    data class RuleOf(val id: String, val advanced: Boolean = false, val picker: com.dotforge.rules.WordKind? = null, val block: Boolean = false) : AlertSheet
-    data class AddBlock(val editId: String? = null, val where: Set<Where> = setOf(Where.CALLS, Where.SMS), val pkg: String? = null) : AlertSheet
+    data class RuleOf(val id: String, val advanced: Boolean = false, val picker: com.dotforge.rules.WordKind? = null, val block: Boolean = false, val more: Boolean = false) : AlertSheet
+    /** Add or edit a block rule; [more] and [openMore] start it with More conditions (and their sheet open), for screenshots. */
+    data class AddBlock(
+        val editId: String? = null, val where: Set<Where> = setOf(Where.CALLS, Where.SMS), val pkg: String? = null,
+        val more: com.dotforge.filter.Group = com.dotforge.filter.Group(), val openMore: Boolean = false,
+    ) : AlertSheet
     data class Entry(val key: String) : AlertSheet
     data object AddPerson : AlertSheet
     data object SpamAlert : AlertSheet
@@ -161,6 +165,7 @@ fun AlertsScreen(
             startAdvanced = s.advanced,
             startPicker = s.picker,
             startBlock = s.block,
+            startMore = s.more,
         )
         is AlertSheet.AddBlock -> AddRuleSheet(s, onDismiss = { sheet = null })
         is AlertSheet.Entry -> HistorySheet(s.key, label, onDismiss = { sheet = null }, open = { sheet = it })

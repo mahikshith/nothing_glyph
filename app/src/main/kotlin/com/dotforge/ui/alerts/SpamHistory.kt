@@ -121,6 +121,8 @@ fun LazyListScope.spamItems(
         }
     }
     if (list.isEmpty()) item(key = "spam-rules-empty") { Hint("Block numbers that start with a code, or messages with certain words.") }
+    item(key = "calls-label") { SectionLabel("Calls that don't ring") }
+    item(key = "calls") { QuietCalls(rules, setup) }
     item(key = "let-label") { SectionLabel("Always let through") }
     item(key = "let") {
         RowGroup {
@@ -176,6 +178,37 @@ private fun BlockRuleRow(r: Rule, history: List<HistoryEntry>, label: (String) -
     ) { open(AlertSheet.AddBlock(editId = r.id)) }
 }
 
+/**
+ * Simple switches for calls: unknown numbers (not in Contacts) and hidden numbers don't ring, faked numbers are
+ * declined; all stay in the call log. Each is a normal spam rule ([RuleEngine.UNKNOWN_CALLS],
+ * [RuleEngine.HIDDEN_CALLS], [RuleEngine.FAKED_CALLS]); they need Call screening, and unknown numbers needs
+ * Contacts to know who is unknown.
+ */
+@Composable
+private fun QuietCalls(rules: List<Rule>, setup: com.dotforge.ui.Setup) {
+    val unknown = rules.firstOrNull { it.id == RuleEngine.UNKNOWN_CALLS }
+    val hidden = rules.firstOrNull { it.id == RuleEngine.HIDDEN_CALLS }
+    val faked = rules.firstOrNull { it.id == RuleEngine.FAKED_CALLS }
+    fun set(id: String, r: Rule?, on: Boolean) {
+        if (r == null) { if (on) AppGraph.rules.ensurePreset(id) } else AppGraph.rules.upsert(r.copy(enabled = on))
+        if (on && !setup.screening) setup.needCallScreening()
+    }
+    RowGroup {
+        val needsContacts = unknown?.enabled == true && !setup.contacts
+        SwitchRow(
+            "Unknown numbers", if (needsContacts) "Needs Contacts to know who is unknown" else "Numbers not in your contacts. They stay in your call log.",
+            unknown?.enabled == true,
+        ) { on ->
+            set(RuleEngine.UNKNOWN_CALLS, unknown, on)
+            if (on && !setup.contacts) setup.needContacts()
+        }
+        RowDivider()
+        SwitchRow("Hidden numbers", "Calls with no caller ID. They stay in your call log.", hidden?.enabled == true) { on -> set(RuleEngine.HIDDEN_CALLS, hidden, on) }
+        RowDivider()
+        SwitchRow("Faked numbers", "The network says the caller ID is faked. Declined, and kept in your call log.", faked?.enabled == true) { on -> set(RuleEngine.FAKED_CALLS, faked, on) }
+    }
+}
+
 /** Row 64: the community list, updated weekly, checked on the phone. */
 @Composable
 private fun CommunityList(rules: List<Rule>) {
@@ -222,16 +255,21 @@ fun AddRuleSheet(s: AlertSheet.AddBlock, onDismiss: () -> Unit) {
     var where by remember { mutableStateOf(start?.where ?: s.where) }
     var typed by remember { mutableStateOf(editing != null) }
     val apps = start?.apps ?: listOfNotNull(s.pkg)
+    var more by remember { mutableStateOf(editing?.let(com.dotforge.rules.MoreConditions::of) ?: s.more) }
+    var builder by remember { mutableStateOf(s.openMore) }
     val p = BlockPattern(type, text, where, apps)
     val problem = SimpleRules.problem(p.copy(where = if (apps.isNotEmpty()) where + Where.ANY_APP else where))
     val region = remember { runCatching { CallerLookup(ctx).region() }.getOrNull() }
     val history by AppGraph.history.entries.collectAsStateWithLifecycle()
-    val would = remember(p, history) { if (problem != null) 0 else wouldHaveBlocked(p, history, region) }
+    val lists by AppGraph.rules.lists.collectAsStateWithLifecycle()
+    val rule = SimpleRules.blockRule(p, id = editing?.id ?: (SimpleRules.BLOCK_PREFIX + java.util.UUID.randomUUID()), more = more)
+    // the whole rule, More conditions included, against the last 30 days
+    val would = remember(p, more, history, lists) { if (problem != null) 0 else wouldHaveMatched(rule, history, region, lists) }
     val label = com.dotforge.ui.rememberAppLabel()
     FullSheet(
         onDismiss, if (editing != null) "Edit rule" else "Add a rule", confirm = if (editing != null) "Save" else "Add", confirmEnabled = problem == null,
         onConfirm = {
-            AppGraph.rules.upsert(SimpleRules.blockRule(p, id = editing?.id ?: (SimpleRules.BLOCK_PREFIX + java.util.UUID.randomUUID())))
+            AppGraph.rules.upsert(rule)
             onDismiss()
         },
     ) {
@@ -258,20 +296,35 @@ fun AddRuleSheet(s: AlertSheet.AddBlock, onDismiss: () -> Unit) {
             Where.entries.filter { it in where }.forEach { w -> Text("${w.label}: ${w.means}", style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, modifier = Modifier.padding(vertical = 2.dp)) }
         }
         if (problem == "Pick where it applies") Hint(problem)
+        // any field, all or any, named lists: the same builder as an app's Advanced
+        ListRow(
+            "More conditions", subtitle = com.dotforge.rules.MoreConditions.summary(more), subtitleLines = Int.MAX_VALUE,
+            inset = 0.dp, trailing = { Chevron() }, modifier = Modifier.padding(top = Tokens.Small),
+        ) { builder = true }
     }
+    if (builder) ConditionsSheet(
+        more, calls = Where.CALLS in where, apps = where.any { it != Where.CALLS } || apps.isNotEmpty(), blocking = true,
+        preview = { g -> SimpleRules.blockRule(p, more = g) }, onDismiss = { builder = false },
+    ) { more = it }
 }
 
 /** How many History entries of the last 30 days [p] would have blocked. */
-fun wouldHaveBlocked(p: BlockPattern, history: List<HistoryEntry>, region: String?): Int {
-    val rule = SimpleRules.blockRule(p)
-    return history.count { e ->
+fun wouldHaveBlocked(p: BlockPattern, history: List<HistoryEntry>, region: String?): Int =
+    wouldHaveMatched(SimpleRules.blockRule(p), history, region)
+
+/**
+ * How many History entries of the last 30 days [rule] matches, More conditions and named [lists] included
+ * ("Would have blocked 3", or for an app's row "Matched 3"). Contacts aren't looked up again, so a "not in my
+ * contacts" test counts only what History knows.
+ */
+fun wouldHaveMatched(rule: Rule, history: List<HistoryEntry>, region: String?, lists: List<NamedList> = emptyList()): Int =
+    history.count { e ->
         val s = Subject(
             isCall = e.call, app = e.packageName, appLabel = e.appLabel, sender = e.sender, number = e.number.ifBlank { null },
             title = e.title, text = e.text, fromPerson = true, at = LocalDateTime.now(), region = region,
         )
-        RuleEngine.explain(rule, s) != null
+        RuleEngine.explain(rule, s, lists) != null
     }
-}
 
 /** Row 66: what plays for spam, "a short Blocked glyph, 2 s, once" or nothing; and its sound. */
 @Composable

@@ -325,8 +325,11 @@ object SimpleRules {
         }
     }
 
-    /** A rule that marks senders matching [p] as spam. */
-    fun blockRule(p: BlockPattern, id: String = BLOCK_PREFIX + UUID.randomUUID()): Rule {
+    /**
+     * A rule that marks senders matching [p] as spam, and only when [more] (More conditions) is true too. Its
+     * name says both: "Mentions “loan”, sender isn't in my contacts".
+     */
+    fun blockRule(p: BlockPattern, id: String = BLOCK_PREFIX + UUID.randomUUID(), more: com.dotforge.filter.Group = com.dotforge.filter.Group()): Rule {
         val calls = Where.CALLS in p.where
         val anyApp = Where.ANY_APP in p.where
         val packages = if (anyApp) emptyList() else buildList {
@@ -349,7 +352,7 @@ object SimpleRules {
                 // "Exactly" in apps also matches a chat or group by its name
                 listOfNotNull(Condition(Field.TITLE, Op.IS, listOf(text)).takeIf { p.type == PatternType.IS && source != Source.CALLS }),
         )
-        return Rule(
+        val rule = Rule(
             id = id,
             name = p.label,
             source = if (p.type == PatternType.WORDS && source == Source.EVERYTHING) Source.APPS else source,
@@ -357,12 +360,18 @@ object SimpleRules {
             match = match,
             action = Action.SPAM,
         )
+        val extra = MoreConditions.with(rule, more)
+        val g = MoreConditions.of(extra)
+        return if (g.conditions.isEmpty()) extra
+        else extra.copy(name = p.label + ", " + MoreConditions.summary(g).replaceFirstChar { it.lowercase() })
     }
 
     /** The simple block pattern [r] was written as, or null when it is something else. */
     fun pattern(r: Rule): BlockPattern? {
-        if (r.action != Action.SPAM || r.match.groups.isNotEmpty() || r.match.all) return null
-        val cs = r.match.conditions
+        // a block rule with More conditions keeps its own sender or number match apart from them
+        val m = MoreConditions.base(r)
+        if (r.action != Action.SPAM || m.groups.isNotEmpty() || m.all) return null
+        val cs = m.conditions
         if (r.id.startsWith(BLOCK_PREFIX) && cs.size == 1 && cs[0].field == Field.MESSAGE && cs[0].op == Op.CONTAINS && !cs[0].not && cs[0].list == null) {
             val where = mutableSetOf<Where>()
             if (r.packages.isEmpty()) where += Where.ANY_APP

@@ -366,6 +366,81 @@ abstract class AlertsScreens : ScreenshotTest() {
         capture(f, "48-let-through-list")
     }
 
+    // ---------------------------------------------------------------- More conditions (any field, all or any, named lists)
+
+    private val mc = com.dotforge.rules.MoreConditions
+    private val three = com.dotforge.filter.Group(
+        true,
+        listOf(
+            mc.condition(com.dotforge.rules.MoreConditions.Pick.TITLE, com.dotforge.rules.MoreConditions.Test.CONTAINS, "OTP"),
+            mc.condition(com.dotforge.rules.MoreConditions.Pick.SENDER, com.dotforge.rules.MoreConditions.Test.IS_NOT, "Bank"),
+            mc.condition(com.dotforge.rules.MoreConditions.Pick.TEXT, com.dotforge.rules.MoreConditions.Test.NOT_IN_LIST, list = "Loans"),
+        ),
+    )
+
+    private fun loansList() = AppGraph.rules.putList(com.dotforge.filter.NamedList("Loans", listOf("loan", "credit", "pre-approved")))
+
+    private fun scrollSheetTo(text: String) =
+        rule.onNode(hasScrollAction() and androidx.compose.ui.test.hasAnyDescendant(hasText(text))).performScrollToNode(hasText(text))
+
+    private fun builder(g: com.dotforge.filter.Group, edit: Int? = null, list: String? = null) {
+        AppGraph.rules.upsert(wa)
+        alerts(over = {
+            com.dotforge.ui.alerts.ConditionsSheet(
+                g, calls = false, apps = true, blocking = false, preview = { mc.with(wa, it) }, onDismiss = {}, startEdit = edit, startList = list,
+            ) {}
+        })
+    }
+
+    @Test fun moreConditionsRow() {
+        manyApps()
+        AppGraph.rules.upsert(mc.with(wa, three.copy(conditions = three.conditions.take(2))))
+        sheet("wa", advanced = true)
+        scrollSheetTo("More conditions")
+        capture(f, "49-sheet-app-more-conditions-row")
+    }
+
+    @Test fun moreConditionsEmpty() {
+        builder(com.dotforge.filter.Group())
+        capture(f, "49b-more-conditions-empty")
+    }
+
+    @Test fun moreConditionsThree() {
+        loansList()
+        history()
+        builder(three)
+        capture(f, "49c-more-conditions-three")
+    }
+
+    @Test fun moreConditionsEditor() {
+        loansList()
+        builder(three, edit = 2)
+        capture(f, "49d-condition-editor-list")
+    }
+
+    @Test fun moreConditionsListEditor() {
+        loansList()
+        builder(three, edit = 2, list = "Loans")
+        capture(f, "49e-list-editor")
+    }
+
+    @Test fun spamRuleWithConditions() {
+        history()
+        val unknown = com.dotforge.filter.Group(true, listOf(mc.condition(com.dotforge.rules.MoreConditions.Pick.CONTACTS, com.dotforge.rules.MoreConditions.Test.NOT_IN_CONTACTS)))
+        AppGraph.rules.upsert(SimpleRules.blockRule(BlockPattern(PatternType.WORDS, "loan", setOf(Where.SMS, Where.WHATSAPP)), id = "block-loan-unknown", more = unknown))
+        alerts(request = "spam", start = AlertSheet.AddBlock(editId = "block-loan-unknown"))
+        scrollSheetTo("More conditions")
+        capture(f, "49f-spam-rule-with-conditions")
+        alerts(request = "spam")
+        capture(f, "49g-spam-rule-row-with-conditions")
+    }
+
+    @Test fun spamCallSwitches() {
+        alerts(request = "spam")
+        rule.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("Faked numbers"))
+        capture(f, "49h-spam-calls-that-dont-ring")
+    }
+
     // ---------------------------------------------------------------- History
 
     @Test fun historyEmpty() {

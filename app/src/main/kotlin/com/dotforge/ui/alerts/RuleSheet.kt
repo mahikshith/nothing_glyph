@@ -94,6 +94,7 @@ fun RuleSheet(
     startAdvanced: Boolean = false,
     startPicker: WordKind? = null,
     startBlock: Boolean = false,
+    startMore: Boolean = false,
 ) {
     val rules by AppGraph.rules.rules.collectAsStateWithLifecycle()
     val r = rules.firstOrNull { it.id == ruleId } ?: return
@@ -106,6 +107,7 @@ fun RuleSheet(
     var textSheet by remember { mutableStateOf<String?>(null) }
     var tryIt by remember { mutableStateOf(false) }
     var block by remember { mutableStateOf(startBlock) }
+    var more by remember { mutableStateOf(startMore) }
     fun save(x: Rule) = AppGraph.rules.upsert(x)
 
     val title = ruleTitle(r, label)
@@ -202,9 +204,17 @@ fun RuleSheet(
                 val chats = SimpleRules.chats(r)
                 ListRow("Only these chats", subtitle = if (chats.isEmpty()) "All chats" else chats.joinToString(", "), inset = 0.dp, trailing = { Chevron() }) { textSheet = "chats" }
                 ListRow("Times", subtitle = SimpleRules.timesText(r), inset = 0.dp, trailing = { Chevron() }) { textSheet = "times" }
+                // any field, all or any, named lists: the full filter, in sentences
+                ListRow(
+                    "More conditions", subtitle = com.dotforge.rules.MoreConditions.summary(com.dotforge.rules.MoreConditions.of(r)),
+                    inset = 0.dp, trailing = { Chevron() },
+                ) { more = true }
             }
-            ListRow("Brightness", subtitle = "${t.brightness}%", inset = 0.dp, trailing = { Chevron() }) { timing = true }
-            ListRow(if (isCalls) "Scroll speed" else "Speed", subtitle = com.dotforge.ui.design.speedText(t.speed), inset = 0.dp, trailing = { Chevron() }) { timing = true }
+            // one row for the one timing sheet both open, so Advanced stays within 8 rows
+            ListRow(
+                if (isCalls) "Brightness and scroll speed" else "Brightness and speed",
+                subtitle = "${t.brightness}% · ${com.dotforge.ui.design.speedText(t.speed)}", inset = 0.dp, trailing = { Chevron() },
+            ) { timing = true }
             if (r.until == Until.READ && !isCalls) {
                 val m = SimpleRules.remindMinutes(r)
                 ListRow("Remind me", subtitle = if (m == 0) "Off" else "Every $m min", inset = 0.dp, trailing = { Chevron() }) { picker = WordKind.SHOW_FOR }
@@ -252,6 +262,10 @@ fun RuleSheet(
         "times" -> TimesSheet(r, onDismiss = { textSheet = null }) { save(it) }
     }
     if (tryIt) TryItSheet(r, title, banners.device, onDismiss = { tryIt = false })
+    if (more) ConditionsSheet(
+        com.dotforge.rules.MoreConditions.of(r), calls = false, apps = true, blocking = false,
+        preview = { g -> com.dotforge.rules.MoreConditions.with(r, g) }, onDismiss = { more = false },
+    ) { g -> save(com.dotforge.rules.MoreConditions.with(r, g)) }
     if (block && pkg != null) BlockSendersSheet(pkg, title, onDismiss = { block = false })
 }
 

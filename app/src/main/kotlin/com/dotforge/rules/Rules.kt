@@ -399,6 +399,8 @@ object RuleEngine {
         ),
         Rule(id = "spam-unknown", name = "Unknown senders", enabled = unknown, source = Source.APPS, match = Match(conditions = listOf(Condition.flag(Field.CONTACT, yes = false))), action = Action.SPAM),
         Rule(id = "spam-hidden", name = "Hidden numbers", enabled = false, source = Source.CALLS, match = Match(conditions = listOf(Condition.flag(Field.HIDDEN))), action = Action.SILENCE),
+        // calls from numbers not in Contacts don't ring (Contacts and saved numbers still do)
+        Rule(id = UNKNOWN_CALLS, name = "Unknown numbers", enabled = false, source = Source.CALLS, match = Match(conditions = listOf(Condition.flag(Field.CONTACT, yes = false))), action = Action.SILENCE),
         Rule(id = "spam-faked", name = "Faked numbers", enabled = false, source = Source.CALLS, match = Match(conditions = listOf(Condition.flag(Field.UNVERIFIED))), action = Action.REJECT),
     )
 
@@ -408,6 +410,10 @@ object RuleEngine {
         NamedList(SPAM_WORDS, words),
         NamedList(SPAM_PREFIXES),
     )
+
+    const val UNKNOWN_CALLS = "spam-unknown-calls"
+    const val HIDDEN_CALLS = "spam-hidden"
+    const val FAKED_CALLS = "spam-faked"
 
     /** Spam protections that are on by default: the community spam list, contacts and repeat callers allowed. */
     val DEFAULT_PROTECTIONS = setOf("spam-list", "spam-contacts", "spam-repeated")
