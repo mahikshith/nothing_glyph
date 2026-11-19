@@ -40,7 +40,8 @@ enum class TextDirection(val label: String) {
 /** Where text sits: the whole Glyph or a band of rows (with a background behind it). */
 @Serializable
 enum class TextBand(val label: String, val rows: IntRange) {
-    FULL("Full", 0..24), TOP("Top", 2..8), MIDDLE("Middle", 9..15), BOTTOM("Bottom", 16..22);
+    // Top and Bottom keep off the narrow rim rows, so words have room beside a picture
+    FULL("Full", 0..24), TOP("Top", 4..10), MIDDLE("Middle", 9..15), BOTTOM("Bottom", 14..20);
 
     val centre: Int get() = (rows.first + rows.last + 1) / 2
 }
@@ -128,9 +129,99 @@ object TextRender {
     fun poster(p: DeviceProfile, spec: TextSpec): Frame {
         val s = spec.clamped()
         if (s.style == TextStyle.FIT) return Frame.of(p, fitFrame(p, s, s.text.ifBlank { " " }))
-        val strip = DotFonts.strip(s.font, s.text.ifBlank { " " }, s.spacing)
-        val x = if (strip.w <= p.size) (p.size - strip.w) / 2 else 1
-        return Frame.of(p, place(p, s, strip, x, top(s, strip.h)))
+        val text = s.text.ifBlank { " " }
+        val h = DotFonts.height(s.font)
+        val width = usable(p, s, h)
+        // on the whole Glyph, words that don't fit one line are stacked, whole, on up to three lines
+        if (s.band == TextBand.FULL && h == DotFonts.height(DotFont.SMALL) && DotFonts.width(s.font, text, s.spacing) > width) {
+            stacked(p, s, text)?.let { return Frame.of(p, it) }
+        }
+        // the whole text when it fits, else the first screenful of whole words: in its own font, or in Small
+        // (same height) when not even the first word fits; whole letters only as a last resort
+        val firstWord = text.trim().substringBefore(' ')
+        val sameHeight = DotFonts.height(s.font) == DotFonts.height(DotFont.SMALL)
+        val (font, spacing) = listOf(s.font to s.spacing, DotFont.SMALL to maxOf(1, s.spacing))
+            .filter { (f, _) -> f == s.font || sameHeight }
+            .firstOrNull { (f, sp) -> DotFonts.width(f, firstWord, sp) <= width } ?: (s.font to s.spacing)
+        val shown = if (DotFonts.width(font, text, spacing) <= width) text else screenful(font, text, width, spacing)
+        val strip = DotFonts.strip(font, shown, spacing)
+        return Frame.of(p, place(p, s, strip, (p.size - strip.w) / 2, top(s, strip.h)))
+    }
+
+    /**
+     * [text]'s whole words on 2-3 centred lines (its own font, else Regular, else Small); when a word fits no line in
+     * any font, it is broken into two (else three) even parts on their own lines (FORE / VER), so the poster still shows every letter.
+     * Null when even that won't fit.
+     */
+    private fun stacked(p: DeviceProfile, s: TextSpec, text: String): IntArray? {
+        val words = text.trim().split(Regex("\\s+"))
+        val n = p.size
+        for (split in 1..3)
+        for ((font, spacing) in listOf(s.font to s.spacing, DotFont.REGULAR to s.spacing, DotFont.SMALL to maxOf(1, s.spacing)).distinct()) {
+            for (count in 2..3) {
+                val h = DotFonts.height(font)
+                val gap = 2
+                val y0 = (n - (count * h + (count - 1) * gap)) / 2
+                // each line's room: the narrowest of its rows, less a dot each side (two with a border)
+                val room = (0 until count).map { i ->
+                    val ys = (y0 + i * (h + gap)) until (y0 + i * (h + gap) + h)
+                    ys.minOf { y -> (0 until n).count { p.isActive(it, y) } } - if (s.border) 4 else 2
+                }
+                val lines = ArrayList<String>()
+                var ok = true
+                // a broken word keeps its lines to itself: CHAI / PE / CHA / LO? never reads "PE CHA"
+                val parts = words.flatMap { w ->
+                    (if (split == 1) null else parts(font, w, spacing, room.min(), split))?.map { it to true } ?: listOf(w to false)
+                }
+                var lastBroken = false
+                for ((w, broken) in parts) {
+                    val last = lines.lastOrNull()
+                    val join = last != null && !broken && !lastBroken
+                    lastBroken = broken
+                    if (join && DotFonts.width(font, "$last $w", spacing) <= room[lines.size - 1]) lines[lines.size - 1] = "$last $w"
+                    else if (lines.size < count && DotFonts.width(font, w, spacing) <= room[lines.size]) lines += w
+                    else { ok = false; break }
+                }
+                if (!ok) continue
+                val px = IntArray(p.cellCount)
+                val top = y0 + (count - lines.size) * (h + gap) / 2
+                lines.forEachIndexed { i, line ->
+                    val strip = DotFonts.strip(font, line, spacing)
+                    val x0 = (n - strip.w) / 2
+                    for (y in 0 until strip.h) for (x in 0 until strip.w) {
+                        val yy = top + i * (h + gap) + y
+                        if (strip.lit(x, y) && p.isActive(x0 + x, yy)) px[yy * n + x0 + x] = 255
+                    }
+                }
+                return look(p, s, px)
+            }
+        }
+        return null
+    }
+
+    /** [word] cut into [k] even parts when each fits [room]; null when it already fits whole or the parts don't. */
+    private fun parts(font: DotFont, word: String, spacing: Int, room: Int, k: Int): List<String>? {
+        if (DotFonts.width(font, word, spacing) <= room || word.length < k) return null
+        val chunks = word.chunked((word.length + k - 1) / k)
+        return chunks.takeIf { c -> c.all { DotFonts.width(font, it, spacing) <= room } }
+    }
+
+    /** The longest start of [text] that fits [width]: whole words when the first word fits, else whole letters. */
+    internal fun screenful(font: DotFont, text: String, width: Int, spacing: Int): String {
+        val words = text.trim().split(Regex("\\s+"))
+        var out = ""
+        for (w in words) {
+            val next = if (out.isEmpty()) w else "$out $w"
+            if (DotFonts.width(font, next, spacing) > width) break
+            out = next
+        }
+        if (out.isNotEmpty()) return out
+        var cut = ""
+        for (ch in text.trim()) {
+            if (DotFonts.width(font, cut + ch, spacing) > width) break
+            cut += ch
+        }
+        return cut.ifEmpty { text.take(1) }
     }
 
     // ---- placing
@@ -167,11 +258,25 @@ object TextRender {
             }
         }
         if (s.invert) out = IntArray(p.cellCount) { if (!p.mask[it]) 0 else if (out[it] >= 255) 0 else 255 - out[it] }
-        if (s.border) {
+        if (s.band != TextBand.FULL || s.border) {
+            // words never touch the rim; with a border they keep one dark dot from it
             out = out.copyOf()
-            for (c in p.ring) out[c] = 255
+            for (c in p.ring) out[c] = 0
+            if (s.border) for (c in nearRing(p)) out[c] = 0
         }
+        if (s.border) for (c in p.ring) out[c] = 255
         return out
+    }
+
+    private val nearRings = java.util.concurrent.ConcurrentHashMap<DeviceProfile, IntArray>()
+
+    /** The dots just inside the rim (the ring's neighbours). */
+    internal fun nearRing(p: DeviceProfile): IntArray = nearRings.getOrPut(p) {
+        val ring = p.ring.toHashSet()
+        val n = p.size
+        p.ledCells.filter { c ->
+            c !in ring && (-1..1).any { dy -> (-1..1).any { dx -> (c % n + dx) in 0 until n && (c / n + dy) in 0 until n && (c + dy * n + dx) in ring } }
+        }.toIntArray()
     }
 
     private fun scale(px: IntArray, k: Float) = IntArray(px.size) { (px[it] * k).roundToInt() }
@@ -208,7 +313,8 @@ object TextRender {
             if (y !in 0 until p.size) continue
             w = minOf(w, (0 until p.size).count { p.isActive(it, y) })
         }
-        return (w - 2).coerceAtLeast(5)
+        val margin = if (s.border || s.style == TextStyle.MARQUEE) 4 else 2
+        return (w - margin).coerceAtLeast(5)
     }
 
     private inline fun chunks(b: Builder, s: TextSpec, text: String, each: (IntArray) -> Unit) {
@@ -320,6 +426,9 @@ object TextRender {
         for (t in 0 until steps) {
             val x = if (fits) (p.size - strip.w) / 2 else p.size - t
             val px = place(p, s.copy(border = false), strip, x, y)
+            // a dark dot between the letters and the running lights
+            for (c in ring) px[c] = 0
+            for (c in nearRing(p)) px[c] = 0
             for (i in ring.indices) {
                 val k = if (reverse) (ring.size - i + t) % 4 else (i + t) % 4
                 if (k == 0) px[ring[i]] = 255 else if (k == 1) px[ring[i]] = maxOf(px[ring[i]], 60)

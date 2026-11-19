@@ -151,7 +151,8 @@ object Compositor {
             when (behind) {
                 BehindText.CLEAR -> Unit
                 BehindText.DIM -> for (y in band.rows) for (x in 0 until n) out[y * n + x] = (out[y * n + x] * DIM).roundToInt()
-                BehindText.CUT_OUT -> for (y in 0 until n) for (x in 0 until n) {
+                // only round the text's band, so a picture above or below the words keeps its shape
+                BehindText.CUT_OUT -> for (y in (band.rows.first - 1).coerceAtLeast(0)..(band.rows.last + 1).coerceAtMost(n - 1)) for (x in 0 until n) {
                     var near = false
                     for (dy in -1..1) for (dx in -1..1) {
                         val xx = x + dx

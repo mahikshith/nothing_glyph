@@ -13,7 +13,7 @@ import javax.imageio.ImageIO
 
 /**
  * Contact sheets of the DotForge glyph art, text and glyph + text items for review, written only with
- * -Pscreens=<folder> to `<screens.out>/library/`: one sheet of stills per category and one of animation strips.
+ * -Pscreens=<folder> to `<screens.out>/library-art/`: per category, the tile posters, the stills and animation strips, plus counts.txt.
  */
 class LibrarySheets {
     private val p = DeviceProfile.Phone3
@@ -24,11 +24,20 @@ class LibrarySheets {
         assumeTrue(out != null)
         val dir = out!!.apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
+        // per category: every item, and the stills among them (all sources), for the minimum-count check
+        File(dir, "counts.txt").writeText(AnimationLibrary.categories.joinToString("\n") { c ->
+            val items = AnimationLibrary.items(c)
+            "${c.title}: ${items.size} items, ${items.count { it.form == ItemForm.STILL }} stills, ${items.count { it.form == ItemForm.STILL && it.kind == ItemKind.GLYPH }} DotForge stills"
+        } + "\n")
         val mine = AnimationLibrary.all.filter { it.kind == ItemKind.GLYPH || it.form == ItemForm.TEXT || it.form == ItemForm.LAYERED }
         for ((cat, items) in mine.groupBy { it.category }) {
             val slug = cat.id.replace('_', '-')
             val stills = items.filter { it.form == ItemForm.STILL }
             if (stills.isNotEmpty()) ImageIO.write(grid("${cat.title}: ${stills.size} stills", stills.map { it.name to it.load(p).frames[0].frame }), "png", File(dir, "$slug-stills.png"))
+            // what the tiles show: each item's fixed poster
+            for ((k, chunk) in items.chunked(48).withIndex()) {
+                ImageIO.write(grid("${cat.title}: posters (${items.size})", chunk.map { it.name to AnimationLibrary.thumbnail(it, p) }), "png", File(dir, "$slug-posters-${k + 1}.png"))
+            }
             val moving = items.filter { it.form != ItemForm.STILL }
             for ((k, chunk) in moving.chunked(14).withIndex()) {
                 ImageIO.write(strips("${cat.title}: moving (${moving.size})", chunk), "png", File(dir, "$slug-moving-${k + 1}.png"))

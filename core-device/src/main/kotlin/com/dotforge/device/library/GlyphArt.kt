@@ -107,6 +107,61 @@ internal object GlyphArt {
         return if (e.frames.isNotEmpty()) picture(p, e.frames[0]) else Posters.of(load(e, p))
     }
 
+    /**
+     * [frame]'s picture shrunk into rows [top]..[bottom] (at most [maxWidth] wide), centred across and resting on
+     * [bottom]: the glyph above the words of a glyph + text design. Each new dot averages the dots it covers, so
+     * thin strokes turn dim rather than vanish; the picture shrinks a little more until it fits the circle.
+     */
+    fun shrink(frame: Frame, p: DeviceProfile, top: Int = 1, bottom: Int = 13, maxWidth: Int = 19): Frame {
+        val n = p.size
+        val src = frame.pixels
+        val lit = p.ledCells.filter { src[it] > 0 }
+        if (lit.isEmpty()) return Frame.blank(p)
+        val x0 = lit.minOf { it % n }
+        val x1 = lit.maxOf { it % n }
+        val y0 = lit.minOf { it / n }
+        val y1 = lit.maxOf { it / n }
+        val bw = x1 - x0 + 1
+        val bh = y1 - y0 + 1
+        var s = minOf(1.0, (bottom - top + 1).toDouble() / bh, maxWidth.toDouble() / bw)
+        while (true) {
+            val tw = maxOf(1, Math.round(bw * s).toInt())
+            val th = maxOf(1, Math.round(bh * s).toInt())
+            val ox = (n - tw) / 2
+            val oy = bottom - th + 1
+            val out = Frame.blank(p)
+            var outside = 0
+            for (ty in 0 until th) for (tx in 0 until tw) {
+                val sx0 = x0 + tx * bw.toDouble() / tw
+                val sx1 = x0 + (tx + 1) * bw.toDouble() / tw
+                val sy0 = y0 + ty * bh.toDouble() / th
+                val sy1 = y0 + (ty + 1) * bh.toDouble() / th
+                var sum = 0.0
+                var area = 0.0
+                for (sy in sy0.toInt() until kotlin.math.ceil(sy1).toInt()) for (sx in sx0.toInt() until kotlin.math.ceil(sx1).toInt()) {
+                    val ax = minOf(sx + 1.0, sx1) - maxOf(sx.toDouble(), sx0)
+                    val ay = minOf(sy + 1.0, sy1) - maxOf(sy.toDouble(), sy0)
+                    if (ax <= 0 || ay <= 0) continue
+                    sum += src[sy * n + sx] * ax * ay
+                    area += ax * ay
+                }
+                val v = if (area > 0) sum / area / 255 else 0.0
+                val q = when {
+                    v >= 0.5 -> 255
+                    v >= 0.3 -> 150
+                    v >= 0.15 -> 70
+                    else -> 0
+                }
+                if (q == 0) continue
+                val x = ox + tx
+                val y = oy + ty
+                if (p.isActive(x, y)) out.pixels[p.index(x, y)] = q else outside++
+            }
+            if (outside == 0 || s < 0.3) return out
+            s *= 0.93
+        }
+    }
+
     fun load(e: Entry, p: DeviceProfile): Animation {
         if (e.motion.isNotEmpty()) return Motion.make(p, e.motion)
         val ms = e.durations
@@ -127,11 +182,12 @@ internal object GlyphArt {
                 Animation(p, list.mapIndexed { i, (dx, dy) -> AnimFrame(shift(f, dx, dy), if (i == list.size - 1) hold else ms) })
             return when (name) {
                 "beat" -> of(f to 520, scale(f, 1.14) to 110, f to 110, scale(f, 1.09) to 110, f to 700)
-                "bounce" -> moves(listOf(0 to 0, 0 to -1, 0 to -3, 0 to -4, 0 to -3, 0 to -1, 0 to 0, 0 to 1, 0 to 0), 70, 600)
-                "swing" -> moves(List(3) { listOf(1 to 0, 0 to 0, -1 to 0, 0 to 0) }.flatten() + listOf(0 to 0), 70, 900)
-                "rock" -> moves(listOf(0 to 0, 1 to 0, 1 to 1, 0 to 1, -1 to 1, -1 to 0), 180, 180)
-                "shake" -> moves(List(4) { listOf(1 to 0, -1 to 0) }.flatten() + listOf(0 to 0), 50, 700)
-                "wiggle" -> moves(listOf(1 to 0, -1 to 0, 1 to 0, 0 to -1, 0 to 0, -1 to 0, 1 to 0, 0 to 0), 70, 900)
+                // big enough to see at a glance on 25 x 25: two dots side to side, a seven-row hop
+                "bounce" -> moves(listOf(0 to 0, 0 to -2, 0 to -4, 0 to -6, 0 to -7, 0 to -6, 0 to -4, 0 to -2, 0 to 0, 0 to 1, 0 to 0, 0 to -2, 0 to 0), 65, 500)
+                "swing" -> moves(List(2) { listOf(1 to 0, 2 to 0, 2 to 0, 1 to 0, 0 to 0, -1 to 0, -2 to 0, -2 to 0, -1 to 0, 0 to 0) }.flatten(), 60, 800)
+                "rock" -> moves(listOf(0 to 0, 1 to 0, 2 to 1, 1 to 1, 0 to 1, -1 to 1, -2 to 1, -1 to 0), 150, 150)
+                "shake" -> moves(List(5) { listOf(2 to 0, -2 to 0) }.flatten() + listOf(1 to 0, 0 to 0), 45, 650)
+                "wiggle" -> moves(listOf(2 to 0, -2 to 0, 2 to -1, 0 to -2, -2 to -1, 2 to 0, -1 to 0, 0 to -3, 0 to 0), 70, 800)
                 "float" -> Animation(p, List(16) { i -> AnimFrame(shift(f, 0, (-1.5 + 1.5 * cos(2 * PI * i / 16)).roundToInt()), 110) })
                 "drive", "rise" -> {
                     val path = listOf(-24, -18, -13, -9, -6, -3, -1, 0) + List(8) { 1 + it * it / 2 + it }

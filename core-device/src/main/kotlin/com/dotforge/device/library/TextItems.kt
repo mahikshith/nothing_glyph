@@ -42,27 +42,33 @@ internal object TextItems {
     /** The Text category's groups, in display order. */
     val groups = listOf("Greetings", "Love", "Status", "Reactions", "Celebrations", "Utility", "Hinglish")
 
-    /** Widest word that plays in place on the whole Glyph, and under a glyph in the bottom band. */
-    const val FULL_WIDTH = 21
-    const val BAND_WIDTH = 15
+    /** Widest word that plays in place on the whole Glyph (less with a border), and under a glyph in the bottom band. */
+    const val FULL_WIDTH = 23
+    const val BORDER_WIDTH = 19
+    const val BAND_WIDTH = 19
+
+    /** A glyph + text loop finishes within this, so long words scroll a little faster. */
+    const val LOOP_MS = 4_000
 
     private fun slug(s: String) = s.lowercase().replace('♥', 'h').replace(Regex("[^a-z0-9]+"), "-").trim('-')
 
     /** A sensible style for [text] when none is given: short words pop in place, longer ones scroll. */
-    private fun auto(text: String): TextStyle = if (DotFonts.width(DotFont.REGULAR, text) <= 21) BOUNCE else SCROLL
+    private fun auto(text: String): TextStyle = if (DotFonts.width(DotFont.REGULAR, text) <= FULL_WIDTH) BOUNCE else SCROLL
 
     private fun text(
         cat: Category, group: String?, text: String, tags: String, style: TextStyle? = null,
         dir: TextDirection = TextDirection.LEFT, font: DotFont = DotFont.REGULAR, border: Boolean = false,
     ): LibraryItem {
-        val wanted = style ?: auto(text)
+        // Wave bends letters out of shape on 25 rows, so library texts don't use it
+        val wanted = style?.takeIf { it != WAVE } ?: auto(text)
         // Styles that play in place split a word that is too wide; such words scroll instead.
-        val tooWide = text.split(' ').any { DotFonts.width(font, it) > FULL_WIDTH }
+        val limit = if (border || wanted == MARQUEE) BORDER_WIDTH else FULL_WIDTH
+        val tooWide = text.split(' ').any { DotFonts.width(font, it) > limit }
         val st = if (!wanted.moves && wanted != TYPEWRITER && wanted != CURSOR && tooWide) SCROLL else wanted
         val spec = TextSpec(text = text, font = font, style = st, direction = dir, border = border)
         val id = "text-" + (if (cat == C.Text) "" else cat.id + "-") + slug(text)
         val words = (tags + " text words " + (group ?: "") + " " + text).lowercase().split(' ').filter { it.isNotBlank() }.distinct()
-        return LibraryItem(id, text, cat, words, null, ItemKind.ORIGINAL, ItemForm.TEXT, group, spec) { p -> TextRender.render(p, spec) }
+        return LibraryItem(id, text, cat, words, null, ItemKind.ORIGINAL, ItemForm.TEXT, group, spec, posterOf = { p -> TextRender.poster(p, spec) }) { p -> TextRender.render(p, spec) }
     }
 
     private fun T(group: String, s: String, tags: String, style: TextStyle? = null, dir: TextDirection = TextDirection.LEFT, font: DotFont = DotFont.REGULAR, border: Boolean = false) =
@@ -81,6 +87,8 @@ internal object TextItems {
             T("Greetings", "NAMASTE", "namaste hello india greeting", ASSEMBLE),
             T("Greetings", "BYE!", "bye goodbye see you later", ZOOM),
             T("Greetings", "SEE YOU SOON", "see you soon bye later", SCROLL),
+            T("Greetings", "GM", "gm good morning short greeting", FIT, font = DotFont.BOLD),
+            T("Greetings", "GN", "gn good night short greeting sleep", FIT, font = DotFont.BOLD),
             // Love
             T("Love", "I ♥ U", "i love you heart love", BOUNCE),
             T("Love", "LOVE YOU", "love you heart", FADE),
@@ -127,6 +135,9 @@ internal object TextItems {
             T("Celebrations", "MERRY CHRISTMAS", "merry christmas xmas festival celebrate", SCROLL),
             T("Celebrations", "EID MUBARAK", "eid mubarak festival celebrate", SCROLL),
             T("Celebrations", "HAPPY HOLI", "happy holi colours festival celebrate", WAVE),
+            T("Celebrations", "HBD", "hbd happy birthday short bday celebrate", ZOOM, font = DotFont.BOLD),
+            T("Celebrations", "XMAS", "xmas christmas short festival celebrate", FADE),
+            T("Celebrations", "HNY", "hny happy new year short party celebrate", ZOOM, font = DotFont.BOLD),
             // Utility
             T("Utility", "CHARGING", "charging battery power", TYPEWRITER),
             T("Utility", "LOW BATTERY", "low battery charge power", FLASH),
@@ -204,16 +215,16 @@ internal object TextItems {
         G("g-bedtime", "GN", "good night gn moon sleep"),
         G("g-car", "ON MY WAY", "on my way car ride omw"),
         G("g-food-bag", "FOOD'S HERE", "food here bag delivery order"),
-        G("g-bell", "REMINDER", "reminder bell alert", effect = BackgroundEffect.BLINK),
+        G("g-bell", "REMINDER", "reminder bell alert", effect = BackgroundEffect.BREATHE),
         G("g-takeaway-cup", "BRB", "brb coffee break be right back"),
-        G("g-cricket", "SIXER!", "sixer cricket bat six ipl"),
+        G("g-cricket", "SIXER", "sixer cricket bat six ipl"),
         G("g-gift", "FOR YOU", "for you gift present surprise"),
-        G("g-balloons", "PARTY!", "party balloons celebrate"),
+        G("g-balloons", "PARTY", "party balloons celebrate"),
         G("g-trophy", "WINNER", "winner trophy champion"),
         G("g-football", "GOAL!", "goal football score"),
         G("g-sun", "GOOD MORNING", "good morning sun gm"),
         G("g-rain", "RAINY DAY", "rainy day rain weather"),
-        G("g-umbrella", "TAKE UMBRELLA", "take umbrella rain reminder weather"),
+        G("g-umbrella", "UMBRELLA", "take umbrella rain reminder weather"),
         G("g-parcel", "DELIVERED", "delivered parcel package courier"),
         G("g-grocery-basket", "GROCERIES", "groceries basket shopping order"),
         G("g-scooter", "ARRIVING", "arriving delivery scooter order"),
@@ -224,10 +235,10 @@ internal object TextItems {
         G("g-briefcase", "AT WORK", "at work office briefcase busy"),
         G("g-book", "STUDYING", "studying study book exam"),
         G("g-grad-cap", "PASSED!", "passed exam graduation results"),
-        G("g-alarm", "WAKE UP", "wake up alarm morning", effect = BackgroundEffect.BLINK),
+        G("g-alarm", "WAKE UP", "wake up alarm morning", effect = BackgroundEffect.BREATHE),
         G("g-pill", "TAKE MEDS", "take meds medicine pill reminder"),
         G("g-water", "DRINK WATER", "drink water glass hydrate reminder"),
-        G("g-hourglass", "WAIT...", "wait hourglass patience"),
+        G("g-hourglass", "WAIT", "wait hourglass patience"),
         G("g-heart-broken", "IT'S OVER", "its over broken heart breakup heartbreak", FADE),
         G("g-teardrop", "MISS YOU", "miss you tear sad"),
         G("g-ghosted", "BOO!", "boo ghost halloween ghosted"),
@@ -236,45 +247,54 @@ internal object TextItems {
         G("g-mood-angry", "GRR", "grr angry mad mood", GLITCH),
         G("g-mood-cool", "CHILL", "chill cool relax mood"),
         G("g-mood-sleepy", "ZZZ", "zzz sleepy tired sleep", FADE),
-        G("g-fireworks", "HAPPY NEW YEAR", "happy new year fireworks party"),
+        G("g-cheers", "HAPPY NEW YEAR", "happy new year cheers party"),
         G("g-ring", "MARRY ME?", "marry me ring propose engagement"),
         G("g-lips", "MWAH", "mwah kiss lips love"),
         G("g-battery-low", "CHARGE ME", "charge me battery low power"),
         G("g-wifi", "NO WIFI", "no wifi offline internet", FLASH),
         G("g-dumbbell", "GYM TIME", "gym time workout fitness"),
         G("g-shoe", "LET'S RUN", "lets run running jog fitness"),
-        G("g-kite", "HAPPY SANKRANTI", "happy sankranti kite festival uttarayan"),
+        G("g-kite", "SANKRANTI", "happy sankranti kite festival uttarayan"),
+        G("g-holi-splash", "HOLI", "happy holi colours festival splash"),
+        G("g-eid-crescent", "EID", "eid mubarak moon crescent festival"),
+        G("g-xmas-tree", "XMAS", "merry christmas xmas tree festival"),
+        G("g-rakshabandhan-rakhi", "RAKHI", "raksha bandhan rakhi sister brother festival"),
     )
 
-    /** How many rows a glyph moves up so the words sit under it. */
-    private const val LIFT = 4
-
+    /**
+     * The glyph shrunk into rows 1-13 and the words in the bottom band (rows 14-20), where the circle is wide
+     * enough. Words that fit hold still and centred; longer ones scroll fast enough to finish in [LOOP_MS]. The
+     * picture never goes fully dark (a blink becomes a breathe), and nothing cuts into it: the words sit below it.
+     */
     fun layersFor(p: DeviceProfile, glyph: String, words: String, style: TextStyle?, effect: BackgroundEffect): Layers {
-        val still = GlyphArt.still(glyph, p)
-        val lifted = Frame.blank(p).also { out ->
-            for (cell in p.ledCells) {
-                val v = still.pixels[cell]
-                if (v == 0) continue
-                val x = cell % p.size
-                val y = cell / p.size - LIFT
-                if (p.isActive(x, y)) out.pixels[p.index(x, y)] = v
-            }
-        }
+        val picture = GlyphArt.shrink(GlyphArt.still(glyph, p), p)
         val name = GlyphArt.entry(glyph)?.name ?: glyph
-        val fits = DotFonts.width(DotFont.REGULAR, words) <= BAND_WIDTH
-        val spec = TextSpec(text = words, style = if (fits) style ?: FIT else SCROLL, band = TextBand.BOTTOM, pauseMs = 900)
+        val still = DotFonts.width(DotFont.SMALL, words) <= BAND_WIDTH
+        val spec = TextSpec(text = words, style = if (still) FIT else SCROLL, band = TextBand.BOTTOM, pauseMs = if (still) 900 else 400)
+        val speed = if (still) 1f else {
+            val steps = p.size + DotFonts.width(DotFont.REGULAR, words) + 1
+            ((steps * TextRender.STEP_MS + spec.pauseMs) / LOOP_MS.toFloat()).coerceIn(1f, 2f)
+        }
         return Layers(
-            background = BackgroundLayer(Animation.single(lifted, 1000).toMuseumJson(), name, effect),
-            text = TextLayer(spec),
-            behind = BehindText.CUT_OUT,
+            background = BackgroundLayer(Animation.single(picture, 1000).toMuseumJson(), name, if (effect == BackgroundEffect.BLINK) BackgroundEffect.BREATHE else effect),
+            text = TextLayer(spec, speed = speed),
+            // the words sit below the picture, so nothing needs cutting out of it
+            behind = BehindText.CLEAR,
         )
+    }
+
+    /** The still a tile shows: the picture with the words whole (or their first screenful). */
+    fun posterFor(p: DeviceProfile, layers: Layers): Frame {
+        val bg = layers.background?.let { Animation.fromMuseumJson(p, it.frames).frames.first().frame.pixels }
+        val text = layers.text?.let { TextRender.poster(p, it.spec).pixels }
+        return Frame.of(p, Compositor.compose(p, layers.behind, layers.text?.spec?.band ?: TextBand.BOTTOM, bg, text, null))
     }
 
     val layered: List<LibraryItem> by lazy {
         pairs.map { g ->
             val words = (g.tags + " glyph text " + g.words).lowercase().split(' ').filter { it.isNotBlank() }.distinct()
             val make = { p: DeviceProfile -> layersFor(p, g.glyph, g.words, g.style, g.effect) }
-            LibraryItem("gt-" + slug(g.words), g.words, C.GlyphText, words, null, ItemKind.ORIGINAL, ItemForm.LAYERED, null, null, make) { p ->
+            LibraryItem("gt-" + slug(g.words), g.words, C.GlyphText, words, null, ItemKind.ORIGINAL, ItemForm.LAYERED, null, null, make, posterOf = { p -> posterFor(p, make(p)) }) { p ->
                 Compositor.render(p, make(p), Animation.single(Frame.blank(p), 1000)).let { a ->
                     if (a.frames.isEmpty()) Animation(p, listOf(AnimFrame(Frame.blank(p), 1000))) else a
                 }

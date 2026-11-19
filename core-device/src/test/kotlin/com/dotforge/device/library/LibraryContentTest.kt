@@ -85,7 +85,7 @@ class LibraryContentTest {
             assertEquals(item.id, item.name, layers.text!!.spec.text)
             assertTrue(item.id, item.load(p).frames.isNotEmpty())
         }
-        for (want in listOf("I ♥ U", "HAPPY BDAY", "HAPPY DIWALI", "GN", "ON MY WAY", "FOOD'S HERE", "REMINDER", "BRB", "SIXER!")) {
+        for (want in listOf("I ♥ U", "HAPPY BDAY", "HAPPY DIWALI", "GN", "ON MY WAY", "FOOD'S HERE", "REMINDER", "BRB", "SIXER")) {
             assertTrue("missing $want", layered.any { it.name == want })
         }
     }

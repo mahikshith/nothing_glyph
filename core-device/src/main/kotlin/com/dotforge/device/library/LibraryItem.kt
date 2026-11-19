@@ -23,7 +23,7 @@ enum class ItemForm(val label: String) { STILL("Still"), ANIMATION("Animated"), 
  */
 class LibraryItem(
     val id: String,
-    val name: String,
+    name: String,
     val category: Category,
     val tags: List<String>,
     /** Attribution text to show with the item, or null when the item needs none. */
@@ -35,10 +35,18 @@ class LibraryItem(
     /** The ready text design of a [ItemForm.TEXT] item; it opens in the Text screen. */
     val text: TextSpec? = null,
     private val layersOf: ((DeviceProfile) -> Layers)? = null,
+    /** The still a tile shows, when the item has a better one than its brightest frame (text, glyph + text). */
+    private val posterOf: ((DeviceProfile) -> Frame)? = null,
     private val maker: (DeviceProfile) -> Animation,
 ) {
-    /** True when the item moves (everything except still pictures). */
-    val animated: Boolean get() = form != ItemForm.STILL
+    /** The shown name: sentence case ("Heart balloon"); text designs keep their words as they appear. */
+    val name: String = if (form == ItemForm.TEXT || form == ItemForm.LAYERED) name else Names.sentence(name)
+
+    /** The tags people see: [tags] without brand names, which stay searchable only. */
+    val displayTags: List<String> get() = tags.filter { it !in Names.brands }
+
+    /** True when the item moves: it has more than one frame. */
+    val animated: Boolean get() = load().frames.size > 1
 
     /** The layers of a [ItemForm.LAYERED] item (background + text); it opens in the editor with them. */
     fun layers(profile: DeviceProfile = DeviceProfile.Phone3): Layers? = layersOf?.invoke(profile)
@@ -55,10 +63,17 @@ class LibraryItem(
     /** Builds the animation again without the cache; used to check that generators are deterministic. */
     internal fun loadUncached(profile: DeviceProfile): Animation = normalise(maker(profile))
 
+    /**
+     * The fixed still every tile and the item sheet start on, showing the whole design: a still's picture, an
+     * animation's fullest frame, a text's words held whole (or their first screenful), a glyph + text design's
+     * picture with its words. Never blank while the item lights anything.
+     */
     internal fun thumbnailFor(profile: DeviceProfile): Frame =
         thumbs.getOrPut(key(profile)) {
             val frames = load(profile).frames.map { it.frame }
-            frames.maxByOrNull { f -> f.pixels.sum() } ?: frames.first()
+            val fullest = frames.maxByOrNull { f -> f.pixels.sum() } ?: frames.first()
+            val own = posterOf?.invoke(profile)?.let { Frame.of(profile, it.pixels) }
+            if (own != null && own.pixels.any { it > 0 }) own else fullest
         }
 
     private fun normalise(a: Animation): Animation {
@@ -77,4 +92,30 @@ class LibraryItem(
         const val MIN_GENERATED_FRAMES = 24
         const val MAX_GENERATED_FRAMES = 120
     }
+}
+
+/** Display names and the tags that stay hidden. */
+internal object Names {
+    /**
+     * "Heart Balloon" to "Heart balloon": the first word keeps its capital, later Capitalised words go lower
+     * case, and words in capitals or mixed case (UFO, UwU, DJ) stay as they are.
+     */
+    fun sentence(name: String): String {
+        val words = name.trim().split(' ')
+        return words.mapIndexed { i, w ->
+            when {
+                w.isEmpty() -> w
+                i == 0 -> w.replaceFirstChar { it.uppercaseChar() }
+                w.length > 1 && w[0].isUpperCase() && w.drop(1).all { !it.isLetter() || it.isLowerCase() } -> w.lowercase()
+                else -> w
+            }
+        }.joinToString(" ")
+    }
+
+    /** Brand names: searchable, never shown. */
+    val brands = setOf(
+        "swiggy", "zomato", "zepto", "blinkit", "instamart", "bigbasket", "dunzo", "amazon", "flipkart", "myntra",
+        "uber", "ola", "rapido", "irctc", "ipl", "whatsapp", "instagram", "telegram", "youtube", "spotify", "netflix",
+        "gpay", "phonepe", "paytm", "google", "apple", "nothing", "dominos", "starbucks", "mcdonalds", "kfc",
+    )
 }
