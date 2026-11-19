@@ -27,6 +27,8 @@ import com.dotforge.ui.MainActivity
  */
 class TimerService : Service() {
     private var wake: PowerManager.WakeLock? = null
+    /** Timers that have rung already (each rings once, when it ends). */
+    private val rung = HashSet<String>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -52,6 +54,7 @@ class TimerService : Service() {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         if (!state.ours) {
             nm.cancel(DONE_NOTIFICATION_ID)
+            TimerAlarm.stop()
             release()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -63,10 +66,17 @@ class TimerService : Service() {
         if (done.isNotEmpty()) {
             nm.notify(DONE_NOTIFICATION_ID, TimerNotifications.timesUp(this, done))
             hold()
+            val fresh = done.filter { it.id !in rung }
+            if (fresh.isNotEmpty()) {
+                rung += fresh.map { it.id }
+                TimerAlarm.start(this, GlyphTimers.ringMs(), GlyphTimers.sound.value, GlyphTimers.vibrate.value)
+            }
         } else {
             nm.cancel(DONE_NOTIFICATION_ID)
+            TimerAlarm.stop()
             release()
         }
+        rung.retainAll(done.map { it.id }.toSet())
         schedule(Timers.nextEnd(state.timers))
     }
 
@@ -97,6 +107,7 @@ class TimerService : Service() {
 
     override fun onDestroy() {
         if (GlyphTimers.onChange != null) GlyphTimers.onChange = null
+        TimerAlarm.stop()
         release()
         super.onDestroy()
     }
@@ -115,14 +126,23 @@ class TimerService : Service() {
 /** The timer's notifications: the ongoing Live Update and "Time's up". */
 object TimerNotifications {
     const val CHANNEL = "timers"
-    const val DONE_CHANNEL = "timers_done"
+    /** Silent itself: the service rings (Sound) and buzzes (Vibrate) as set on the page, for as long as set. */
+    const val DONE_CHANNEL = "timer_end"
+    private const val OLD_DONE_CHANNEL = "timers_done"
     /** Android 16's request for a promoted ongoing notification (a Live Update). */
     private const val EXTRA_REQUEST_PROMOTED = "android.requestPromotedOngoing"
 
     private fun channels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Timers and stopwatch", NotificationManager.IMPORTANCE_LOW))
-        nm.createNotificationChannel(NotificationChannel(DONE_CHANNEL, "Timer ended", NotificationManager.IMPORTANCE_HIGH))
+        nm.deleteNotificationChannel(OLD_DONE_CHANNEL)
+        nm.createNotificationChannel(
+            NotificationChannel(DONE_CHANNEL, "Timer ended", NotificationManager.IMPORTANCE_HIGH).apply {
+                setSound(null, null)
+                enableVibration(false)
+                setBypassDnd(true)
+            },
+        )
     }
 
     private fun open(ctx: Context) = PendingIntent.getActivity(
@@ -206,11 +226,16 @@ object TimerNotifications {
         } else b.setProgress(max, now, false)
     }
 
-    /** "Time's up": its own high-importance notification, so the phone sounds once. */
+    /** "Time's up": its own high-importance notification, opening full screen over the lock screen. */
     fun timesUp(ctx: Context, done: List<GlyphTimer>): Notification {
         channels(ctx)
         val first = done.maxBy { it.doneAt }
+        val full = PendingIntent.getActivity(
+            ctx, 1, Intent(ctx, TimesUpActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         return Notification.Builder(ctx, DONE_CHANNEL)
+            .setFullScreenIntent(full, true)
             .setSmallIcon(R.drawable.toy_timer)
             .setContentTitle("Time's up")
             .setContentText(if (done.size == 1) first.name else "${done.size} timers ended")
@@ -221,6 +246,45 @@ object TimerNotifications {
             .addAction(action(ctx, if (done.size == 1) "Dismiss" else "Dismiss all", TimerReceiver.DISMISS_ALL, null, 6))
             .addAction(action(ctx, "+1 min", TimerReceiver.PLUS, first.id, 7))
             .build()
+    }
+}
+
+/**
+ * The sound and the buzz when a timer ends: the alarm sound (on the alarm volume) and a repeating buzz, each as
+ * set on the page, for [GlyphTimers.ringMs] or until dismissed.
+ */
+object TimerAlarm {
+    private var ringtone: android.media.Ringtone? = null
+    private var vibrator: android.os.Vibrator? = null
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val stopper = Runnable { stop() }
+
+    fun start(ctx: Context, ms: Long, sound: Boolean, vibrate: Boolean) {
+        stop()
+        if (sound) runCatching {
+            val uri = android.media.RingtoneManager.getActualDefaultRingtoneUri(ctx, android.media.RingtoneManager.TYPE_ALARM)
+                ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+            ringtone = android.media.RingtoneManager.getRingtone(ctx, uri)?.apply {
+                audioAttributes = android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                isLooping = true
+                play()
+            }
+        }
+        if (vibrate) runCatching {
+            val v = ctx.getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+            v?.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 600, 400), 0))
+            vibrator = v
+        }
+        if (sound || vibrate) main.postDelayed(stopper, ms)
+    }
+
+    fun stop() {
+        main.removeCallbacks(stopper)
+        runCatching { ringtone?.stop() }
+        runCatching { vibrator?.cancel() }
+        ringtone = null
+        vibrator = null
     }
 }
 

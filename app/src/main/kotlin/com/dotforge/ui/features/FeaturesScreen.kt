@@ -51,18 +51,21 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
         "timer", "Timer & stopwatch", "Count down or time something on the Glyph. Several timers can run; the Glyph shows the one that ends first.",
         emptyList(),
         "Timers run in DotForge, not as a Glyph Toy, so they never stop after 30 seconds. The Glyph shows the timer that " +
-            "ends first; its last 10 seconds pulse, and when it ends the Glyph bursts until you dismiss it. Your phone " +
-            "shows it too, as a Live Update in the status bar and on the lock screen. With \"Show Clock app timers\" on, " +
+            "ends first, or the one you pick with Show on Glyph. Its last 10 seconds count down big, and when it ends the " +
+            "Glyph bursts (for as long as you set) while the phone rings and buzzes, and \"Time's up\" fills the screen. Face " +
+            "down, the Glyph is hidden, so stand the phone up to see it. Your phone shows the timer too, as a Live Update in " +
+            "the status bar and on the lock screen. With \"Show Clock app timers\" on, " +
             "timers and the stopwatch you start in the Clock app show on the Glyph the same way.",
         "g-timer",
     ),
     PROGRESS(
-        "progress", "Live progress", "A ring fills for deliveries, rides, downloads and what's coming up.",
+        "progress", "Live progress", "A ring fills for deliveries, rides, downloads and what's coming up. Works when the app shows the arrival time in its notification.",
         emptyList(),
         "Works when the app shows the arrival time in its notification. DotForge reads the notification's progress bar, " +
             "its countdown, words like \"arriving in 12 mins\" or \"ETA 7:45 PM\", and the order's stage (\"Out for delivery\"). " +
             "The ring is how far it has got; the middle shows the minutes left, or the stage's picture; it pulses when it's " +
-            "about to arrive. Nothing leaves your phone.",
+            "about to arrive, and plays the done animation when it's there. Tap a row under Now to open its app. Nothing " +
+            "leaves your phone.",
         "g-scooter",
     ),
     TOYS(
@@ -72,7 +75,7 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
         "g-football",
     ),
     MUSIC(
-        "music", "Visualiser", "The Glyph moves with whatever is playing.",
+        "music", "Music visualiser", "The Glyph moves with whatever is playing.",
         listOf("Style" to "Bars", "Brightness" to "100%"),
         "It reads the sound that is playing on this phone. Android counts that as microphone access; nothing is recorded.",
         "g-headphones",
@@ -84,7 +87,7 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
         "g-torch",
     ),
     BATTERY(
-        "battery", "Battery & volume", "The Glyph shows the battery while charging and the volume as you change it.",
+        "battery", "Battery and volume", "The Glyph shows the battery while charging and the volume as you change it.",
         listOf("While charging" to "Battery ring", "Volume" to "Bar"),
         "When you plug in, a ring fills to the battery level. When you press the volume keys, a bar shows the level.",
         "g-battery-full",
@@ -108,7 +111,7 @@ enum class Feature(val key: String, val title: String, val what: String, val opt
  */
 @Composable
 fun FeaturesScreen(nav: Nav, setup: Setup, state: LazyListState) {
-    val status = featureStatus()
+    val status = featureStatus(setup)
     val open = { f: Feature -> nav.push(com.dotforge.ui.Page.Feature(f.key)) }
     val cards = Feature.entries.filter { it != Feature.INTEGRATIONS }
     Screen("Features", state = state) {
@@ -135,13 +138,13 @@ fun FeaturesScreen(nav: Nav, setup: Setup, state: LazyListState) {
 @Composable
 private fun FeatureCard(f: Feature, status: String, modifier: Modifier, onOpen: () -> Unit) =
     EqualTile(
-        f.title, status, modifier, height = Tokens.FeatureCard,
+        f.title, status, modifier, height = Tokens.FeatureCard, statusLines = 3, titleLines = 3,
         icon = { LibraryGlyph(f.icon, Modifier.size(32.dp), still = true) }, onOpen = onOpen,
     )
 
 /** Each card's status line, live: "4:12 left", "Zomato · 12 min", "On", "Off". */
 @Composable
-private fun featureStatus(): Map<Feature, String> {
+private fun featureStatus(setup: Setup): Map<Feature, String> {
     val timers by GlyphTimers.state.collectAsStateWithLifecycle()
     val progressOn by AppGraph.progressRings.collectAsStateWithLifecycle()
     val items by LiveProgressRuntime.items.collectAsStateWithLifecycle()
@@ -155,6 +158,7 @@ private fun featureStatus(): Map<Feature, String> {
         Feature.TIMER to timerStatus(timers, now),
         Feature.PROGRESS to when {
             !progressOn -> "Off"
+            !setup.notificationAccess -> "Needs access"
             else -> progressStatus(items)
         },
         Feature.TOYS to "Press the Glyph Button",
@@ -169,8 +173,9 @@ private fun featureStatus(): Map<Feature, String> {
  * The Live progress card: "On" with nothing on the way, "Zomato · 12 min left" for one, and for several the count
  * and the soonest ("3 now · Uber 2 min").
  */
-internal fun progressStatus(items: List<LiveProgressRuntime.Item>): String {
-    if (items.isEmpty()) return "On"
+internal fun progressStatus(all: List<LiveProgressRuntime.Item>): String {
+    if (all.isEmpty()) return "On"
+    val items = all.filterNot { it.done }.ifEmpty { return "${all.first().name} · " + if (all.first().app?.kind == com.dotforge.live.TripKind.RIDE) "Arrived" else "Delivered" }
     val soonest = items.filter { it.reading.minutesLeft != null }.minByOrNull { it.reading.minutesLeft!! } ?: items.first()
     if (items.size == 1) return "${soonest.name} · " + LiveProgress.summary(soonest.reading).substringBefore(" · ")
     val r = soonest.reading

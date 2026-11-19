@@ -79,6 +79,7 @@ object DfIcons {
     val Adjust = icon("Adjust") { moveTo(4f, 7f); lineTo(20f, 7f); moveTo(4f, 17f); lineTo(20f, 17f); circle(9f, 7f, 2.3f); circle(15f, 17f, 2.3f) }
     val Frame = icon("Frame") { rect(5f, 5f, 19f, 19f); moveTo(9f, 3f); lineTo(9f, 5f); moveTo(15f, 3f); lineTo(15f, 5f); moveTo(9f, 19f); lineTo(9f, 21f); moveTo(15f, 19f); lineTo(15f, 21f) }
     val Pencil = icon("Rename") { moveTo(4f, 20f); lineTo(4.8f, 16.4f); lineTo(15f, 6.2f); lineTo(17.8f, 9f); lineTo(7.6f, 19.2f); close() }
+    val Backspace = icon("Delete") { moveTo(8f, 5f); lineTo(21f, 5f); lineTo(21f, 19f); lineTo(8f, 19f); lineTo(2f, 12f); close(); moveTo(11f, 9f); lineTo(17f, 15f); moveTo(17f, 9f); lineTo(11f, 15f) }
     val Clear = icon("Clear") { moveTo(5f, 7f); lineTo(19f, 7f); moveTo(10f, 7f); lineTo(10f, 4f); lineTo(14f, 4f); lineTo(14f, 7f); moveTo(6.5f, 7f); lineTo(7.5f, 20f); lineTo(16.5f, 20f); lineTo(17.5f, 7f) }
     val Heart = icon("Favourite") { moveTo(12f, 20f); lineTo(4.6f, 12.6f); arcTo(4.3f, 4.3f, 0f, false, true, 12f, 6.8f); arcTo(4.3f, 4.3f, 0f, false, true, 19.4f, 12.6f); close() }
     val Face = icon("Face") { circle(12f, 12f, 8.5f); moveTo(9f, 10f); lineTo(9f, 10.5f); moveTo(15f, 10f); lineTo(15f, 10.5f); moveTo(8.5f, 14.5f); arcTo(4f, 4f, 0f, false, false, 15.5f, 14.5f) }

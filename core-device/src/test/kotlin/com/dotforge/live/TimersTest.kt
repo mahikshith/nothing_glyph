@@ -4,6 +4,7 @@ import com.dotforge.device.DeviceProfile
 import com.dotforge.device.Effects
 import com.dotforge.device.Frame
 import com.dotforge.device.TimerFaces
+import com.dotforge.device.StopwatchStyle
 import com.dotforge.device.TimerStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,6 +15,26 @@ import org.junit.Test
 
 class TimersTest {
     private val t0 = 10_000_000L
+
+    @Test fun theFinishRunsThenFlashesAgain() {
+        assertEquals(Long.MAX_VALUE, Timers.finishShowing(5 * 60_000, null, null))
+        assertEquals(20_000L, Timers.finishShowing(10_000, 30_000, null))
+        assertNull(Timers.finishShowing(31_000, 30_000, null))
+        // flash again every minute after the run, for a few seconds
+        assertNull(Timers.finishShowing(31_000, 30_000, 60_000))
+        assertEquals(Timers.FLASH_AGAIN_MS, Timers.finishShowing(90_000, 30_000, 60_000))
+        assertEquals(Timers.FLASH_AGAIN_MS - 1_000, Timers.finishShowing(151_000, 30_000, 60_000))
+        assertNull(Timers.finishShowing(160_000, 30_000, 60_000))
+    }
+
+    @Test fun aChosenTimerShowsInsteadOfTheNearest() {
+        val a = GlyphTimer.start("a", 60_000, t0)
+        val b = GlyphTimer.start("b", 5 * 60_000, t0)
+        assertEquals("a", Timers.shown(listOf(a, b), null, t0)!!.key)
+        assertEquals("b", Timers.shown(listOf(a, b), null, t0, focus = "b")!!.key)
+        // an ended timer still wins
+        assertEquals("a", Timers.shown(listOf(a, b), null, t0 + 61_000, focus = "b")!!.key)
+    }
 
     @Test fun startPauseResumeAndAMinute() {
         var t = GlyphTimer.start("a", 5 * 60_000, t0)
@@ -61,6 +82,9 @@ class TimersTest {
         val watch = Stopwatch().start(t0)
         assertTrue(Timers.shown(listOf(five), watch, t0 + 1) is TimerShown.Running)
         assertTrue(Timers.shown(listOf(five.pause(t0 + 1)), watch, t0 + 2) is TimerShown.Watch)
+        // a paused stopwatch still shows (blinking II), after a paused timer
+        assertTrue(Timers.shown(emptyList(), watch.pause(t0 + 3), t0 + 4) is TimerShown.Watch)
+        assertTrue(Timers.shown(listOf(five.pause(t0 + 1)), watch.pause(t0 + 3), t0 + 4) is TimerShown.Paused)
         assertTrue(Timers.shown(listOf(five.pause(t0 + 1)), null, t0 + 2) is TimerShown.Paused)
         assertNull(Timers.shown(emptyList(), Stopwatch(), t0))
     }
@@ -151,6 +175,8 @@ class TimerFacesTest {
     private val p = DeviceProfile.Phone3
     private fun Frame.lit(above: Int = 0) = p.ledCells.count { pixels[it] > above }
     private fun Frame.onlyLeds() = pixels.indices.all { p.mask[it] || pixels[it] == 0 }
+    /** True when every lit cell of [part] is lit in this frame. */
+    private fun Frame.has(part: Frame) = p.ledCells.all { part.pixels[it] == 0 || pixels[it] > 0 }
 
     @Test fun everyStyleDrawsAndChangesAsTimePasses() {
         for (style in TimerStyle.entries) {
@@ -159,28 +185,71 @@ class TimerFacesTest {
             assertTrue(style.name, a.lit() > 5)
             assertTrue(style.name, a.onlyLeds())
             assertNotEquals(style.name, a.pixels.toList(), b.pixels.toList())
+        }
+        for (style in StopwatchStyle.entries) {
             val w = TimerFaces.stopwatch(p, style, 25_000)
             assertTrue(style.name, w.lit() > 5)
+            assertTrue(style.name, w.onlyLeds())
+            assertNotEquals(style.name, w.pixels.toList(), TimerFaces.stopwatch(p, style, 35_000).pixels.toList())
         }
     }
 
-    @Test fun ringDrainsAndPieShrinks() {
-        val full = TimerFaces.drain(p, 1f)
-        val half = TimerFaces.drain(p, 0.5f)
-        assertEquals(p.ring.size, p.ring.count { full.pixels[it] == 255 })
-        assertEquals(p.ring.size / 2.0, p.ring.count { half.pixels[it] == 255 }.toDouble(), 1.0)
-        assertTrue(TimerFaces.pie(p, 0.75f).lit(100) > TimerFaces.pie(p, 0.25f).lit(100))
+    @Test fun fromAMinuteTheMiddleReadsMinutesAndSeconds() {
+        for (style in listOf(TimerStyle.RING_DRAIN, TimerStyle.ORBIT)) {
+            val f = TimerFaces.countdown(p, style, 4 * 60_000 + 12_000, 5 * 60_000)
+            assertTrue(style.name, f.has(TimerFaces.small(p, "4:12")))
+            // under a minute: big seconds, never a bare number that could be minutes
+            val g = TimerFaces.countdown(p, style, 42_000, 5 * 60_000)
+            assertTrue(style.name, g.has(TimerFaces.digits(p, "42")))
+        }
+        assertEquals("4:12", TimerFaces.readout(252))
+        assertEquals("1:05", TimerFaces.readout(3_900))
+        assertEquals("42", TimerFaces.readout(42))
+        assertEquals(13, TimerFaces.smallWidth("4:12"))
     }
 
-    @Test fun dotsGoOutOneByOne() {
+    @Test fun inTheLastMinuteTheRingCountsSecondsAndTicks() {
+        val a = TimerFaces.secondsRing(p, 30, 0f)
+        val b = TimerFaces.secondsRing(p, 30, 0.75f)
+        assertEquals(p.ring.size / 2.0, p.ring.count { b.pixels[it] >= 150 }.toDouble(), 1.0)
+        // the tick: the dot that just went out flashes at the start of the second
+        assertTrue(p.ring.count { a.pixels[it] == 255 } > p.ring.count { b.pixels[it] == 255 })
+    }
+
+    @Test fun theStopwatchAlwaysShowsMinutesAndSeconds() {
+        assertEquals("0:05", TimerFaces.watchReadout(5))
+        assertEquals("5:00", TimerFaces.watchReadout(300))
+        assertEquals("1:02", TimerFaces.watchReadout(3_720))
+        assertTrue(TimerFaces.stopwatch(p, StopwatchStyle.RING_FILLS, 5_000).has(TimerFaces.small(p, "0:05")))
+        assertTrue(TimerFaces.stopwatch(p, StopwatchStyle.COMET, 300_000).has(TimerFaces.small(p, "5:00")))
+        assertEquals(Effects.centredDigits(p, listOf("00", "05")).pixels.toList(), TimerFaces.stopwatch(p, StopwatchStyle.BIG_DIGITS, 5_000).pixels.toList())
+        assertEquals(StopwatchStyle.BIG_DIGITS, StopwatchStyle.of(null))
+    }
+
+    @Test fun ringDrainsWithABrightHeadAndPieHasAnEdge() {
+        val full = TimerFaces.drain(p, 1f)
+        val half = TimerFaces.drain(p, 0.5f)
+        assertEquals(p.ring.size, p.ring.count { full.pixels[it] >= 150 })
+        assertEquals(p.ring.size / 2.0, p.ring.count { half.pixels[it] >= 150 }.toDouble(), 1.0)
+        // the head is the brightest, the body behind it softer
+        assertEquals(255, half.pixels[p.ring[p.ring.size / 2 - 1]])
+        assertEquals(150, half.pixels[p.ring[0]])
+        assertTrue(TimerFaces.pie(p, 0.75f).lit(100) > TimerFaces.pie(p, 0.25f).lit(100))
+        assertTrue(TimerFaces.pie(p, 0.5f).lit(254) > 5)
+    }
+
+    @Test fun dotsGoOutOneByOneWithASparkle() {
         val count = { f: Frame -> f.lit(200) / 5 }
         assertEquals(25, count(TimerFaces.dots(p, 1f, blink = false)))
         assertEquals(13, count(TimerFaces.dots(p, 0.5f, blink = false)))
         assertEquals(12, count(TimerFaces.dots(p, 0.5f, blink = true))) // the next to go blinks
         assertEquals(0, count(TimerFaces.dots(p, 0f, blink = false)))
+        val plain = TimerFaces.dots(p, 0.5f, blink = false)
+        val pop = TimerFaces.dots(p, 0.5f, blink = false, sparkle = 0.3f)
+        assertTrue(pop.lit() > plain.lit())
     }
 
-    @Test fun hourglassMovesSandDown() {
+    @Test fun hourglassMovesSandDownInAStream() {
         val c = (p.size - 1) / 2
         fun top(f: Frame) = p.ledCells.count { it / p.size < c && f.pixels[it] == 220 }
         fun bottom(f: Frame) = p.ledCells.count { it / p.size > c && f.pixels[it] == 220 }
@@ -188,13 +257,19 @@ class TimerFacesTest {
         val end = TimerFaces.hourglass(p, 0f, 0f)
         assertTrue(top(start) > 20 && bottom(start) == 0)
         assertTrue(top(end) == 0 && bottom(end) > 20)
+        val mid = TimerFaces.hourglass(p, 0.6f, 0f)
+        val stream = (c + 1 until c + 6).count { y -> mid.pixels[y * p.size + c] == 255 }
+        assertTrue(stream >= 2)
+        assertNotEquals(mid.pixels.toList(), TimerFaces.hourglass(p, 0.6f, 0.3f).pixels.toList())
     }
 
-    @Test fun orbitGoesRound() {
+    @Test fun orbitIsABrightCometWithATail() {
         val a = TimerFaces.orbit(p, 0f)
         val b = TimerFaces.orbit(p, 0.5f)
         assertEquals(255, a.pixels[p.ring[0]])
         assertEquals(255, b.pixels[p.ring[p.ring.size / 2]])
+        val tail = (1..5).map { a.pixels[p.ring[Math.floorMod(-it, p.ring.size)]] }
+        assertTrue(tail.zipWithNext().all { (x, y) -> x >= y } && tail.last() > 20)
     }
 
     @Test fun middleNumber() {
@@ -210,34 +285,54 @@ class TimerFacesTest {
         assertEquals(Effects.centredDigits(p, listOf("42")).pixels.toList(), TimerFaces.bigDigits(p, 42).pixels.toList())
     }
 
-    @Test fun lastTenSecondsPulse() {
+    @Test fun lastTenSecondsTickOffSegmentsAndScaleIn() {
         val a = TimerFaces.second(p, TimerStyle.PIE, 9_000, 60_000)
         assertEquals(4, a.frames.size)
-        val ring = a.frames.map { f -> f.frame.pixels[p.ring[0]] }
-        assertTrue(ring.zipWithNext().all { (x, y) -> x > y }) // bright, then fading
-        // before the last 10 s it is the style, four steps a second
+        // a flash on the second, then the ring settles
+        val ringBright = { f: Frame -> p.ring.count { f.pixels[it] > 250 } }
+        assertTrue(ringBright(a.frames[0].frame) > ringBright(a.frames[1].frame))
+        // the number scales in: small first, then full size
+        val middle = { f: Frame -> p.ledCells.count { !p.ring.contains(it) && f.pixels[it] > 200 } }
+        assertTrue(middle(a.frames[1].frame) > middle(a.frames[0].frame))
+        // nine of ten segments are lit
+        val lit = a.frames[3].frame.let { f -> p.ring.count { f.pixels[it] >= 200 } }
+        assertTrue(lit in (p.ring.size * 65 / 100)..(p.ring.size * 9 / 10))
+        // before the last 10 s it is the style, four steps a second; with the switch off too
         val b = TimerFaces.second(p, TimerStyle.ORBIT, 30_000, 60_000)
         assertEquals(1000, b.totalMs)
         assertNotEquals(b.frames[0].frame.pixels.toList(), b.frames[2].frame.pixels.toList())
+        assertEquals(TimerFaces.countdown(p, TimerStyle.PIE, 9_000, 60_000).pixels.toList(), TimerFaces.second(p, TimerStyle.PIE, 9_000, 60_000, lastTen = false).frames[0].frame.pixels.toList())
     }
 
-    @Test fun finishedBurstsAndEnds() {
+    @Test fun finishedBurstsWithoutAWhiteDisc() {
         val a = TimerFaces.finished(p)
-        assertTrue(a.frames.size > 10)
-        assertTrue(a.frames.any { f -> f.frame.lit() == p.ledCount })
+        assertTrue(a.frames.size > 20)
+        assertTrue(a.frames.none { f -> f.frame.lit() > p.ledCount / 2 })
+        assertTrue(a.frames.count { f -> f.frame.lit() > 30 } > 15)
         assertTrue(a.frames.last().frame.lit() == 0)
     }
 
+    @Test fun pausedBlinksBarsOverTheFace() {
+        val face = TimerFaces.countdown(p, TimerStyle.RING_DRAIN, 90_000, 120_000)
+        val a = TimerFaces.paused(p, face)
+        assertEquals(2, a.frames.size)
+        assertTrue(a.frames[0].frame.has(TimerFaces.pauseBars(p)))
+        assertEquals(face.pixels.toList(), a.frames[1].frame.pixels.toList())
+        assertNotEquals(TimerFaces.lastSeconds(p, 5_000).frames.size, a.frames.size)
+    }
+
     @Test fun brightnessDims() {
-        val full = TimerFaces.second(p, TimerStyle.RING_DRAIN, 60_000, 60_000).frames[0].frame
-        val dim = TimerFaces.second(p, TimerStyle.RING_DRAIN, 60_000, 60_000, brightness = 0.5f).frames[0].frame
-        assertEquals(255, full.pixels[p.ring[0]])
-        assertEquals(127, dim.pixels[p.ring[0]])
+        val full = TimerFaces.second(p, TimerStyle.RING_DRAIN, 120_000, 120_000).frames[0].frame
+        val dim = TimerFaces.second(p, TimerStyle.RING_DRAIN, 120_000, 120_000, brightness = 0.5f).frames[0].frame
+        assertEquals(255, full.pixels[p.ring.last()])
+        assertEquals(127, dim.pixels[p.ring.last()])
     }
 
     @Test fun previewsDifferPerStyle() {
         val posters = TimerStyle.entries.map { TimerFaces.preview(p, it).frames[0].frame.pixels.toList() }
         assertEquals(posters.size, posters.toSet().size)
+        val watch = StopwatchStyle.entries.map { TimerFaces.preview(p, it).frames[5].frame.pixels.toList() }
+        assertEquals(watch.size, watch.toSet().size)
     }
 }
 
@@ -245,16 +340,30 @@ class LiveRingTest {
     private val p = DeviceProfile.Phone3
     private fun Frame.lit() = p.ledCells.count { pixels[it] > 0 }
 
-    @Test fun iconFitsInsideTheRing() {
-        for (app in ProgressApps.ALL) assertTrue(app.id, LiveRing.shrink(p, LiveRing.icon(p, app.icon)!!).lit() > 10)
-        for (s in Stage.entries) assertTrue(s.name, LiveRing.icon(p, s.icon)!!.lit() > 10)
-        val small = LiveRing.shrink(p, LiveRing.icon(p, "g-food-bag")!!)
-        val ring = p.ring.toHashSet()
-        assertTrue(small.lit() > 10)
-        assertTrue(p.ledCells.filter { small.pixels[it] > 0 }.none { it in ring })
-        val n = p.size
-        val xs = p.ledCells.filter { small.pixels[it] > 0 }.map { it % n }
-        assertTrue(xs.max() - xs.min() < LiveRing.ICON_BOX)
+    @Test fun iconsFitInsideTheRingAtFullSize() {
+        val ids = ProgressApps.ALL.map { it.icon } + Stage.entries.map { it.icon } + listOf("g-finish-flag", "g-auto", "download", "g-alarm", "g-calendar")
+        for (id in ids.distinct()) {
+            val icon = LiveRing.icon(p, id)
+            assertTrue(id, icon != null && icon.lit() > 10)
+            assertTrue(id, LiveRing.clearOfRing(p, icon!!))
+            // big enough to read: at least 11 dots across
+            val xs = p.ledCells.filter { icon.pixels[it] > 0 }.map { it % p.size }
+            assertTrue(id, xs.max() - xs.min() + 1 >= 11)
+        }
+        // the drawings made for the ring are used at 1:1, never squashed
+        for (id in LiveRing.drawn) {
+            val f = LiveRing.icon(p, id)!!
+            assertEquals(id, f.pixels.toList(), LiveRing.fit(p, f).pixels.toList())
+        }
+        // fitting twice changes nothing
+        val car = LiveRing.icon(p, "g-car")!!
+        assertEquals(car.pixels.toList(), LiveRing.fit(p, car).pixels.toList())
+    }
+
+    @Test fun percentIsFullBrightness() {
+        val f = LiveRing.frame(p, 0.48f, Centre.Percent(48))
+        val middle = p.ledCells.filter { it !in p.ring && f.pixels[it] > 0 }
+        assertTrue(middle.isNotEmpty() && middle.all { f.pixels[it] == 255 })
     }
 
     @Test fun centreShowsMinutesOrIcon() {
@@ -277,5 +386,34 @@ class LiveRingTest {
         val a = LiveRing.approaching(p, 0.5f, 7, null)
         assertEquals(1, a.frames.size)
         assertTrue(LiveRing.approaching(p, 0.98f, 1, null).frames.size > 1)
+    }
+
+    @Test fun theKeypadFillsFromTheRight() {
+        assertEquals(0L, Timers.keypad(""))
+        assertEquals(5_000L, Timers.keypad("5"))
+        assertEquals(90_000L, Timers.keypad("130"))
+        assertEquals(90_000L, Timers.keypad("90"))
+        assertEquals(600_000L, Timers.keypad("1000"))
+        assertEquals(3_600_000L + 5 * 60_000L, Timers.keypad("10500"))
+        assertEquals(Timers.MAX_MS, Timers.keypad("999999"))
+    }
+
+    @Test fun thePieStopwatchKeepsItsDigitsClear() {
+        val p = DeviceProfile.Phone3
+        for (ms in listOf(25_000L, 59_000L, 75_000L)) {
+            val f = TimerFaces.stopwatch(p, StopwatchStyle.PIE, ms)
+            val t = TimerFaces.small(p, TimerFaces.watchReadout(ms / 1000))
+            val n = p.size
+            for (cell in p.ledCells) {
+                if (t.pixels[cell] > 0) assertEquals(255, f.pixels[cell])
+                else {
+                    // no lit neighbour of a digit dot that isn't itself a digit dot
+                    val x = cell % n
+                    val y = cell / n
+                    val nextToDigit = (-1..1).any { dy -> (-1..1).any { dx -> x + dx in 0 until n && y + dy in 0 until n && t.pixels[(y + dy) * n + x + dx] > 0 } }
+                    if (nextToDigit) assertEquals("$ms at $x,$y", 0, f.pixels[cell])
+                }
+            }
+        }
     }
 }

@@ -31,9 +31,9 @@ object LiveRing {
         val f = Effects.ring(p, fraction, on = ring, off = 22)
         when (centre) {
             is Centre.Minutes -> f.overlay(com.dotforge.device.TimerFaces.digits(p, centre.n.coerceIn(0, 999).toString()))
-            is Centre.Percent -> f.overlay(com.dotforge.device.TimerFaces.digits(p, centre.n.coerceIn(0, 100).toString()), 200)
+            is Centre.Percent -> f.overlay(com.dotforge.device.TimerFaces.digits(p, centre.n.coerceIn(0, 100).toString()))
             is Centre.Icon -> {
-                val icon = shrink(p, centre.frame)
+                val icon = fit(p, centre.frame)
                 for (cell in p.ledCells) if (icon.pixels[cell] > 0) f.pixels[cell] = icon.pixels[cell]
             }
             Centre.None -> Unit
@@ -54,7 +54,7 @@ object LiveRing {
     /** Done: the ring sweeps to full, the icon (a tick by default) holds, a ripple goes out twice, then it rests. */
     fun done(p: DeviceProfile, icon: Frame?): Animation {
         val frames = ArrayList<AnimFrame>()
-        val mark = icon?.let { shrink(p, it) } ?: tick(p)
+        val mark = icon?.let { fit(p, it) } ?: tick(p)
         for (i in 1..8) frames += AnimFrame(Effects.ring(p, i / 8f, off = 22).also { f -> overlayInto(f, mark) }, 50)
         val c = (p.size - 1) / 2.0
         repeat(2) {
@@ -78,9 +78,160 @@ object LiveRing {
         for (cell in f.profile.ledCells) if (icon.pixels[cell] > 0) f.pixels[cell] = icon.pixels[cell]
     }
 
-    /** A library glyph's poster (its resting pose; an animated glyph's first frame may be blank), or null. */
-    fun icon(p: DeviceProfile, id: String?): Frame? =
-        com.dotforge.device.GlyphLibrary.get(id)?.animation(p)?.let(com.dotforge.device.Posters::of)
+    /**
+     * The icon for [id] at ring size: a drawing made for the ring where the library's picture is too big to sit
+     * inside it at 1:1 (the scooter, the bike taxi, the auto, the food bag, the apple, the download arrow); else
+     * the library glyph's poster (an animated glyph's first frame may be blank), fitted. Null when unknown.
+     */
+    fun icon(p: DeviceProfile, id: String?): Frame? {
+        RING_ICONS[id]?.let { rows -> return fit(p, draw(p, rows)) }
+        return com.dotforge.device.GlyphLibrary.get(id)?.animation(p)?.let(com.dotforge.device.Posters::of)?.let { fit(p, it) }
+    }
+
+    /** Ids drawn for the ring (tests check each fits). */
+    val drawn: Set<String> get() = RING_ICONS.keys
+
+    private fun draw(p: DeviceProfile, rows: List<String>): Frame {
+        val f = Frame.blank(p)
+        val w = rows.maxOf { it.length }
+        val x0 = (p.size - w) / 2
+        val y0 = (p.size - rows.size) / 2
+        rows.forEachIndexed { y, row ->
+            row.forEachIndexed { x, ch ->
+                val v = when (ch) { '#' -> 255; 'o' -> 150; '+' -> 70; else -> 0 }
+                if (v > 0) f[x0 + x, y0 + y] = v
+            }
+        }
+        return f
+    }
+
+    /** True when every lit cell of [icon] keeps a dark dot between it and the ring. */
+    fun clearOfRing(p: DeviceProfile, icon: Frame): Boolean {
+        val n = p.size
+        val near = HashSet<Int>()
+        for (cell in p.ring) {
+            val x = cell % n
+            val y = cell / n
+            for (dy in -1..1) for (dx in -1..1) if (x + dx in 0 until n && y + dy in 0 until n) near += (y + dy) * n + x + dx
+        }
+        return p.ledCells.none { icon.pixels[it] > 0 && it in near } && icon.pixels.indices.none { icon.pixels[it] > 0 && !p.mask[it] }
+    }
+
+    /**
+     * [icon] in the middle of the ring: at 1:1, centred, when it fits clear of the ring (so its lines stay
+     * sharp); otherwise shrunk ([shrink]).
+     */
+    fun fit(p: DeviceProfile, icon: Frame): Frame {
+        val n = p.size
+        val lit = icon.pixels.indices.filter { icon.pixels[it] > 0 }
+        if (lit.isEmpty()) return Frame.blank(p)
+        val x0 = lit.minOf { it % n }
+        val x1 = lit.maxOf { it % n }
+        val y0 = lit.minOf { it / n }
+        val y1 = lit.maxOf { it / n }
+        val ox = (n - (x1 - x0 + 1)) / 2 - x0
+        val oy = (n - (y1 - y0 + 1)) / 2 - y0
+        val moved = Frame.blank(p)
+        var lost = false
+        for (cell in lit) {
+            val x = cell % n + ox
+            val y = cell / n + oy
+            if (!p.isActive(x, y)) { lost = true; continue }
+            moved.pixels[p.index(x, y)] = icon.pixels[cell]
+        }
+        return if (!lost && clearOfRing(p, moved)) moved else shrink(p, icon)
+    }
+
+    /** Ring-size drawings: at most 17 dots wide and 13 high, so they sit inside the ring at 1:1. */
+    private val RING_ICONS: Map<String, List<String>> = mapOf(
+        "g-scooter" to listOf(
+            ".######..........",
+            ".#oooo#.....####.",
+            ".#oooo#.......#..",
+            ".######.......#..",
+            "...##.........#..",
+            ".##########..##..",
+            ".###########.#...",
+            "..###########....",
+            "..###.......###..",
+            ".#...#.....#...#.",
+            ".#.#.#.....#.#.#.",
+            ".#...#.....#...#.",
+            "..###.......###..",
+        ),
+        "g-bike-taxi" to listOf(
+            "......##........",
+            "......##........",
+            ".....###........",
+            ".....####.##....",
+            "......#####.....",
+            "......##..#.....",
+            "...#######.#....",
+            "..##########....",
+            ".###.......###..",
+            "#...#.....#...#.",
+            "#.#.#.....#.#.#.",
+            "#...#.....#...#.",
+            ".###.......###..",
+        ),
+        "g-auto" to listOf(
+            "..###########....",
+            ".##.....#....#...",
+            ".#......#.....#..",
+            ".#......#.....##.",
+            "################.",
+            "################.",
+            "################.",
+            ".###.........###.",
+            "#...#.......#...#",
+            "#.#.#.......#.#.#",
+            "#...#.......#...#",
+            ".###.........###.",
+        ),
+        "g-apple" to listOf(
+            "......##.oo..",
+            ".......#oooo.",
+            "..####.#.oo..",
+            ".##########..",
+            "#############",
+            "#############",
+            "#############",
+            "#############",
+            ".###########.",
+            ".###########.",
+            "..#########..",
+            "...###.###...",
+        ),
+        "g-food-bag" to listOf(
+            "...###...###...",
+            "..#...#.#...#..",
+            "..#...#.#...#..",
+            "###############",
+            "#ooooooooooooo#",
+            "#ooo#.#.#ooooo#",
+            "#ooo#####ooooo#",
+            "#oooo###oooooo#",
+            "#ooooo#ooooooo#",
+            "#ooooo#ooooooo#",
+            ".#ooooooooooo#.",
+            ".#############.",
+        ),
+        "download" to listOf(
+            ".....###.....",
+            ".....###.....",
+            ".....###.....",
+            ".....###.....",
+            "..#########..",
+            "...#######...",
+            "....#####....",
+            ".....###.....",
+            "......#......",
+            ".............",
+            "#...........#",
+            "#...........#",
+            "#############",
+        ),
+    )
 
     /** A tick for "done" when there is no icon. */
     fun tick(p: DeviceProfile): Frame {

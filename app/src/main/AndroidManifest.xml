@@ -37,6 +37,12 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- USE_EXACT_ALARM normally covers timers. Should a store build or the phone take exact alarms away, the
+         Timer page shows "Timers may end late · Allow", which opens this special access's settings page. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- A timer must never end unseen: "Time's up" opens full screen over the lock screen, and it can buzz. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Live progress > Next calendar event: asked when that ring is switched on; read on the phone only. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
@@ -63,6 +69,19 @@
         <!-- Home's always-on line: Nothing's always-on toy chooser and the provider that names the active one. -->
         <package android:name="com.nothing.thirdparty" />
         <provider android:authorities="com.nothing.glyphtoyprovider" />
+        <!-- Live progress: the known delivery and ride apps (Installed / Not on this phone, and opening them). -->
+        <package android:name="com.application.zomato" />
+        <package android:name="in.swiggy.android" />
+        <package android:name="com.grofers.customerapp" />
+        <package android:name="com.zeptoconsumerapp" />
+        <package android:name="com.bigbasket.mobileapp" />
+        <package android:name="in.amazon.mShop.android.shopping" />
+        <package android:name="com.amazon.mShop.android.shopping" />
+        <package android:name="com.flipkart.android" />
+        <package android:name="com.ubercab" />
+        <package android:name="com.ubercab.uberlite" />
+        <package android:name="com.olacabs.customer" />
+        <package android:name="com.rapido.passenger" />
     </queries>
 
     <application
@@ -216,6 +235,15 @@
         <receiver
             android:name=".timer.TimerReceiver"
             android:exported="false" />
+        <!-- "Time's up", full screen over the lock screen, until it is dismissed. -->
+        <activity
+            android:name=".timer.TimesUpActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:turnScreenOn="true" />
 
         <!-- Live music visualiser: runs while switched on, drives the matrix only while music plays. -->
         <service

@@ -304,7 +304,14 @@ class LiveProgressTrackTest {
     @Test fun iconsAndSummary() {
         val zomato = ProgressApps.byId("zomato")
         assertEquals("g-food-bag", LiveProgress.icon(Stage.PREPARING, zomato))
-        assertEquals("g-checkbox", LiveProgress.icon(Stage.DONE, zomato))
+        assertEquals("g-parcel-done", LiveProgress.icon(Stage.DONE, zomato))
+        assertEquals("g-finish-flag", LiveProgress.icon(Stage.DONE, ProgressApps.byId("uber")))
+        assertEquals("g-auto", LiveProgress.icon(Stage.PICKUP, ProgressApps.byId("rapido"), Stages.vehicle("Your auto is arriving")))
+        assertEquals("g-bike-taxi", Stages.vehicle("Captain on bike is 3 min away"))
+        assertEquals(null, Stages.vehicle("Your driver is arriving"))
+        // each known app has its own picture, and none is the packed parcel or another app's
+        assertEquals(ProgressApps.ALL.size, ProgressApps.ALL.map { it.icon }.toSet().size)
+        assertTrue(ProgressApps.ALL.none { it.icon == Stage.PACKED.icon })
         assertEquals("g-car", LiveProgress.icon(Stage.ON_TRIP, ProgressApps.byId("uber")))
         assertEquals("g-bike-taxi", LiveProgress.icon(Stage.PICKUP, ProgressApps.byId("rapido")))
         assertEquals("12 min left · On the way", LiveProgress.summary(eta(12, Stage.ON_THE_WAY)))

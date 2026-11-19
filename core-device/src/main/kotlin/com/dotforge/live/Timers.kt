@@ -95,16 +95,39 @@ object Timers {
     const val MAX_MS = 24 * 3_600_000L
 
     /**
-     * What the Glyph shows: a timer that has ended (the newest) wins until dismissed; then the running timer that
-     * ends first; then the running stopwatch; then a paused timer (the one with least left); else nothing.
+     * What the Glyph shows: a timer that has ended (the newest) wins until dismissed; then the timer you chose to
+     * show ([focus], running or paused); then the running timer that ends first; then the running stopwatch; then
+     * a paused timer (the one with least left); then the paused stopwatch; else nothing.
      */
-    fun shown(timers: List<GlyphTimer>, stopwatch: Stopwatch?, now: Long): TimerShown? {
+    fun shown(timers: List<GlyphTimer>, stopwatch: Stopwatch?, now: Long, focus: String? = null): TimerShown? {
         timers.filter { it.over(now) }.maxByOrNull { if (it.doneAt > 0) it.doneAt else it.endsAt }?.let { return TimerShown.Done(it) }
         val running = timers.filter { it.running }.sortedBy { it.endsAt }
+        timers.firstOrNull { it.id == focus }?.let { f ->
+            return if (f.running) TimerShown.Running(f, f.left(now), running.size - 1) else TimerShown.Paused(f, f.left(now))
+        }
         running.firstOrNull()?.let { return TimerShown.Running(it, it.left(now), running.size - 1) }
         stopwatch?.takeIf { it.running }?.let { return TimerShown.Watch(it, it.elapsed(now)) }
         timers.filter { !it.running }.minByOrNull { it.leftMs }?.let { return TimerShown.Paused(it, it.left(now)) }
+        stopwatch?.takeIf { it.started }?.let { return TimerShown.Watch(it, it.elapsed(now)) }
         return null
+    }
+
+    /** How long a flash-again lasts. */
+    const val FLASH_AGAIN_MS = 4_000L
+
+    /**
+     * Whether the finish shows [sinceDoneMs] after a timer ended, and for how much longer: it runs for [runMs]
+     * (null: until dismissed, [Long.MAX_VALUE]); after that, with [againMs], it flashes again for
+     * [FLASH_AGAIN_MS] every [againMs]. Null while it is dark.
+     */
+    fun finishShowing(sinceDoneMs: Long, runMs: Long?, againMs: Long?): Long? {
+        if (runMs == null) return Long.MAX_VALUE
+        val since = sinceDoneMs.coerceAtLeast(0)
+        if (since < runMs) return runMs - since
+        if (againMs == null || againMs <= 0) return null
+        val after = since - runMs
+        val k = after % againMs
+        return if (after >= againMs && k < FLASH_AGAIN_MS) FLASH_AGAIN_MS - k else null
     }
 
     /** Marks every timer that has run out as done at [now]; returns the list and the ones that just ended. */
@@ -127,6 +150,16 @@ object Timers {
         val sec = s % 60
         return listOfNotNull(h.takeIf { it > 0 }?.let { "$it h" }, m.takeIf { it > 0 }?.let { "$it min" }, sec.takeIf { it > 0 }?.let { "$it s" })
             .joinToString(" ").ifEmpty { "0 s" }
+    }
+
+    /**
+     * The custom keypad, as in the Clock app: up to 6 digits typed in from the right fill hh mm ss ("130" is
+     * 1 min 30 s; "90" is 90 s, which is 1:30). Kept to 24 h; 0 when nothing is typed.
+     */
+    fun keypad(digits: String): Long {
+        val d = digits.filter { it.isDigit() }.takeLast(6).padStart(6, '0')
+        val s = d.substring(0, 2).toLong() * 3600 + d.substring(2, 4).toLong() * 60 + d.substring(4, 6).toLong()
+        return (s * 1000).coerceAtMost(MAX_MS)
     }
 
     /** Minutes and seconds from the custom picker, kept to 1 s .. 24 h. */

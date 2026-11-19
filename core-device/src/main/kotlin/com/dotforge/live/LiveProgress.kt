@@ -24,7 +24,7 @@ enum class Stage(val label: String, val fraction: Float, val icon: String) {
     AT_PICKUP("Driver is here", 0.45f, "g-pin"),
     ON_TRIP("On the trip", 0.60f, "g-car"),
     ARRIVING("Arriving", 0.92f, "g-home"),
-    DONE("Done", 1f, "g-checkbox"),
+    DONE("Done", 1f, "g-parcel-done"),
     CANCELLED("Cancelled", 0f, "g-receipt"),
 }
 
@@ -43,12 +43,12 @@ data class ProgressApp(
 object ProgressApps {
     val ALL = listOf(
         ProgressApp("zomato", "Zomato", "Food delivery", listOf("com.application.zomato"), listOf("zomato"), "g-food-bag", TripKind.DELIVERY),
-        ProgressApp("swiggy", "Swiggy / Instamart", "Food and groceries", listOf("in.swiggy.android", "in.swiggy.instamart"), listOf("swiggy", "instamart"), "g-scooter", TripKind.DELIVERY),
+        ProgressApp("swiggy", "Swiggy / Instamart", "Food and groceries", listOf("in.swiggy.android"), listOf("swiggy", "instamart"), "g-scooter", TripKind.DELIVERY),
         ProgressApp("blinkit", "Blinkit", "Groceries in minutes", listOf("com.grofers.customerapp"), listOf("blinkit"), "g-cart", TripKind.DELIVERY),
         ProgressApp("zepto", "Zepto", "Groceries in minutes", listOf("com.zeptoconsumerapp"), listOf("zepto"), "g-grocery-basket", TripKind.DELIVERY),
-        ProgressApp("bigbasket", "BigBasket", "Groceries", listOf("com.bigbasket.mobileapp", "com.bigbasket.bb2c"), listOf("bigbasket", "bb now"), "g-apple", TripKind.DELIVERY),
-        ProgressApp("amazon", "Amazon", "Parcels", listOf("in.amazon.mShop.android.shopping", "com.amazon.mShop.android.shopping"), listOf("amazon", "amazon shopping"), "g-parcel", TripKind.DELIVERY),
-        ProgressApp("flipkart", "Flipkart", "Parcels", listOf("com.flipkart.android", "com.flipkart.shopsy"), listOf("flipkart", "flipkart minutes"), "g-gift", TripKind.DELIVERY),
+        ProgressApp("bigbasket", "BigBasket", "Groceries", listOf("com.bigbasket.mobileapp"), listOf("bigbasket", "bb now"), "g-apple", TripKind.DELIVERY),
+        ProgressApp("amazon", "Amazon", "Parcels", listOf("in.amazon.mShop.android.shopping", "com.amazon.mShop.android.shopping"), listOf("amazon", "amazon shopping"), "g-delivery-van", TripKind.DELIVERY),
+        ProgressApp("flipkart", "Flipkart", "Parcels", listOf("com.flipkart.android"), listOf("flipkart", "flipkart minutes"), "g-gift", TripKind.DELIVERY),
         ProgressApp("uber", "Uber", "Rides", listOf("com.ubercab", "com.ubercab.uberlite"), listOf("uber"), "g-car", TripKind.RIDE),
         ProgressApp("ola", "Ola", "Rides", listOf("com.olacabs.customer"), listOf("ola"), "g-taxi", TripKind.RIDE),
         ProgressApp("rapido", "Rapido", "Bike taxis and autos", listOf("com.rapido.passenger"), listOf("rapido"), "g-bike-taxi", TripKind.RIDE),
@@ -98,6 +98,18 @@ object Stages {
     private val PACKED = r("""(?<!being )\bpacked\b|\bshipped\b|\bdispatched\b|\bready for (pick ?up|dispatch)\b|\b(order|food) is ready\b""")
     private val PREPARING = r("""\b(preparing|being prepared|cooking|in the kitchen|being packed|packing (your|the)|processing your|getting (your order )?ready)\b""")
     private val PLACED = r("""\border (placed|confirmed|received|accepted)\b|\b(placed|confirmed|received|accepted) your order\b""")
+
+    private val AUTO = r("""\b(auto|autos|auto ?rickshaw|rickshaw|tuk ?tuk)\b""")
+    private val BIKE = r("""\b(bike|bike taxi|moto|motorbike|two.wheeler)\b""")
+    private val CAB = r("""\b(cab|car|sedan|suv|hatchback|prime|mini|uberx|uber go|premier)\b""")
+
+    /** The vehicle a ride's words name: an auto, a bike or a cab (its icon id), or null. */
+    fun vehicle(text: String): String? = when {
+        AUTO.containsMatchIn(text) -> "g-auto"
+        BIKE.containsMatchIn(text) -> "g-bike-taxi"
+        CAB.containsMatchIn(text) -> "g-car"
+        else -> null
+    }
 
     /** The furthest stage the words say, for a delivery or a ride; null when they say none. */
     fun of(text: String, kind: TripKind): Stage? {
@@ -226,6 +238,8 @@ data class ProgressReading(
     val bar: Float? = null,
     val minutesLeft: Int? = null,
     val stage: Stage? = null,
+    /** A ride's vehicle when the words name one ("Your auto is arriving"): its icon id. */
+    val vehicle: String? = null,
 ) {
     val done: Boolean get() = stage == Stage.DONE
     val cancelled: Boolean get() = stage == Stage.CANCELLED
@@ -259,7 +273,8 @@ object LiveProgress {
             s.barWaiting -> ProgressSource.WAITING
             else -> return null
         }
-        return ProgressReading(source, s.bar, if (stage == Stage.DONE) 0 else minutes, stage)
+        val vehicle = if (s.kind == TripKind.RIDE) Stages.vehicle(text) else null
+        return ProgressReading(source, s.bar, if (stage == Stage.DONE) 0 else minutes, stage, vehicle)
     }
 
     /** A ride's two legs: the driver coming to you, then the trip. A delivery is one. */
@@ -303,16 +318,22 @@ object LiveProgress {
         return Track(since, leg, total, f.coerceIn(0f, 1f))
     }
 
-    /** The glyph in the middle when no minutes show: the stage's, or for an early stage the app's own icon. */
-    fun icon(stage: Stage?, app: ProgressApp?): String? = when (stage) {
-        null -> app?.icon
+    /**
+     * The glyph in the middle when no minutes show: the stage's, or for an early stage the app's own icon; a
+     * ride shows the vehicle its words name ([vehicle]); done is a delivered parcel, or the finish flag for a ride.
+     */
+    fun icon(stage: Stage?, app: ProgressApp?, vehicle: String? = null): String? = when (stage) {
+        null -> vehicle ?: app?.icon
+        Stage.DONE -> if (app?.kind == TripKind.RIDE) "g-finish-flag" else stage.icon
         Stage.PREPARING, Stage.PLACED -> if (app != null && app.kind == TripKind.DELIVERY) app.icon else stage.icon
-        Stage.PICKUP, Stage.ON_TRIP -> app?.icon ?: stage.icon
+        Stage.PICKUP, Stage.ON_TRIP -> vehicle ?: app?.icon ?: stage.icon
+        // a ride's driver arriving is the car (or the auto, the bike) coming; a delivery arriving is home
+        Stage.ARRIVING -> if (app?.kind == TripKind.RIDE) vehicle ?: app.icon else stage.icon
         Stage.ON_THE_WAY -> if (app?.kind == TripKind.DELIVERY && app.icon in RIDERS) app.icon else stage.icon
         else -> stage.icon
     }
 
-    private val RIDERS = setOf("g-scooter", "g-car", "g-taxi", "g-bike-taxi")
+    private val RIDERS = setOf("g-scooter", "g-car", "g-taxi", "g-bike-taxi", "g-auto")
 
     /** "12 min left · On the way" for the page. */
     fun summary(r: ProgressReading): String {
@@ -323,7 +344,7 @@ object LiveProgress {
             r.bar != null -> parts += "${(r.bar * 100).toInt()}%"
             r.source == ProgressSource.WAITING -> parts += "Starting"
         }
-        r.stage?.takeIf { !r.done }?.let { parts += it.label }
+        r.stage?.takeIf { !r.done && !(it == Stage.ARRIVING && parts.firstOrNull() == "Arriving now") }?.let { parts += it.label }
         return parts.joinToString(" · ")
     }
 }

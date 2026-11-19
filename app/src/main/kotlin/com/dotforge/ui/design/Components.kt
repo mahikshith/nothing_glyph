@@ -359,6 +359,8 @@ fun EqualTile(
     enabled: Boolean = true,
     height: Dp = Tokens.Tile,
     icon: (@Composable () -> Unit)? = null,
+    statusLines: Int = 1,
+    titleLines: Int = 2,
     onToggle: (Boolean) -> Unit = {},
     onOpen: (() -> Unit)? = null,
 ) {
@@ -375,7 +377,7 @@ fun EqualTile(
             val name: @Composable (Modifier) -> Unit = { m ->
                 Text(
                     title, m, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (enabled) Tokens.Text else Tokens.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    color = if (enabled) Tokens.Text else Tokens.Secondary, maxLines = titleLines, overflow = TextOverflow.Ellipsis,
                     onTextLayout = { r -> if (checked != null && !under && breaksWord(r, title)) under = true },
                 )
             }
@@ -395,7 +397,7 @@ fun EqualTile(
             }
             if (checked == null || under) name(Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp))
             Spacer(Modifier.weight(1f).heightIn(min = Tokens.Tiny))
-            Text(status, Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(status, Modifier.padding(end = if (checked != null) Tokens.Gap else 0.dp), style = MaterialTheme.typography.bodyMedium, color = Tokens.Secondary, maxLines = statusLines, overflow = TextOverflow.Ellipsis)
         }
     }
 }

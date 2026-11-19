@@ -94,6 +94,52 @@ class GlyphTimersTest {
         assertTrue(frames.first().frame.pixels[p.ring[0]] > frames.last().frame.pixels[p.ring[0]])
     }
 
+    @Test fun aChosenTimerShowsInsteadOfTheNearest() {
+        GlyphTimers.start(5 * 60_000)
+        val later = GlyphTimers.start(10 * 60_000, "Eggs")
+        GlyphTimers.showOnGlyph(later.id)
+        assertTrue(awaitArbiter { active(GlyphTimers.ID)?.label == "Eggs · 10:00 left" })
+        GlyphTimers.cancel(later.id)
+        assertNull(GlyphTimers.state.value.focus)
+    }
+
+    @Test fun stopCanBeUndone() {
+        val t = GlyphTimers.start(5 * 60_000, "Tea")
+        GlyphTimers.cancel(t.id)
+        assertTrue(GlyphTimers.state.value.timers.isEmpty())
+        GlyphTimers.restore(t)
+        assertEquals(listOf(t), GlyphTimers.state.value.timers)
+    }
+
+    @Test fun theFinishRunsAsSetThenFlashesAgain() {
+        GlyphTimers.setTiming(GlyphTimers.timing.value.copy(showFor = com.dotforge.device.ShowFor.SECONDS, seconds = 10, remindMinutes = 1))
+        GlyphTimers.start(60_000)
+        clock += 60_000
+        GlyphTimers.tick()
+        assertTrue(awaitArbiter { active(GlyphTimers.DONE_ID) != null })
+        assertEquals(10_000L, active(GlyphTimers.DONE_ID)!!.timeoutMs)
+        clock += 20_000
+        GlyphTimers.tick()
+        assertTrue(awaitArbiter { active(GlyphTimers.DONE_ID) == null })
+        clock += 50_000 // a minute after the run ended
+        GlyphTimers.tick()
+        assertTrue(awaitArbiter { active(GlyphTimers.DONE_ID) != null })
+        assertEquals(10_000L, GlyphTimers.ringMs())
+    }
+
+    @Test fun settingsAreKept() {
+        GlyphTimers.init(ctx)
+        GlyphTimers.setSound(false)
+        GlyphTimers.setLastTen(false)
+        GlyphTimers.savePreset(90_000)
+        GlyphTimers.setWatchStyle(com.dotforge.device.StopwatchStyle.PIE)
+        GlyphTimers.init(ctx)
+        assertFalse(GlyphTimers.sound.value)
+        assertFalse(GlyphTimers.lastTen.value)
+        assertEquals(listOf(90_000L), GlyphTimers.presets.value)
+        assertEquals(com.dotforge.device.StopwatchStyle.PIE, GlyphTimers.watchStyle.value)
+    }
+
     @Test fun pauseResumeAndPlusMinute() {
         val t = GlyphTimers.start(5 * 60_000)
         clock += 60_000
@@ -244,13 +290,57 @@ class LiveProgressRuntimeTest {
     @Test fun doneAnimatesOnceThenGoes() {
         LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Arriving in 2 mins"), allowedByRule = { false })
         LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Delivered. Enjoy your meal!"), allowedByRule = { false })
-        assertTrue(LiveProgressRuntime.items.value.isEmpty())
+        // the row stays under Now, marked done
+        assertTrue(LiveProgressRuntime.items.value.single().done)
         assertTrue(awaitArbiter { has("pd:z") && !has("p:z") })
         AppGraph.arbiter.clearAll()
         assertTrue(awaitArbiter { !has("pd:z") })
         LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Delivered"), allowedByRule = { false })
         Thread.sleep(100)
         assertFalse(has("pd:z"))
+    }
+
+    @Test fun doneCanPlayThreeTimes() {
+        AppGraph.liveProgress.setTiming(com.dotforge.device.Timing(repeat = com.dotforge.device.Repeat.TIMES, times = 3))
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Delivered"), allowedByRule = { false })
+        assertTrue(awaitArbiter { has("pd:z") })
+        val once = com.dotforge.live.LiveRing.done(AppGraph.profile, null).frames.size
+        assertEquals(once * 3, AppGraph.arbiter.active.value.first { it.id == "pd:z" }.animation.frames.size)
+    }
+
+    @Test fun lastTenMinutesOnly() {
+        AppGraph.liveProgress.setShowFor(com.dotforge.notify.ProgressShowFor.LAST_10)
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Arriving in 25 mins"), allowedByRule = { false })
+        Thread.sleep(100)
+        assertFalse(has("p:z"))
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Arriving in 8 mins"), allowedByRule = { false })
+        assertTrue(awaitArbiter { has("p:z") })
+    }
+
+    @Test fun tenSecondsOnEachChange() {
+        AppGraph.liveProgress.setShowFor(com.dotforge.notify.ProgressShowFor.ON_CHANGE)
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Arriving in 12 mins"), allowedByRule = { false })
+        assertTrue(awaitArbiter { has("p:z") })
+        assertEquals(10_000L, AppGraph.arbiter.active.value.first { it.id == "p:z" }.timeoutMs)
+    }
+
+    @Test fun stopShowingThisUntilTheNotificationGoes() {
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Arriving in 12 mins"), allowedByRule = { false })
+        assertTrue(awaitArbiter { has("p:z") })
+        LiveProgressRuntime.hide("z")
+        assertTrue(awaitArbiter { !has("p:z") })
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Arriving in 10 mins"), allowedByRule = { false })
+        Thread.sleep(100)
+        assertFalse(has("p:z"))
+        assertTrue(LiveProgressRuntime.items.value.isEmpty())
+        LiveProgressRuntime.removed("z")
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", words("Arriving in 10 mins"), allowedByRule = { false })
+        assertTrue(awaitArbiter { has("p:z") })
+    }
+
+    @Test fun aRideShowsItsVehicle() {
+        LiveProgressRuntime.update("r", "com.rapido.passenger", "Rapido", words("Your auto captain is on the way"), allowedByRule = { false })
+        assertEquals("g-auto", LiveProgressRuntime.items.value.single().reading.vehicle)
     }
 
     @Test fun offTakesEveryRingOff() {

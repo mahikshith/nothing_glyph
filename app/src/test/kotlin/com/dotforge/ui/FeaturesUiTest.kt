@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasContentDescription
@@ -62,8 +63,17 @@ class FeaturesUiTest {
         AppGraph.arbiter.clearAll()
     }
 
-    private fun page(key: String, nav: Nav = Nav(Tab.FEATURES)) {
-        rule.setContent { DotForgeTheme { UndoSnackbarHost { FeaturePage(key, nav, Setup(rule.activity)) } } }
+    private fun page(key: String, nav: Nav = Nav(Tab.FEATURES), access: Boolean = true) {
+        rule.setContent {
+            val setup = androidx.compose.runtime.remember {
+                android.provider.Settings.Secure.putString(
+                    rule.activity.contentResolver, "enabled_notification_listeners",
+                    if (access) rule.activity.packageName + "/com.dotforge.notify.GlyphNotificationListener" else "",
+                )
+                Setup(rule.activity)
+            }
+            DotForgeTheme { UndoSnackbarHost { FeaturePage(key, nav, setup) } }
+        }
         rule.waitForIdle()
     }
 
@@ -76,7 +86,7 @@ class FeaturesUiTest {
         val nav = Nav(Tab.FEATURES)
         rule.setContent { DotForgeTheme { FeaturesScreen(nav, Setup(rule.activity), rememberLazyListState()) } }
         rule.waitForIdle()
-        for (t in listOf("Timer & stopwatch", "Live progress", "Toys", "Visualiser", "Torch", "Battery & volume")) {
+        for (t in listOf("Timer & stopwatch", "Live progress", "Toys", "Music visualiser", "Torch", "Battery and volume")) {
             scrollTo(t)
             rule.onNodeWithText(t).assertExists()
         }
@@ -101,6 +111,66 @@ class FeaturesUiTest {
         rule.onNodeWithContentDescription("Stop").tap()
         rule.waitForIdle()
         assertTrue(GlyphTimers.state.value.timers.isEmpty())
+        // Stop has Undo
+        rule.onNodeWithText("5 min timer stopped").assertExists()
+        rule.onNodeWithText("Undo").tap()
+        rule.waitForIdle()
+        assertEquals(1, GlyphTimers.state.value.timers.size)
+    }
+
+    @Test fun theOneOnTheGlyphIsMarkedAndAnotherCanBeShown() {
+        GlyphTimers.start(5 * 60_000, "Tea")
+        GlyphTimers.start(10 * 60_000, "Eggs")
+        page("timer")
+        scrollTo("Eggs")
+        assertEquals(1, rule.onAllNodesWithText("On the Glyph").fetchSemanticsNodes().size)
+        rule.onNodeWithText("Show on Glyph").tap()
+        rule.waitForIdle()
+        assertEquals("Tea".let { GlyphTimers.state.value.timers.first { t -> t.label == "Eggs" }.id }, GlyphTimers.state.value.focus)
+        rule.onAllNodesWithText("Eggs · 10:00 left").fetchSemanticsNodes().isNotEmpty().let(::assertTrue)
+    }
+
+    @Test fun idlePreviewIsTheStyleDemo() {
+        page("timer")
+        rule.onNodeWithText("Style preview · Ring drain").assertExists()
+        rule.onNodeWithText("Face down hides the Glyph. Stand the phone up.").assertExists()
+    }
+
+    @Test fun onTheGlyphSettings() {
+        page("timer")
+        scrollTo("Until dismissed")
+        rule.onNodeWithText("30 s").tap()
+        rule.waitForIdle()
+        assertEquals(com.dotforge.device.ShowFor.SECONDS, GlyphTimers.timing.value.showFor)
+        assertEquals(30, GlyphTimers.timing.value.seconds)
+        scrollTo("Every 1 min")
+        rule.onNodeWithText("Every 1 min").tap()
+        rule.waitForIdle()
+        assertEquals(1, GlyphTimers.timing.value.remindMinutes)
+        scrollTo("Last 10 seconds")
+        rule.onNodeWithText("Last 10 seconds").tap()
+        rule.waitForIdle()
+        assertFalse(GlyphTimers.lastTen.value)
+        scrollTo("Vibrate")
+        rule.onNode(hasText("Sound") and isToggleable()).assertIsOn()
+        rule.onNode(hasText("Vibrate") and isToggleable()).assertIsOn().tap()
+        rule.waitForIdle()
+        assertFalse(GlyphTimers.vibrate.value)
+    }
+
+    @Test fun timesUpScreenDismisses() {
+        GlyphTimers.start(60_000, "Eggs")
+        clock += 61_000
+        GlyphTimers.tick()
+        var closed = false
+        rule.setContent { DotForgeTheme { com.dotforge.timer.TimesUp(onClose = { closed = true }) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("Time's up").assertExists()
+        rule.onNodeWithText("Eggs").assertExists()
+        rule.onNodeWithText("Dismiss").tap()
+        rule.waitForIdle()
+        assertTrue(closed)
+        assertTrue(GlyphTimers.state.value.timers.isEmpty())
     }
 
     @Test fun severalTimersAndTheEndedOne() {
@@ -110,8 +180,7 @@ class FeaturesUiTest {
         GlyphTimers.tick()
         page("timer")
         rule.onAllNodesWithText("Time's up · Eggs").fetchSemanticsNodes().isNotEmpty().let(::assertTrue)
-        scrollTo("Dismiss")
-        rule.onNodeWithText("Dismiss").tap()
+        rule.onAllNodesWithText("Dismiss")[0].tap()
         rule.waitForIdle()
         assertEquals(1, GlyphTimers.state.value.timers.size)
     }
@@ -120,15 +189,30 @@ class FeaturesUiTest {
         page("timer")
         rule.onNodeWithText("Custom…").tap()
         rule.waitForIdle()
-        rule.onNodeWithText("Start").tap()
+        rule.onNodeWithText("Start 10 min").tap()
         rule.waitForIdle()
         assertEquals(10 * 60_000L, GlyphTimers.state.value.timers.single().totalMs)
     }
 
+    @Test fun customTimerKeypadAndPreset() {
+        page("timer")
+        rule.onNodeWithText("Custom…").tap()
+        rule.waitForIdle()
+        repeat(4) { rule.onNodeWithContentDescription("Delete").tap() }
+        for (k in listOf("1", "3", "0")) rule.onNodeWithText(k).tap()
+        rule.waitForIdle()
+        rule.onNode(hasText("Save as preset") and isToggleable()).tap()
+        rule.onNodeWithText("Start 1 min 30 s").tap()
+        rule.waitForIdle()
+        assertEquals(90_000L, GlyphTimers.state.value.timers.single().totalMs)
+        assertEquals(listOf(90_000L), GlyphTimers.presets.value)
+        rule.onNodeWithContentDescription("Start a 1 min 30 s timer").assertExists()
+    }
+
     @Test fun styleSheetHasSixLivePreviewsAndPicks() {
         page("timer")
-        scrollTo("Style")
-        rule.onNodeWithText("Style").tap()
+        scrollTo("Timer style")
+        rule.onNodeWithText("Timer style").tap()
         rule.waitForIdle()
         for (s in TimerStyle.entries) assertTrue(s.label, rule.onAllNodes(hasContentDescription("${s.label} style", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         rule.onNodeWithText("Hourglass").tap()
@@ -154,6 +238,25 @@ class FeaturesUiTest {
         assertFalse(GlyphTimers.state.value.stopwatch.started)
     }
 
+    @Test fun stopwatchHasItsOwnStyles() {
+        page("timer")
+        rule.onNodeWithText("Stopwatch").tap()
+        rule.waitForIdle()
+        scrollTo("Stopwatch style")
+        rule.onNodeWithText("Stopwatch style").tap()
+        rule.waitForIdle()
+        for (s in com.dotforge.device.StopwatchStyle.entries) assertTrue(s.label, rule.onAllNodesWithText(s.label).fetchSemanticsNodes().isNotEmpty())
+        rule.onNodeWithText(com.dotforge.device.StopwatchStyle.RING_FILLS.label).tap()
+        rule.waitForIdle()
+        assertEquals(com.dotforge.device.StopwatchStyle.RING_FILLS, GlyphTimers.watchStyle.value)
+    }
+
+    @Test fun lapsMarkTheFastestAndSlowest() {
+        val rows = listOf(com.dotforge.live.Lap(3, 9_000, 30_000), com.dotforge.live.Lap(2, 12_000, 21_000), com.dotforge.live.Lap(1, 9_500, 9_500))
+        assertEquals(mapOf(3 to "Fastest", 2 to "Slowest"), com.dotforge.ui.features.lapMarks(rows))
+        assertEquals(emptyMap<Int, String>(), com.dotforge.ui.features.lapMarks(rows.take(2)))
+    }
+
     @Test fun clockAppSwitchIsOnByDefault() {
         page("timer")
         scrollTo("Show Clock app timers")
@@ -162,6 +265,14 @@ class FeaturesUiTest {
         rule.onNodeWithText("Show Clock app timers").tap()
         rule.waitForIdle()
         assertFalse(GlyphTimers.mirrorClock.value)
+    }
+
+    @Test fun clockAppSwitchNeedsAccess() {
+        page("timer", access = false)
+        scrollTo("Show Clock app timers")
+        rule.onNode(hasText("Show Clock app timers") and isToggleable()).assertIsOff().assertIsNotEnabled()
+        rule.onNodeWithText("Needs access").assertExists()
+        rule.onNodeWithText("Let DotForge read notifications", substring = true).assertExists()
     }
 
     @Test fun cardStatus() {
@@ -189,7 +300,7 @@ class FeaturesUiTest {
 
     @Test fun liveProgressSaysPlainlyWhatItNeeds() {
         page("progress")
-        rule.onNodeWithText("Works when the app shows the arrival time in its notification.").assertExists()
+        rule.onNodeWithText("Works when the app shows the arrival time in its notification.", substring = true).assertExists()
         rule.onNodeWithText("Nothing on the way", substring = true).assertExists()
     }
 
@@ -214,10 +325,46 @@ class FeaturesUiTest {
         rule.onNodeWithText("12 min left · On the way").assertExists()
     }
 
+    @Test fun liveProgressNeedsAccess() {
+        page("progress", access = false)
+        rule.onNode(hasText("Live progress") and isToggleable()).assertIsOff().assertIsNotEnabled()
+        rule.onNodeWithText("Needs access").assertExists()
+        rule.onNodeWithText("Let DotForge read notifications", substring = true).assertExists()
+    }
+
+    @Test fun nowRowsCanStopShowing() {
+        LiveProgressRuntime.update("z", "com.application.zomato", "Zomato", { app ->
+            ProgressSignals(texts = listOf("Arriving in 12 mins"), known = app != null, kind = app!!.kind)
+        }, allowedByRule = { false })
+        page("progress")
+        rule.onNodeWithContentDescription("Stop showing this").tap()
+        rule.waitForIdle()
+        assertTrue(LiveProgressRuntime.items.value.isEmpty())
+        assertTrue(LiveProgressRuntime.isHidden("z"))
+    }
+
+    @Test fun liveProgressOnTheGlyph() {
+        page("progress")
+        scrollTo("10 s on each change")
+        rule.onNodeWithText("10 s on each change").tap()
+        rule.waitForIdle()
+        assertEquals(com.dotforge.notify.ProgressShowFor.ON_CHANGE, AppGraph.liveProgress.showFor.value)
+        scrollTo("Stage")
+        rule.onNodeWithText("Stage").tap()
+        rule.waitForIdle()
+        assertFalse(AppGraph.liveProgress.showMinutes.value)
+        scrollTo("3 times")
+        rule.onNodeWithText("3 times").tap()
+        rule.waitForIdle()
+        assertEquals(com.dotforge.device.Repeat.TIMES, AppGraph.liveProgress.timing.value.repeat)
+        assertEquals(3, AppGraph.liveProgress.timing.value.times)
+        scrollTo("Not on this phone")
+    }
+
     @Test fun alarmLead() {
         page("progress")
         scrollTo("Next alarm")
-        rule.onAllNodesWithText("10 min")[1].tap()
+        rule.onAllNodesWithText("10")[1].tap()
         rule.waitForIdle()
         assertEquals(10, AppGraph.liveProgress.alarmLead.value)
     }
