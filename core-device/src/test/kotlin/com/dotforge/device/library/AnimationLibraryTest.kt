@@ -103,4 +103,10 @@ class AnimationLibraryTest {
         }
         assertEquals("g-anime-sweat-drop", AnimationLibrary.item("g-anime-sweat")?.id)
     }
+
+    @Test fun newYearFireworksShowTheComingYear() {
+        assertEquals(2027, GlyphArt.newYear(java.time.LocalDate.of(2026, 11, 19)))
+        assertEquals(2027, GlyphArt.newYear(java.time.LocalDate.of(2027, 1, 1)))
+        assertEquals("New Year fireworks", AnimationLibrary.item("g-newyear-2027")?.name)
+    }
 }

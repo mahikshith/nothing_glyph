@@ -6,8 +6,8 @@ import com.dotforge.device.DeviceProfile
 /** DotForge's own animations, drawn from the idea list (alerts, love, loaders, music, games, time, text, seasonal). */
 internal object Originals {
     private val C = Categories
-    private fun o(id: String, name: String, cat: Category, tags: String, make: (DeviceProfile) -> Animation) =
-        LibraryItem("orig-$id", name, cat, tags.split(' '), null, ItemKind.ORIGINAL, maker = make)
+    private fun o(id: String, name: String, cat: Category, tags: String, make: (DeviceProfile) -> Animation, poster: ((DeviceProfile) -> com.dotforge.device.Frame)? = null) =
+        LibraryItem("orig-$id", name, cat, tags.split(' '), null, ItemKind.ORIGINAL, posterOf = poster, maker = make)
 
     val items: List<LibraryItem> = listOf(
         // alerts
@@ -17,7 +17,7 @@ internal object Originals {
         o("call-rings", "Incoming call", C.Alerts, "call phone ring incoming", OrigAlerts::callRings),
         o("message-pop", "Message pop", C.Alerts, "message chat bubble typing sms", OrigAlerts::messagePop),
         o("envelope", "Envelope", C.Alerts, "envelope mail email message", OrigAlerts::envelope),
-        o("bell", "Bell swing", C.Alerts, "bell notification alarm ring", OrigAlerts::bell),
+        o("bell", "Bell swing", C.Alerts, "bell notification alarm ring", OrigAlerts::bell, poster = OrigAlerts::bellPoster),
         o("siren", "Siren wipe", C.Alerts, "siren police emergency alarm", OrigAlerts::siren),
         o("countdown", "Countdown flash", C.Alerts, "countdown 3 2 1 timer burst", OrigAlerts::countdown),
         o("charging", "Charging bolt", C.Alerts, "charging bolt battery power", OrigAlerts::chargingBolt),

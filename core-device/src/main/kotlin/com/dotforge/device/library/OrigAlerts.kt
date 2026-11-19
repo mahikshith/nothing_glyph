@@ -1,5 +1,6 @@
 package com.dotforge.device.library
 
+import com.dotforge.device.AnimFrame
 import com.dotforge.device.Animation
 import com.dotforge.device.DeviceProfile
 import com.dotforge.device.Frame
@@ -70,19 +71,22 @@ internal object OrigAlerts {
         f
     }
 
-    fun bell(p: DeviceProfile) = p.frames(48, 50) { _, t ->
-        val f = Frame.blank(p)
-        val a = sin(TAU * t * 3) * (1 - t) * 0.5
-        val px = p.mid(); val py = 3.0
-        val src = Frame.blank(p); src.art(Art.BELL, p.mid().toInt(), p.mid().toInt() + 1)
-        for (cell in p.ledCells) {
-            val v = src.pixels[cell]; if (v == 0) continue
-            val x = cell % p.size - px; val y = cell / p.size - py
-            f.put((px + x * cos(a) - y * sin(a)).roundToInt(), (py + x * sin(a) + y * cos(a)).roundToInt(), v)
-        }
-        f.dot(p.mid() + sin(a) * 14, p.mid() + 13 - 0.0, 255, 0.5)
-        f
+    /** The bell's eight drawn frames (resources/library/bell.txt), upright first. */
+    private val bellFrames by lazy {
+        val text = OrigAlerts::class.java.getResourceAsStream("/library/bell.txt")?.bufferedReader()?.use { it.readText() }
+            ?: error("missing library asset bell.txt")
+        GlyphArt.parse(text).single()
     }
+
+    /** Bell swing: the drawn bell rocks out and back twice, then rests upright. */
+    fun bell(p: DeviceProfile): Animation {
+        val frames = bellFrames.frames.map { GlyphArt.picture(p, it) }
+        val swing = (frames + frames).map { AnimFrame(it, 120) }
+        return Animation(p, swing + AnimFrame(frames[0], 900))
+    }
+
+    /** The upright bell: Bell swing's poster. */
+    fun bellPoster(p: DeviceProfile): Frame = GlyphArt.picture(p, bellFrames.frames[0])
 
     fun siren(p: DeviceProfile) = p.frames(24, 90) { i, _ ->
         val left = (i / 3) % 2 == 0

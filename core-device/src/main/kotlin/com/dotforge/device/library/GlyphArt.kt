@@ -75,6 +75,41 @@ internal object GlyphArt {
         return out
     }
 
+    /** The New Year picture's year, drawn when it is shown: rows 14-20 of its art hold four 4 x 7 digits. */
+    private const val NEW_YEAR = "g-newyear"
+    private const val YEAR_ROW = 14
+
+    private val DIGITS = mapOf(
+        '0' to listOf("####", "#..#", "#..#", "#..#", "#..#", "#..#", "####"),
+        '1' to listOf("..#.", ".##.", "..#.", "..#.", "..#.", "..#.", ".###"),
+        '2' to listOf("####", "...#", "...#", "####", "#...", "#...", "####"),
+        '3' to listOf("####", "...#", "...#", ".###", "...#", "...#", "####"),
+        '4' to listOf("#..#", "#..#", "#..#", "####", "...#", "...#", "...#"),
+        '5' to listOf("####", "#...", "#...", "####", "...#", "...#", "####"),
+        '6' to listOf("####", "#...", "#...", "####", "#..#", "#..#", "####"),
+        '7' to listOf("####", "...#", "...#", "..#.", "..#.", ".#..", ".#.."),
+        '8' to listOf("####", "#..#", "#..#", "####", "#..#", "#..#", "####"),
+        '9' to listOf("####", "#..#", "#..#", "####", "...#", "...#", "####"),
+    )
+
+    /**
+     * The year New Year fireworks celebrate: next year from November on (the run-up to the 31st), else this year.
+     * [today] is read when the picture is drawn, so it never shows a stale year.
+     */
+    internal fun newYear(today: java.time.LocalDate = java.time.LocalDate.now()): Int =
+        if (today.monthValue >= 11) today.year + 1 else today.year
+
+    /** [e]'s rows for frame [i], with the year written in for the New Year picture. */
+    private fun rows(e: Entry, i: Int): List<String> {
+        val rows = e.frames[i]
+        if (e.id != NEW_YEAR) return rows
+        val year = newYear().toString().takeLast(4)
+        return rows.mapIndexed { y, r ->
+            if (y !in YEAR_ROW until YEAR_ROW + 7) r
+            else "." + year.map { DIGITS.getValue(it)[y - YEAR_ROW] }.joinToString(".") + "."
+        }
+    }
+
     private fun value(c: Char) = when (c) { '#' -> 255; 'o' -> 150; '+' -> 70; else -> 0 }
 
     /** [rows] centred on the matrix of [p] and clipped to its round mask. */
@@ -104,7 +139,7 @@ internal object GlyphArt {
 
     fun still(id: String, p: DeviceProfile): Frame {
         val e = requireNotNull(byId[id]) { "unknown glyph $id" }
-        return if (e.frames.isNotEmpty()) picture(p, e.frames[0]) else Posters.of(load(e, p))
+        return if (e.frames.isNotEmpty()) picture(p, rows(e, 0)) else Posters.of(load(e, p))
     }
 
     /**
@@ -165,7 +200,7 @@ internal object GlyphArt {
     fun load(e: Entry, p: DeviceProfile): Animation {
         if (e.motion.isNotEmpty()) return Motion.make(p, e.motion)
         val ms = e.durations
-        return Animation(p, e.frames.mapIndexed { i, rows -> AnimFrame(picture(p, rows), ms.getOrElse(i) { ms.lastOrNull() ?: 1000 }) })
+        return Animation(p, e.frames.indices.map { i -> AnimFrame(picture(p, rows(e, i)), ms.getOrElse(i) { ms.lastOrNull() ?: 1000 }) })
     }
 
     /** Motions for still pictures. Arguments name pictures by id, then optional frame times. */

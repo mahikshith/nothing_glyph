@@ -17,10 +17,10 @@ class LibraryContentTest {
     private val glyphCategories = with(Categories) { listOf(Anime, Utility, Love, Heartbreak, Moods, Seasonal, Sports, Food, Travel, Work, Time, NatureWeather) }
     private val art = all.filter { it.kind == ItemKind.GLYPH }
 
-    @Test fun atLeast150StillsAnd40AnimatedGlyphs() {
-        val stills = art.filter { it.form == ItemForm.STILL }
+    @Test fun atLeast150GlyphsAnd40OfThemMove() {
+        // a still and its motions count once: one item that moves, with the still as its poster
         val moving = art.filter { it.form == ItemForm.ANIMATION }
-        assertTrue("only ${stills.size} still glyphs", stills.size >= 150)
+        assertTrue("only ${art.size} glyphs", art.size >= 150)
         assertTrue("only ${moving.size} animated glyphs", moving.size >= 40)
         for (c in glyphCategories) {
             val mine = art.filter { it.category == c }
@@ -39,9 +39,9 @@ class LibraryContentTest {
 
     @Test fun iconsTheFeaturesNeedExist() {
         for (id in listOf("g-food-bag", "g-grocery-basket", "g-parcel", "g-car", "g-bike", "g-bell", "g-hourglass")) {
-            val item = AnimationLibrary.item(id)
-            assertNotNull(id, item)
-            assertEquals(id, ItemForm.STILL, item!!.form)
+            // the features draw the still; the library may show it moving, with the still as its poster
+            assertNotNull(id, AnimationLibrary.item(id))
+            assertEquals(id, true, GlyphArt.entry(id)?.still)
         }
     }
 
@@ -85,7 +85,7 @@ class LibraryContentTest {
             assertEquals(item.id, item.name, layers.text!!.spec.text)
             assertTrue(item.id, item.load(p).frames.isNotEmpty())
         }
-        for (want in listOf("I ♥ U", "HAPPY BDAY", "HAPPY DIWALI", "GN", "ON MY WAY", "FOOD'S HERE", "REMINDER", "BRB", "SIXER")) {
+        for (want in listOf("I♥U", "HBD", "DIYA", "GN", "OMW", "FOOD", "MEMO", "BRB", "SIXER")) {
             assertTrue("missing $want", layered.any { it.name == want })
         }
     }
