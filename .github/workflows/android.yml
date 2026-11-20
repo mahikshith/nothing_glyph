@@ -16,7 +16,8 @@ jobs:
         run: ./scripts/fetch-glyph-sdk.sh
       - uses: gradle/actions/setup-gradle@v4
       - name: Test and assemble
-        run: ./gradlew test assembleDebug
+        # Unit tests run on the debug variant only: the Compose UI tests need the debug-only test manifest.
+        run: ./gradlew :core-device:test :composition:test testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: dotforge-debug-apk
